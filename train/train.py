@@ -16,7 +16,7 @@ sys.path.append(project_root)
 from datasets.dataset import InfillingDataset, infilling_collate_fn, vocab
 from model.transformers import InfillingTransformer
 
-def train_one_epoch(model, dataloader, optimizer, loss_fn, device):
+def train_epoch(model, dataloader, optimizer, loss_fn, device):
     """Performs one full pass over the training set."""
     model.train()  # Set the model to training mode
     total_loss = 0
@@ -127,7 +127,7 @@ def main(args):
     for epoch in range(args.epochs):
         print(f"\n--- Epoch {epoch+1}/{args.epochs} ---")
         
-        train_loss = train_one_epoch(model, train_loader, optimizer, loss_fn, device)
+        train_loss = train_epoch(model, train_loader, optimizer, loss_fn, device)
         val_loss = validate_one_epoch(model, val_loader, loss_fn, device)
         
         print(f"Epoch {epoch+1} Summary: Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
