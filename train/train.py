@@ -152,8 +152,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train a Transformer for CDR-H3 Infilling")
     
     # --- Arguments ---
-    parser.add_argument('--data_file', type=str, default='datasets/data/processed/sabdab_processed_H_chain_infill.pt', help='Path to the processed data file.')
-    parser.add_argument('--output_dir', type=str, default='results/', help='Directory to save training results.')
+    parser.add_argument('--data_file', type=str, default='../datasets/data/processed/sabdab_processed_H_chain_infill.pt', help='Path to the processed data file.')
+    parser.add_argument('--output_dir', type=str, default='../results/', help='Directory to save training results.')
     
     # Training hyperparameters
     parser.add_argument('--epochs', type=int, default=50, help='Number of training epochs.')
