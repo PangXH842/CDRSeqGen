@@ -1,4 +1,5 @@
-datasets/data/
-datasets/20250909_0409239_summary.tsv
+dataset/data/
 *.token
 results/
+old/
+*/old/
