@@ -36,34 +36,67 @@ class AntibodyInfillingDataset(Dataset):
         item = self.data[idx]
         h = item['heavy']
         
-        # Dynamically find where the target is
+        # 1. Define the regions based on target_region
         if self.target_region == "cdr1":
-            fwr_pt1 = h['fwr1']
-            fwr_target = h['cdr1']
-            fwr_pt2 = h['fwr2'] + h['cdr2'] + h['fwr3'] + h['cdr3'] + h['fwr4']
+            pt1_seq = h['fwr1']
+            target_seq = h['cdr1']
+            pt2_seq = h['fwr2'] + h['cdr2'] + h['fwr3'] + h['cdr3'] + h['fwr4']
         elif self.target_region == "cdr2":
-            fwr_pt1 = h['fwr1'] + h['cdr1'] + h['fwr2']
-            fwr_target = h['cdr2']
-            fwr_pt2 = h['fwr3'] + h['cdr3'] + h['fwr4']
+            pt1_seq = h['fwr1'] + h['cdr1'] + h['fwr2']
+            target_seq = h['cdr2']
+            pt2_seq = h['fwr3'] + h['cdr3'] + h['fwr4']
         else: # default to cdr3
-            fwr_pt1 = h['fwr1'] + h['cdr1'] + h['fwr2'] + h['cdr2'] + h['fwr3']
-            fwr_target = h['cdr3']
-            fwr_pt2 = h['fwr4']
+            pt1_seq = h['fwr1'] + h['cdr1'] + h['fwr2'] + h['cdr2'] + h['fwr3']
+            target_seq = h['cdr3']
+            pt2_seq = h['fwr4']
 
-        # Tokenize 
-        pt1_ids = self.tokenizer.encode(fwr_pt1)
-        pt2_ids = self.tokenizer.encode(fwr_pt2)
-        target_ids = self.tokenizer.encode(fwr_target)
+        # 2. Identify Tokenizer Type
+        is_esm = hasattr(self.tokenizer, "mask_token_id")
 
-        # 3. Create Input: We use one MASK per amino acid so the model knows the target length
-        mask_ids = [self.tokenizer.mask_id] * len(target_ids)
+        # 3. Tokenize Parts
+        if is_esm:
+            # ESM (HuggingFace) Logic
+            # We use add_special_tokens=False to prevent CLS/SEP in the middle
+            pt1_ids = self.tokenizer.encode(pt1_seq, add_special_tokens=False)
+            pt2_ids = self.tokenizer.encode(pt2_seq, add_special_tokens=False)
+            target_ids = self.tokenizer.encode(target_seq, add_special_tokens=False)
+            
+            mask_id = self.tokenizer.mask_token_id
+            cls_id = self.tokenizer.cls_token_id
+            eos_id = self.tokenizer.eos_token_id
+            
+            # Construct Input: <cls> pt1 <masks> pt2 <eos>
+            mask_ids = [mask_id] * len(target_ids)
+            input_ids = [cls_id] + pt1_ids + mask_ids + pt2_ids + [eos_id]
+            
+            # Start of the mask is after <cls> (index 1) and pt1
+            mask_start_idx = 1 + len(pt1_ids)
+
+        else:
+            # Custom Scratch Tokenizer Logic
+            pt1_ids = self.tokenizer.encode(pt1_seq)
+            pt2_ids = self.tokenizer.encode(pt2_seq)
+            target_ids = self.tokenizer.encode(target_seq)
+            
+            mask_id = self.tokenizer.mask_id
+            
+            # Construct Input: pt1 <masks> pt2
+            mask_ids = [mask_id] * len(target_ids)
+            input_ids = pt1_ids + mask_ids + pt2_ids
+            
+            # Start of mask is immediately after pt1
+            mask_start_idx = len(pt1_ids)
+
+        # 4. Create Labels (The "Safe" Way)
+        # We create a list of -100 with the EXACT same length as input_ids
+        labels = [-100] * len(input_ids)
         
-        input_ids = pt1_ids + mask_ids + pt2_ids
-        
-        # 4. Create Labels: 
-        # In Masked LM, we usually set labels to -100 for non-masked tokens
-        # PyTorch CrossEntropy ignores -100, so the model only learns the target, eg. H3
-        labels = ([-100] * len(pt1_ids)) + target_ids + ([-100] * len(pt2_ids))
+        # We fill in the target amino acids only at the masked positions
+        for i, t_id in enumerate(target_ids):
+            labels[mask_start_idx + i] = t_id
+
+        # 5. Final Safety Check
+        assert len(input_ids) == len(labels), f"Length Mismatch: {len(input_ids)} vs {len(labels)}"
 
         return {
             "input_ids": torch.tensor(input_ids, dtype=torch.long),

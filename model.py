@@ -83,7 +83,7 @@ def get_model(model_name_or_path, vocab_size=25):
         config = CustomAntibodyConfig(vocab_size=vocab_size)
         return CustomAntibodyModel(config)
     
-    elif "facebook/esm2" in model_name_or_path:
+    elif "/esm2" in model_name_or_path:
         print(f"🧬 Loading Pre-trained ESM-2 Model: {model_name_or_path}")
         # ESM-2 already comes with its own vocab and configuration
         return EsmForMaskedLM.from_pretrained(model_name_or_path)
