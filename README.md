@@ -74,7 +74,7 @@ We use `.json` configuration files to manage hyperparameters cleanly, avoiding t
 ```
 **Run the Trainer:**
 ```bash
-python train.py configs/h3_scratch.json
+CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_scratch.json
 ```
 *Results, logs, and config snapshots are automatically saved to a timestamped folder like `./results/scratch_20260514_153022/`.*
 

@@ -37,17 +37,17 @@ class AntibodyInfillingDataset(Dataset):
         h = item['heavy']
         
         # Dynamically find where the target is
-        if self.target_region == "cdrh1":
+        if self.target_region == "cdr1":
             fwr_pt1 = h['fwr1']
-            fwr_target = h['cdrh1']
-            fwr_pt2 = h['fwr2'] + h['cdrh2'] + h['fwr3'] + h['cdrh3'] + h['fwr4']
-        elif self.target_region == "cdrh2":
+            fwr_target = h['cdr1']
+            fwr_pt2 = h['fwr2'] + h['cdr2'] + h['fwr3'] + h['cdr3'] + h['fwr4']
+        elif self.target_region == "cdr2":
             fwr_pt1 = h['fwr1'] + h['cdr1'] + h['fwr2']
-            fwr_target = h['cdrh2']
-            fwr_pt2 = h['fwr3'] + h['cdrh3'] + h['fwr4']
-        else: # default to cdrh3
+            fwr_target = h['cdr2']
+            fwr_pt2 = h['fwr3'] + h['cdr3'] + h['fwr4']
+        else: # default to cdr3
             fwr_pt1 = h['fwr1'] + h['cdr1'] + h['fwr2'] + h['cdr2'] + h['fwr3']
-            fwr_target = h['cdrh3']
+            fwr_target = h['cdr3']
             fwr_pt2 = h['fwr4']
 
         # Tokenize 
