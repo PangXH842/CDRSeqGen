@@ -15,10 +15,12 @@ Unlike standard text-based string models, this framework treats antibodies as **
 CDRSeqGen/
 ├── configs/                    # JSON config files for training runs
 │   └── h3_scratch.json
-├── data/                       # Ignored in git
-│   ├── raw/                    # Raw .csv.gz from OAS
-│   ├── processed/              # Processed .json biological objects
-|   └── preprocess_paired.py    # Data cleaning and IMGT formatting
+├── dataset/                    
+│   ├── data/                   # Ignored in git
+│   │   ├── raw/                # Raw .csv.gz from OAS
+│   │   └── processed/          # Processed .json biological objects
+│   ├── preprocess_paired.py    # Data cleaning and IMGT formatting
+│   └── README.md               # Dataset-specific documentation
 ├── results/                    # Auto-generated timestamped model checkpoints
 ├── dataset.py                  # Tokenizers, Dataset logic, and Collator
 ├── env.sh                      # One-click environment setup script
