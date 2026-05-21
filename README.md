@@ -14,6 +14,7 @@ Unlike standard text-based string models, this framework treats antibodies as **
 ```text
 CDRSeqGen/
 ├── configs/                    # JSON config files for training runs
+│   ├── h3_esm2.json
 │   └── h3_scratch.json
 ├── dataset/                    
 │   ├── data/                   # Ignored in git
