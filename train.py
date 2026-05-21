@@ -1,6 +1,7 @@
 import os
 import logging
 import sys
+import numpy as np
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Tuple
@@ -12,6 +13,7 @@ from transformers import (
     TrainingArguments,
     Trainer,
     EsmTokenizer,
+    EvalPrediction,
     set_seed
 )
 
@@ -131,6 +133,38 @@ def run_training_pipeline(trainer: Trainer, training_args: TrainingArguments):
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
 
+
+def compute_metrics(eval_pred: EvalPrediction) -> dict:
+    """Calculates sequence recovery rate (accuracy) only on the masked target loop."""
+    predictions, labels = eval_pred
+    
+    # If the model outputs a tuple (logits, hidden_states), extract the logits
+    if isinstance(predictions, tuple):
+        logits = predictions[0]
+    else:
+        logits = predictions
+
+    # Take argmax over the vocab dimension (axis=-1) to get predicted token IDs
+    preds = np.argmax(logits, axis=-1)
+
+    # Create a boolean mask where labels are NOT -100 (i.e., the target loop only)
+    masked_positions = (labels != -100)
+
+    # Check if there are any masked tokens to evaluate (to avoid division by zero)
+    total_masked = masked_positions.sum()
+    if total_masked == 0:
+        return {"accuracy": 0.0}
+
+    # Calculate how many predictions matched the ground-truth target tokens
+    correct_predictions = (preds[masked_positions] == labels[masked_positions]).sum()
+    
+    # Calculate recovery rate / accuracy
+    accuracy = correct_predictions / total_masked
+
+    return {
+        "accuracy": float(accuracy)
+    }
+
 # --- 4. Main Entry Point ---
 
 def main():
@@ -152,6 +186,7 @@ def main():
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         data_collator=collate_fn,
+        compute_metrics=compute_metrics, # added
     )
 
     # 5. Execute
