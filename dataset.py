@@ -4,7 +4,6 @@ import json
 
 class AntibodyTokenizer:
     def __init__(self):
-        # 20 standard Amino Acids + Special Tokens
         self.vocab = [
             "<pad>", "<unk>", "<cls>", "<sep>", "<mask>",
             "A", "C", "D", "E", "F", "G", "H", "I", "K", "L", 

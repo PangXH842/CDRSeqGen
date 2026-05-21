@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from transformers import PreTrainedModel, PretrainedConfig, EsmForMaskedLM, EsmConfig
 
-# --- APPROACH 1: Custom Transformer from Scratch ---
+# --- Custom Transformer from Scratch ---
 
 class CustomAntibodyConfig(PretrainedConfig):
     model_type = "custom_antibody_transformer"
@@ -54,17 +54,14 @@ class CustomAntibodyModel(PreTrainedModel):
             module.weight.data.normal_(mean=0.0, std=0.02)
 
     def forward(self, input_ids, attention_mask=None, labels=None):
-        # 1. Embeddings
         x = self.embedding(input_ids)
         x = x + self.pos_embedding[:, :x.size(1), :]
         
-        # 2. Transformer (We ignore attention_mask for this simple baseline, but you can add it)
+        # Transformer (We ignore attention_mask for this simple baseline, but you can add it)
         x = self.transformer(x)
         
-        # 3. Output Logits
         logits = self.lm_head(x)
         
-        # 4. Standard HuggingFace output format
         loss = None
         if labels is not None:
             loss_fct = nn.CrossEntropyLoss() # ignore_index=-100 is default
@@ -85,7 +82,6 @@ def get_model(model_name_or_path, vocab_size=25):
     
     elif "/esm2" in model_name_or_path:
         print(f"🧬 Loading Pre-trained ESM-2 Model: {model_name_or_path}")
-        # ESM-2 already comes with its own vocab and configuration
         return EsmForMaskedLM.from_pretrained(model_name_or_path)
     
     else:

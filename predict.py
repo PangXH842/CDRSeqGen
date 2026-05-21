@@ -5,12 +5,11 @@ from dataset import AntibodyTokenizer
 from model import CustomAntibodyModel
 
 def generate_sequence(model_path, model_type, pt1, pt2, target_length):
-    # 1. Load the correct Tokenizer
+    # 1. Load Tokenizer
     if model_type == "scratch":
         tokenizer = AntibodyTokenizer()
         mask_id = tokenizer.mask_id
     else:
-        # Load the ESM tokenizer
         tokenizer = EsmTokenizer.from_pretrained(model_type)
         mask_id = tokenizer.mask_token_id
 
@@ -25,7 +24,7 @@ def generate_sequence(model_path, model_type, pt1, pt2, target_length):
         model = EsmForMaskedLM.from_pretrained(model_path)
         
     model.to(device)
-    model.eval() # Set to evaluation mode
+    model.eval() 
 
     # 3. Prepare the Input Sequence
     # We use add_special_tokens=False to prevent <cls>/<sep> tokens from breaking the middle of the sequence
@@ -36,10 +35,7 @@ def generate_sequence(model_path, model_type, pt1, pt2, target_length):
         pt1_ids = tokenizer.encode(pt1, add_special_tokens=False)
         pt2_ids = tokenizer.encode(pt2, add_special_tokens=False)
 
-    # Create the masked middle section
     mask_ids = [mask_id] * target_length
-    
-    # Combine: pt1 + [MASK]*N + pt2
     input_ids = pt1_ids + mask_ids + pt2_ids
     
     # Convert to PyTorch Tensor and add batch dimension (1, SequenceLength)
@@ -76,7 +72,7 @@ def generate_sequence(model_path, model_type, pt1, pt2, target_length):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Universal Loop Infiller for Antibodies")
     parser.add_argument("--model_path", type=str, required=True, help="Path to your trained model folder")
-    parser.add_argument("--model_type", type=str, default="scratch", choices=["scratch", "facebook/esm2_t6_8M_UR50D"])
+    parser.add_argument("--model_type", type=str, default="scratch", help="Type of model: 'scratch' for custom or Hugging Face model name (e.g., 'nvidia/esm2_t12_35M_UR50D')")
     
     # Generic part 1 and part 2 arguments
     parser.add_argument("--pt1", type=str, default="EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYWMSWVRQAPGKGLEWVANIKQDGSEKYYVDSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYCAR", help="Sequence BEFORE the missing loop")
