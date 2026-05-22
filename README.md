@@ -1,6 +1,6 @@
-# CDRSeqGen: Modular Antibody Infilling Framework
+# 🧬 CDRSeqGen: Modular Antibody Infilling Framework
 
-**Date Updated:** 20260514 
+**Date Updated:** May 22, 2026  
 
 ## 📌 Project Overview
 CDRSeqGen is a computational immunology framework designed to predict antibody loop sequences (starting with **CDR-H3**) given the surrounding framework context. 
@@ -45,7 +45,6 @@ This project uses Conda for strict CUDA handling and pip for Hugging Face tools.
    ```bash
    conda activate cdrprj
    ```
-*(Note: If you encounter the `iJIT_NotifyEvent` error on Linux, run `conda install "mkl<2024.1" -c conda-forge -y` to fix the PyTorch CPU backend bug).*
 
 ---
 
@@ -60,37 +59,38 @@ python preprocess_paired.py \
 ```
 
 ### Step 2: Training
-We use `.json` configuration files to manage hyperparameters cleanly, avoiding terminal command clutter. 
+We use `.json` configuration files to manage hyperparameters cleanly. The trainer automatically calculates **Sequence Recovery Rate** (Per-Residue Accuracy) on the masked loop at the end of every epoch.
 
-**Create a config file (e.g., `configs/h3_scratch.json`):**
-```json
-{
-    "model_type": "scratch",
-    "data_path": "data/processed/processed_paired_data.json",
-    "output_dir": "./results",
-    "do_train": true,
-    "do_eval": true,
-    "per_device_train_batch_size": 32,
-    "learning_rate": 1e-4,
-    "num_train_epochs": 10
-}
-```
 **Run the Trainer:**
 ```bash
-CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_scratch.json
+python train.py configs/h3_scratch.json
 ```
-*Results, logs, and config snapshots are automatically saved to a timestamped folder like `./results/scratch_20260514_153022/`.*
+*(Tip: Use `CUDA_VISIBLE_DEVICES=0` before the command to specify a target GPU).*
 
-### Step 3: Inference (Prediction)
-Generate a loop sequence for a given framework. The model acts as a "Design Tool" where you specify the desired length of the gap to fill.
+### Step 3: Batch Inference & Evaluation
+Evaluate your trained model on a library of specific antibody frameworks using JSON test files. The model acts as a "Design Tool," filling the gap and comparing it to the ground truth (if provided).
 
+**Run Batch Inference:**
 ```bash
 python predict.py \
     --model_type scratch \
-    --model_path ./results/scratch_20260514_153022/checkpoint-500 \
-    --target_length 15 \
-    --pt1 "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYWMSWVRQAPGKGLEWVANIKQDGSEKYYVDSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYCAR" \
-    --pt2 "WGQGTTVTVSS"
+    --model_path ./results/latest \
+    --test_file test_cases/sample_h3.json
+```
+
+**Example Output:**
+```text
+=================================================================
+🧪 Test Case:             Jaffe_2022_Donor4 (Easy)
+🔹 Context (Left / pt1):  EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYWMSWVRQAP...
+🔹 Context (Right / pt2): WGQGTTVTVSS
+🔹 Target Gap Length:     17
+-----------------------------------------------------------------
+✨ Predicted Infill:      E R W G V H S S S Y Y R H G M D V
+🍀 Ground Truth:          E R W G I H S S S W Y R H G M D V
+🎯 Alignment Map:         | | | | . | | | | . | | | | | | |
+📈 Sequence Recovery:     88.2%
+=================================================================
 ```
 
 ---
@@ -99,20 +99,13 @@ python predict.py \
 
 ### 1. Task-Agnostic Masking (The "LEGO" Principle)
 The `AntibodyInfillingDataset` separates sequences into `pt1` (left anchor), `mask` (target gap), and `pt2` (right anchor). 
-*   **Why?** This ensures 100% mathematical alignment of the `-100` CrossEntropy labels. It also means transitioning from predicting `CDR-H3` to `CDR-H1` only requires changing 3 lines of variable assignment, leaving the core tokenization engine untouched.
+*   **Why?** This ensures perfect mathematical alignment of the `-100` CrossEntropy labels. Transitioning from predicting `CDR-H3` to `CDR-H1` requires changing only 3 lines of variable assignment, leaving the core tokenization engine untouched.
 
-### 2. Unified HF Model Interface
+### 2. Universal Model Interface
 The `model.py` factory outputs Hugging Face `PreTrainedModel` objects. 
-*   **Why?** The exact same `train.py` loop can train a 4-layer custom Transformer from scratch OR fine-tune Meta's 650-parameter `ESM-2` just by changing the `"model_type"` string in the config file.
+*   **Why?** The exact same `train.py` loop can train a custom Transformer from scratch OR fine-tune Meta's 650M parameter `ESM-2` just by changing the `"model_type"` string in the config file. Special tokens (`<cls>`, `<eos>`) are strictly managed based on the active tokenizer.
 
-### 3. Length-Conditioned Generation
-During Phase 1, the model does not guess the length. We pass `[MASK] * target_len`. 
-*   **Why?** In therapeutic design, loop length is often a known prerequisite constraint based on the epitope pocket. Passing the length provides a rigid spatial anchor connecting FW3 and FW4.
+### 3. Length-Conditioned Constraint Decoding
+During inference, the model is told the gap size (`[MASK] * target_len`). The inference script dynamically applies logit constraints (`-inf`) to special tokens to force biologically valid amino acid generation, preventing early-training hallucination.
 
 ---
-
-## ⏭️ Future Roadmap
-- [ ] **Phase 1.5:** Length-Discovery mode (using `<EOS>` tokens to let the model guess optimal loop length).
-- [ ] **Phase 2:** Inject Light Chain (`pt1` expanded to include V_L) for paired structural context.
-- [ ] **Phase 3:** SAbDab Integration for **Antigen-Aware** conditional generation via cross-attention.
-- [ ] **Phase 4:** 3D coordinate injection utilizing the preserved IMGT numbering dictionaries.
