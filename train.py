@@ -48,16 +48,25 @@ class ModelArguments:
 class DataArguments:
     """Arguments pertaining to what data we are going to input."""
     data_path: str = field(
-        default="data/processed/processed_paired_data.json",
+        default="dataset/data/processed/processed_paired_data.json",
         metadata={"help": "The path to the processed JSON data file."}
     )
     max_len: int = field(
-        default=128,
+        default=256, # Increased from 128 to fit both chains!
         metadata={"help": "Maximum sequence length for tokenization."}
     )
     test_size: float = field(
         default=0.1,
         metadata={"help": "Fraction of data to use for validation."}
+    )
+    # --- NEW TOGGLES ---
+    target_region: str = field(
+        default="cdr3", 
+        metadata={"help": "Which loop to mask (cdr1, cdr2, cdr3)"}
+    )
+    include_light_chain: bool = field(
+        default=False, 
+        metadata={"help": "Whether to prepend the paired light chain as context."}
     )
 
 # --- 1. Argument Parser Function ---
@@ -100,7 +109,9 @@ def get_datasets(model_args, data_args, training_args) -> Tuple[torch.utils.data
     full_dataset = AntibodyInfillingDataset(
         data_args.data_path, 
         tokenizer, 
-        max_len=data_args.max_len
+        max_len=data_args.max_len,
+        target_region=data_args.target_region,            # <--- Add this
+        include_light_chain=data_args.include_light_chain # <--- Add this
     )
     
     # Split

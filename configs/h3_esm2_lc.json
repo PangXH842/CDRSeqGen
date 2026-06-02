@@ -1,0 +1,11 @@
+{
+    "model_type": "facebook/esm2_t12_35M_UR50D",
+    "target_region": "cdr3",
+    "include_light_chain": true,
+    "output_dir": "./results",
+    "do_train": true,
+    "do_eval": true,
+    "per_device_train_batch_size": 16,
+    "learning_rate": 5e-5,
+    "num_train_epochs": 5
+}

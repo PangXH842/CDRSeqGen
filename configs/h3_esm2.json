@@ -1,5 +1,5 @@
 {
-    "model_type": "nvidia/esm2_t12_35M_UR50D",
+    "model_type": "facebook/esm2_t12_35M_UR50D",
     "hidden_size": 128,
     "num_layers": 4,
     "data_path": "dataset/data/processed/processed_paired_data.json",
