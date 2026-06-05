@@ -1,14 +1,20 @@
 [
     {
-        "name": "Jaffe_2022_Donor4",
+        "name": "Jaffe_2022_Donor4_H3 (Known Ground Truth)",
         "pt1": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYWMSWVRQAPGKGLEWVANIKQDGSEKYYVDSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYCAR",
         "pt2": "WGQGTTVTVSS",
         "target_seq": "ERWGIHSSSWYRHGMDV"
     },
     {
-        "name": "Short_Loop_Test (No Ground Truth)",
+        "name": "Novel_Design_Short_H3 (No Ground Truth)",
         "pt1": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAVIWYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAR",
         "pt2": "WGQGTLVTVSS",
         "target_length": 10
+    },
+    {
+        "name": "Viral_Binder_Long_H3 (Length 22)",
+        "pt1": "EVQLVESGGGLVQPGGSLRLSCAASGFTVSSNYMSWVRQAPGKGLEWVSVIYSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAR",
+        "pt2": "WGQGTLVTVSS",
+        "target_length": 22
     }
 ]

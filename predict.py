@@ -129,7 +129,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_type", type=str, default="scratch", help="Type of model: 'scratch' for custom transformer, or specify ESM-2 model name (eg. 'nvidia/esm2_t12_35M_UR50D')")
     
     # NEW: Accept a JSON file of test cases
-    parser.add_argument("--test_file", type=str, default="test/test.json", help="Path to a JSON file containing test sequences")
+    parser.add_argument("--test_file", type=str, required=True, help="Path to a JSON file containing test sequences")
     
     # Fallback CLI arguments for quick single tests
     parser.add_argument("--pt1", type=str, default="", help="Sequence BEFORE the missing loop")

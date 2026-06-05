@@ -71,19 +71,34 @@ class DataArguments:
 
 # --- 1. Argument Parser Function ---
 
-def setup_args() -> Tuple[any, any, TrainingArguments]:
+def setup_args() -> Tuple[ModelArguments, DataArguments, TrainingArguments]:
     """Parses CLI arguments and sets up the timestamped output directory."""
     parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     
-    # Check if a JSON file was passed for arguments (useful for reproducibility and logging)
-    if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
+    if len(sys.argv) >= 2 and sys.argv[1].endswith(".json"):
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+        if len(sys.argv) > 2:
+            remaining_args = sys.argv[2:]
+            model_args, data_args, training_args = parser.parse_args_into_dataclasses(args=remaining_args)
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
-    # Create timestamped workspace
+    # --- UPDATED: Descriptive, Time-Sorted Directory Naming ---
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_name = f"{model_args.model_type.split('/')[-1]}_{timestamp}"
+    
+    # 1. Get the target loop (e.g., cdr1, cdr3)
+    target_loop = data_args.target_region
+    
+    # 2. Check if Light Chain context is enabled
+    lc_tag = "_LC" if getattr(data_args, 'include_light_chain', False) else ""
+    
+    # 3. Get the short model name (e.g., 'scratch' or 'esm2_t12_35M_UR50D')
+    model_short = model_args.model_type.split('/')[-1]
+    
+    # Combine: [DATETIME]_[LOOP][LC_TAG]_[MODEL]
+    # Example: 20260605_175022_cdr3_LC_esm2_t12_35M_UR50D
+    run_name = f"{timestamp}_{target_loop}{lc_tag}_{model_short}"
+    # ---------------------------------------------------------
     
     # Update paths
     training_args.output_dir = os.path.join("./results", run_name)
