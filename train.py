@@ -2,6 +2,8 @@ import os
 import logging
 import sys
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Tuple
@@ -59,7 +61,6 @@ class DataArguments:
         default=0.1,
         metadata={"help": "Fraction of data to use for validation."}
     )
-    # --- NEW TOGGLES ---
     target_region: str = field(
         default="cdr3", 
         metadata={"help": "Which loop to mask (cdr1, cdr2, cdr3)"}
@@ -69,7 +70,6 @@ class DataArguments:
         metadata={"help": "Whether to prepend the paired light chain as context."}
     )
 
-# --- 1. Argument Parser Function ---
 
 def setup_args() -> Tuple[ModelArguments, DataArguments, TrainingArguments]:
     """Parses CLI arguments and sets up the timestamped output directory."""
@@ -110,7 +110,6 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, TrainingArguments]:
     
     return model_args, data_args, training_args
 
-# --- 2. Data Preparation Function ---
 
 def get_datasets(model_args, data_args, training_args) -> Tuple[torch.utils.data.Dataset, torch.utils.data.Dataset, any]:
     """Handles tokenizer selection, dataset loading, and splitting."""
@@ -125,8 +124,8 @@ def get_datasets(model_args, data_args, training_args) -> Tuple[torch.utils.data
         data_args.data_path, 
         tokenizer, 
         max_len=data_args.max_len,
-        target_region=data_args.target_region,            # <--- Add this
-        include_light_chain=data_args.include_light_chain # <--- Add this
+        target_region=data_args.target_region,            
+        include_light_chain=data_args.include_light_chain 
     )
     
     # Split
@@ -142,7 +141,50 @@ def get_datasets(model_args, data_args, training_args) -> Tuple[torch.utils.data
     logger.info(f"📊 Data loaded: {len(train_ds)} train, {len(eval_ds)} eval.")
     return train_ds, eval_ds, tokenizer
 
-# --- 3. Training/Execution Function ---
+
+def save_training_curves(trainer, output_dir):
+    """Extracts eval metrics, saves them to a CSV, and plots PNG graphs."""
+    history = trainer.state.log_history
+    
+    # Filter only the logs that contain evaluation metrics
+    eval_logs = [log for log in history if 'eval_loss' in log]
+    
+    if not eval_logs:
+        logger.warning("No evaluation logs found to plot.")
+        return
+
+    epochs = [log['epoch'] for log in eval_logs]
+    eval_loss = [log['eval_loss'] for log in eval_logs]
+    eval_acc = [log.get('eval_accuracy', 0.0) for log in eval_logs]
+
+    # 1. Save data to a CSV for easy multi-line plotting later
+    df = pd.DataFrame({"epoch": epochs, "eval_loss": eval_loss, "eval_accuracy": eval_acc})
+    csv_path = os.path.join(output_dir, "epoch_metrics.csv")
+    df.to_csv(csv_path, index=False)
+    
+    # 2. Plot and save Evaluation Loss
+    plt.figure(figsize=(8, 5))
+    plt.plot(epochs, eval_loss, marker='o', color='blue', linewidth=2)
+    plt.title('Evaluation Loss Over Epochs', fontsize=14)
+    plt.xlabel('Epoch', fontsize=12)
+    plt.ylabel('Loss', fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.savefig(os.path.join(output_dir, "eval_loss_curve.png"), bbox_inches='tight', dpi=300)
+    plt.close()
+
+    # 3. Plot and save Sequence Recovery (Accuracy)
+    if any(eval_acc):
+        plt.figure(figsize=(8, 5))
+        plt.plot(epochs, eval_acc, marker='o', color='green', linewidth=2)
+        plt.title('Sequence Recovery (Accuracy)', fontsize=14)
+        plt.xlabel('Epoch', fontsize=12)
+        plt.ylabel('Accuracy', fontsize=12)
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.savefig(os.path.join(output_dir, "eval_accuracy_curve.png"), bbox_inches='tight', dpi=300)
+        plt.close()
+
+    logger.info(f"📊 Training curves and CSV successfully saved to {output_dir}")
+
 
 def run_training_pipeline(trainer: Trainer, training_args: TrainingArguments):
     """Executes the train and eval loops based on the provided flags."""
@@ -158,7 +200,8 @@ def run_training_pipeline(trainer: Trainer, training_args: TrainingArguments):
         metrics = trainer.evaluate()
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
-
+        
+    save_training_curves(trainer, training_args.output_dir)
 
 def compute_metrics(eval_pred: EvalPrediction) -> dict:
     """Calculates sequence recovery rate (accuracy) only on the masked target loop."""
@@ -191,31 +234,25 @@ def compute_metrics(eval_pred: EvalPrediction) -> dict:
         "accuracy": float(accuracy)
     }
 
-# --- 4. Main Entry Point ---
 
 def main():
-    # 1. Setup
     model_args, data_args, training_args = setup_args()
     set_seed(training_args.seed)
 
-    # 2. Data
     train_dataset, eval_dataset, tokenizer = get_datasets(model_args, data_args, training_args)
     
-    # 3. Model
     vocab_size = len(tokenizer.vocab) if hasattr(tokenizer, "vocab") else tokenizer.vocab_size
     model = get_model(model_args.model_type, vocab_size=vocab_size)
 
-    # 4. Trainer
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         data_collator=collate_fn,
-        compute_metrics=compute_metrics, # added
+        compute_metrics=compute_metrics,
     )
 
-    # 5. Execute
     run_training_pipeline(trainer, training_args)
 
 if __name__ == "__main__":
