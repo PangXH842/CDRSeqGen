@@ -21,23 +21,16 @@ class AntibodyTokenizer:
         return "".join([self.id_to_tok.get(i, "?") for i in ids])
 
 class AntibodyInfillingDataset(Dataset):
-    def __init__(self, json_path, tokenizer, target_region="cdrh3", max_len=128):
-        with open(json_path, 'r') as f:
-            self.data = json.load(f)
-        self.tokenizer = tokenizer
-        self.max_len = max_len
-        self.target_region = target_region
-
-    def __len__(self):
-        return len(self.data)
-
     def __init__(self, json_path, tokenizer, max_len=256, target_region="cdr3", include_light_chain=False):
         with open(json_path, 'r') as f:
             self.data = json.load(f)
         self.tokenizer = tokenizer
         self.max_len = max_len
         self.target_region = target_region
-        self.include_light_chain = include_light_chain # <--- Save the toggle
+        self.include_light_chain = include_light_chain
+
+    def __len__(self):
+        return len(self.data)
 
     def __getitem__(self, idx):
         item = self.data[idx]

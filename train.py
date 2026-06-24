@@ -3,7 +3,6 @@ import logging
 import sys
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Tuple
@@ -20,7 +19,8 @@ from transformers import (
 )
 
 from dataset import AntibodyTokenizer, AntibodyInfillingDataset, collate_fn
-from model import get_model, CustomAntibodyConfig, CustomAntibodyModel
+from model import get_model
+from linegraph_plotter import plot_linegraph
 
 # Setup Logging
 logging.basicConfig(
@@ -83,22 +83,15 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, TrainingArguments]:
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
-    # --- UPDATED: Descriptive, Time-Sorted Directory Naming ---
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    # 1. Get the target loop (e.g., cdr1, cdr3)
     target_loop = data_args.target_region
-    
-    # 2. Check if Light Chain context is enabled
     lc_tag = "_LC" if getattr(data_args, 'include_light_chain', False) else ""
-    
-    # 3. Get the short model name (e.g., 'scratch' or 'esm2_t12_35M_UR50D')
     model_short = model_args.model_type.split('/')[-1]
     
     # Combine: [DATETIME]_[LOOP][LC_TAG]_[MODEL]
     # Example: 20260605_175022_cdr3_LC_esm2_t12_35M_UR50D
     run_name = f"{timestamp}_{target_loop}{lc_tag}_{model_short}"
-    # ---------------------------------------------------------
     
     # Update paths
     training_args.output_dir = os.path.join("./results", run_name)
@@ -142,8 +135,8 @@ def get_datasets(model_args, data_args, training_args) -> Tuple[torch.utils.data
     return train_ds, eval_ds, tokenizer
 
 
-def save_training_curves(trainer, output_dir):
-    """Extracts eval metrics, saves them to a CSV, and plots PNG graphs."""
+def save_training_csv(trainer, output_dir):
+    """Extracts eval metrics, and saves them to a CSV."""
     history = trainer.state.log_history
     
     # Filter only the logs that contain evaluation metrics
@@ -152,38 +145,51 @@ def save_training_curves(trainer, output_dir):
     if not eval_logs:
         logger.warning("No evaluation logs found to plot.")
         return
+    
+    # Deduplicate Epochs to prevent post-training evaluation artifacts 
+    seen_epochs = set()
+    unique_eval_logs = []
+    for log in eval_logs:
+        rounded_epoch = round(log['epoch'], 4)
+        if rounded_epoch not in seen_epochs:
+            seen_epochs.add(rounded_epoch)
+            unique_eval_logs.append(log)
 
-    epochs = [log['epoch'] for log in eval_logs]
-    eval_loss = [log['eval_loss'] for log in eval_logs]
-    eval_acc = [log.get('eval_accuracy', 0.0) for log in eval_logs]
+    # ---> FIXED: Now extracting from unique_eval_logs! <---
+    epochs = [log['epoch'] for log in unique_eval_logs]
+    eval_loss = [log['eval_loss'] for log in unique_eval_logs]
+    eval_acc = [log.get('eval_accuracy', 0.0) for log in unique_eval_logs]
 
-    # 1. Save data to a CSV for easy multi-line plotting later
+    # Save data to a CSV for easy multi-line plotting later
     df = pd.DataFrame({"epoch": epochs, "eval_loss": eval_loss, "eval_accuracy": eval_acc})
     csv_path = os.path.join(output_dir, "epoch_metrics.csv")
     df.to_csv(csv_path, index=False)
+
+    logger.info(f"📈 Evaluation metrics saved to CSV at: {csv_path}")
+
+
+def plot_training_curves(output_dir):
+    """Uses the generic linegraph tool to plot the current run's CSV."""
+    # We wrap the current run directory in a dictionary so plot_linegraph can read it
+    current_run_dict = {"Current Run": output_dir}
     
-    # 2. Plot and save Evaluation Loss
-    plt.figure(figsize=(8, 5))
-    plt.plot(epochs, eval_loss, marker='o', color='blue', linewidth=2)
-    plt.title('Evaluation Loss Over Epochs', fontsize=14)
-    plt.xlabel('Epoch', fontsize=12)
-    plt.ylabel('Loss', fontsize=12)
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.savefig(os.path.join(output_dir, "eval_loss_curve.png"), bbox_inches='tight', dpi=300)
-    plt.close()
-
-    # 3. Plot and save Sequence Recovery (Accuracy)
-    if any(eval_acc):
-        plt.figure(figsize=(8, 5))
-        plt.plot(epochs, eval_acc, marker='o', color='green', linewidth=2)
-        plt.title('Sequence Recovery (Accuracy)', fontsize=14)
-        plt.xlabel('Epoch', fontsize=12)
-        plt.ylabel('Accuracy', fontsize=12)
-        plt.grid(True, linestyle='--', alpha=0.7)
-        plt.savefig(os.path.join(output_dir, "eval_accuracy_curve.png"), bbox_inches='tight', dpi=300)
-        plt.close()
-
-    logger.info(f"📊 Training curves and CSV successfully saved to {output_dir}")
+    # Plot Loss (Saves to output_dir/eval_loss_curve.png)
+    plot_linegraph(
+        runs_dict=current_run_dict, 
+        metric="eval_loss", 
+        title="Evaluation Loss",
+        save_dir=output_dir
+    )
+    
+    # Plot Accuracy (Saves to output_dir/eval_accuracy_curve.png)
+    plot_linegraph(
+        runs_dict=current_run_dict, 
+        metric="eval_accuracy", 
+        title="Sequence Recovery (Accuracy)",
+        save_dir=output_dir
+    )
+    
+    logger.info(f"📊 Training curves successfully saved to {output_dir}")
 
 
 def run_training_pipeline(trainer: Trainer, training_args: TrainingArguments):
@@ -201,7 +207,8 @@ def run_training_pipeline(trainer: Trainer, training_args: TrainingArguments):
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
         
-    save_training_curves(trainer, training_args.output_dir)
+    save_training_csv(trainer, training_args.output_dir)
+    plot_training_curves(training_args.output_dir)
 
 def compute_metrics(eval_pred: EvalPrediction) -> dict:
     """Calculates sequence recovery rate (accuracy) only on the masked target loop."""

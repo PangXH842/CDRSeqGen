@@ -13,9 +13,19 @@ echo "🎯 Target GPU: $GPU_ID"
 echo "=========================================================="
 
 # Define the matrix of experiments
+# Full 3 (loop) x 2 (model) x 2 (light-chain) factorial.
+# Scratch runs first (cheap/fast) so a bug surfaces before burning time on ESM-2.
 CONFIGS=(
     "configs/h1_scratch.json"
+    "configs/h1_scratch_lc.json"
+    "configs/h2_scratch.json"
+    "configs/h2_scratch_lc.json"
     "configs/h3_scratch.json"
+    "configs/h3_scratch_lc.json"
+    "configs/h1_esm2.json"
+    "configs/h1_esm2_lc.json"
+    "configs/h2_esm2.json"
+    "configs/h2_esm2_lc.json"
     "configs/h3_esm2.json"
     "configs/h3_esm2_lc.json"
 )
