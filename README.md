@@ -1,7 +1,7 @@
 # 🧬 CDRSeqGen: Modular Antibody Infilling Framework
 
-**Date Updated:** June 24, 2026  
-**Status:** Phase 2 (Multi-Loop & Paired Chain Expansion)
+**Date Updated:** June 25, 2026  
+**Status:** Custom Transformer + ESM-2 + CDR H1-H3 Infilling + Light Chain Context
 
 ## 📌 Project Overview
 CDRSeqGen is a computational immunology framework designed to predict antibody loop sequences given the surrounding framework context. 
@@ -125,7 +125,7 @@ Biologically, Heavy and Light chains physically interact. The framework dynamica
 |---|---|---|---|---|---|---|
 | Accuracy | 100% | 89% | 35% | 21% | 20% | 14% |
 
-Verified full-matrix final-epoch numbers (real, not the misread chart from earlier): **H1/H2 are easy for every model/config combo (97-99.6%)**; **H3 is hard for every combo (~44-46%), with ESM-2 giving essentially zero benefit over the scratch model**, and light-chain context slightly *hurting* H3 rather than helping. Before drawing conclusions from any CDR3 run, report position-stratified or anchor-excluded recovery, not the raw average.
+Verified full-matrix final-epoch numbers: **H1/H2 are easy for every model/config combo (97-99.6%)**; **H3 is hard for every combo (~44-46%), with ESM-2 giving essentially zero benefit over the scratch model**, and light-chain context slightly *hurting* H3 rather than helping. Before drawing conclusions from any CDR3 run, report position-stratified or anchor-excluded recovery, not the raw average.
 
 **Two latent bugs found, not yet fixed:**
 - `predict.py`'s `generate_sequence()` builds ESM-2 inputs as `pt1 + mask + pt2`, omitting the `<cls>`/`<eos>` tokens that `dataset.py`'s training-time construction (`[cls] + pt1 + mask + pt2 + [eos]`) includes. Causes a train/inference mismatch for `predict.py` specifically.
