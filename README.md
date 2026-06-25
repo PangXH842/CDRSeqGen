@@ -117,7 +117,34 @@ Biologically, Heavy and Light chains physically interact. The framework dynamica
 
 ---
 
-## ⏭️ Future Roadmap (Phase 3 & 4)
+## ⚠️ Known Issues & Evaluation Caveats (as of June 25, 2026)
+
+**`eval_accuracy` is inflated for CDR3 by anchor residues.** The metric averages per-residue accuracy over the *entire* masked span, but the 2-3 residues at each end of CDR-H3 (adjacent to the FWR3/FWR4 junction) are largely determined by V/J-gene identity and are predicted with 78-100% accuracy regardless of model. The truly hypervariable middle of the loop — the part actually being "designed" — sits at only 13-35% accuracy. Position-resolved analysis on the `h3_esm2` run:
+
+| Position from start | 0 | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|---|
+| Accuracy | 100% | 89% | 35% | 21% | 20% | 14% |
+
+Verified full-matrix final-epoch numbers (real, not the misread chart from earlier): **H1/H2 are easy for every model/config combo (97-99.6%)**; **H3 is hard for every combo (~44-46%), with ESM-2 giving essentially zero benefit over the scratch model**, and light-chain context slightly *hurting* H3 rather than helping. Before drawing conclusions from any CDR3 run, report position-stratified or anchor-excluded recovery, not the raw average.
+
+**Two latent bugs found, not yet fixed:**
+- `predict.py`'s `generate_sequence()` builds ESM-2 inputs as `pt1 + mask + pt2`, omitting the `<cls>`/`<eos>` tokens that `dataset.py`'s training-time construction (`[cls] + pt1 + mask + pt2 + [eos]`) includes. Causes a train/inference mismatch for `predict.py` specifically.
+- `collate_fn` pads `input_ids` with a hardcoded `0`. For ESM-2's tokenizer, `0` is also the `<cls>` token id, so the legitimate leading `<cls>` token gets zeroed out of `attention_mask` for every example. Should pad with `tokenizer.pad_token_id` instead.
+
+---
+
+## ⏭️ Roadmap
+
+**Near-term:**
+- [ ] Add a position-stratified / anchor-excluded accuracy metric alongside the current average.
+- [ ] Fix the two latent bugs above.
+- [ ] Add **AbLang** as a `model_type` backbone (BERT-style, drops into the existing factory like ESM-2 does).
+
+**Mid-term:**
+- [ ] Antigen sequence-context conditioning (same pattern as light-chain injection — SAbDab antigen sequences).
+- [ ] Add **IgLM** as a baseline — it's the field-standard comparison for this exact framework-conditioned CDR-infilling task, but it's GPT-2/autoregressive, so it needs its own generation/scoring path rather than a drop-in `model_type`.
+
+**Long-term:**
 - [ ] **Data Expansion:** Scale OAS processing to 1M+ sequences with aggressive CD-HIT deduplication.
-- [ ] **Phase 3:** SAbDab Integration for **Antigen-Aware** conditional generation via cross-attention.
-- [ ] **Phase 4:** 3D coordinate injection utilizing the preserved IMGT numbering dictionaries.
+- [ ] Structural features via IgFold/ABlooper-derived CDR coordinates as additional conditioning input.
+- [ ] **Antigen-Aware structure-conditioned generation**, informed by reference implementations (dyMEAN, DiffAb) rather than building equivariant/diffusion machinery from scratch.
