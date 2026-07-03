@@ -39,24 +39,39 @@ def is_protein_antigen(agtypes):
     return all(t in PROTEIN_AG_TYPES for t in agtypes.split("/"))
 
 
+def valid_regions(region_dict):
+    """Every CDR (any of which can be the masked target) must be non-empty."""
+    return all(region_dict.get(cdr) for cdr in ("cdr1", "cdr2", "cdr3"))
+
+
 def preprocess_sabdab2(csv_path, limit=None):
     df = pd.read_csv(csv_path, low_memory=False)
+    n_raw = len(df)
 
     # Paired heavy+light structures with a resolved protein/peptide antigen only.
     df = df[df["type"].isin(PAIRED_TYPES)]
+    n_paired = len(df)
     df = df[df["agtypes"].apply(is_protein_antigen)]
+    n_protein_ag = len(df)
     df = df[df["agresolvedseqs"].notna() & (df["agresolvedseqs"].astype(str).str.len() > 0)]
+    n_resolved = len(df)
 
     if limit:
         df = df.head(limit)
 
     processed_data = []
+    skipped = {"numbering": 0, "regions": 0}
     for _, row in tqdm(df.iterrows(), total=len(df)):
         try:
             heavy_regions = split_imgt_regions(row["VH_numbering_list"])
             light_regions = split_imgt_regions(row["VL_numbering_list"])
         except (ValueError, TypeError):
-            continue  # Skip if numbering is malformed
+            skipped["numbering"] += 1
+            continue
+
+        if not (valid_regions(heavy_regions) and valid_regions(light_regions)):
+            skipped["regions"] += 1
+            continue
 
         # Multiple antigen chains are '/'-joined by SAbDab2; the amino-acid tokenizer has no
         # representation for '/', so use 'X' (the standard "unknown residue" convention) as a
@@ -84,6 +99,9 @@ def preprocess_sabdab2(csv_path, limit=None):
         }
         processed_data.append(entry)
 
+    print(f"Rows: {n_raw} raw -> {n_paired} paired-chain -> {n_protein_ag} protein/peptide-antigen "
+          f"-> {n_resolved} with resolved antigen seq -> {len(processed_data)} kept "
+          f"(skipped {skipped['numbering']} malformed-numbering, {skipped['regions']} missing/empty regions).")
     return processed_data
 
 
@@ -102,4 +120,4 @@ if __name__ == "__main__":
     with open(args.output_file, "w") as f:
         json.dump(data, f)
 
-    print(f"Successfully processed {len(data)} paired antibody-antigen structures.")
+    print(f"Wrote {len(data)} entries to {args.output_file}")

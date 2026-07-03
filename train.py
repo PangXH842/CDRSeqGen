@@ -14,13 +14,12 @@ from transformers import (
     HfArgumentParser,
     TrainingArguments,
     Trainer,
-    EsmTokenizer,
     EvalPrediction,
     set_seed
 )
 
-from dataset import AntibodyTokenizer, AntibodyInfillingDataset, collate_fn
-from model import get_model
+from dataset import AntibodyInfillingDataset, collate_fn
+from backbones import resolve
 from linegraph_plotter import plot_linegraph
 
 # Setup Logging
@@ -91,13 +90,16 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, TrainingArguments]:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
     target_loop = data_args.target_region
+    # Dataset tag so otherwise-identical runs on different data don't collide in the run name
+    # (e.g. OAS+lc and SAbDab2+lc would both be "cdr3_LC_scratch" without this).
+    ds_tag = "_SD" if "sabdab2" in data_args.data_path.lower() else ""
     lc_tag = "_LC" if getattr(data_args, 'include_light_chain', False) else ""
     ag_tag = "_AG" if getattr(data_args, 'include_antigen', False) else ""
     model_short = model_args.model_type.split('/')[-1]
 
-    # Combine: [DATETIME]_[LOOP][LC_TAG][AG_TAG]_[MODEL]
-    # Example: 20260605_175022_cdr3_LC_AG_esm2_t12_35M_UR50D
-    run_name = f"{timestamp}_{target_loop}{lc_tag}{ag_tag}_{model_short}"
+    # Combine: [DATETIME]_[LOOP][DS_TAG][LC_TAG][AG_TAG]_[MODEL]
+    # Example: 20260605_175022_cdr3_SD_LC_AG_esm2_t12_35M_UR50D
+    run_name = f"{timestamp}_{target_loop}{ds_tag}{lc_tag}{ag_tag}_{model_short}"
     
     # Update paths
     training_args.output_dir = os.path.join("./results", run_name)
@@ -110,14 +112,11 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, TrainingArguments]:
     return model_args, data_args, training_args
 
 
-def get_datasets(model_args, data_args, training_args) -> Tuple[torch.utils.data.Dataset, torch.utils.data.Dataset, any]:
+def get_datasets(model_args, data_args, training_args, backbone) -> Tuple[torch.utils.data.Dataset, torch.utils.data.Dataset, any]:
     """Handles tokenizer selection, dataset loading, and splitting."""
-    # Tokenizer Selection
-    if "esm2" in model_args.model_type:
-        tokenizer = EsmTokenizer.from_pretrained(model_args.model_type)
-    else:
-        tokenizer = AntibodyTokenizer()
-    
+    # Tokenizer comes from the resolved backbone as a uniform TokenizerAdapter.
+    tokenizer = backbone.build_tokenizer(model_args.model_type)
+
     # Dataset Loading
     full_dataset = AntibodyInfillingDataset(
         data_args.data_path,
@@ -260,21 +259,24 @@ def main():
     model_args, data_args, training_args = setup_args()
     set_seed(training_args.seed)
 
-    train_dataset, eval_dataset, tokenizer = get_datasets(model_args, data_args, training_args)
-    
-    vocab_size = len(tokenizer.vocab) if hasattr(tokenizer, "vocab") else tokenizer.vocab_size
-    model = get_model(model_args.model_type, vocab_size=vocab_size)
+    backbone = resolve(model_args.model_type)
+    train_dataset, eval_dataset, tokenizer = get_datasets(model_args, data_args, training_args, backbone)
 
-    # AntibodyTokenizer exposes .pad_id; HF's EsmTokenizer exposes .pad_token_id (and its
-    # value, 1, is NOT 0 like the scratch tokenizer's — 0 is <cls> for ESM-2).
-    pad_token_id = tokenizer.pad_token_id if hasattr(tokenizer, "pad_token_id") else tokenizer.pad_id
+    # load_training_model ignores the scratch-only kwargs for pretrained backbones (**kw).
+    model = backbone.load_training_model(
+        model_args.model_type,
+        vocab_size=tokenizer.vocab_size,
+        hidden_size=model_args.hidden_size,
+        num_layers=model_args.num_layers,
+        max_len=data_args.max_len,
+    )
 
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        data_collator=functools.partial(collate_fn, pad_token_id=pad_token_id),
+        data_collator=functools.partial(collate_fn, pad_token_id=tokenizer.pad_id),
         compute_metrics=compute_metrics,
     )
 

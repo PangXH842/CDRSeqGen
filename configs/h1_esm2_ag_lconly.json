@@ -1,0 +1,21 @@
+{
+    "model_type": "facebook/esm2_t12_35M_UR50D",
+    "target_region": "cdr1",
+    "include_light_chain": true,
+    "include_antigen": false,
+    "data_path": "dataset/data/processed/processed_sabdab2_data.json",
+    "max_len": 512,
+    "output_dir": "./results",
+    "do_train": true,
+    "do_eval": true,
+    "per_device_train_batch_size": 16,
+    "learning_rate": 5e-5,
+    "num_train_epochs": 10,
+    "eval_strategy": "epoch",
+    "save_strategy": "epoch",
+    "metric_for_best_model": "accuracy",
+    "greater_is_better": true,
+    "load_best_model_at_end": true,
+    "save_total_limit": 2,
+    "report_to": "tensorboard"
+}

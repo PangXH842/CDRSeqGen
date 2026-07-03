@@ -4,6 +4,25 @@ import json
 import argparse
 from tqdm import tqdm
 
+REGIONS = ["fwr1", "cdr1", "fwr2", "cdr2", "fwr3", "cdr3", "fwr4"]
+
+
+def valid_regions(region_dict):
+    """Guard against malformed rows before they reach dataset.py.
+
+    Every region must be a real string (empty CSV cells arrive as float NaN, which would
+    later crash the string concatenation in AntibodyInfillingDataset), and every CDR must be
+    non-empty since any of the three can be the masked target loop.
+    """
+    if not all(isinstance(region_dict.get(r), str) for r in REGIONS):
+        return False
+    return all(region_dict[cdr] for cdr in ("cdr1", "cdr2", "cdr3"))
+
+
+def build_regions(row, suffix):
+    return {r: row[f"{r}_aa_{suffix}"] for r in REGIONS}
+
+
 def preprocess_oas_paired(file_path):
     # 1. Load data, skipping the first row of metadata
     # We use engine='python' because OAS files sometimes have complex quoting
@@ -11,49 +30,41 @@ def preprocess_oas_paired(file_path):
 
     # 2. Filter for quality
     # We only want productive antibodies (no stop codons or frameshifts)
+    n_raw = len(df)
     df = df[(df['productive_heavy'] == 'T') & (df['productive_light'] == 'T')]
-    
-    processed_data = []
+    n_productive = len(df)
 
-    for _, row in tqdm(df.iterrows()):
-        # 3. Clean and parse ANARCI numbering 
-        # (This is stored as a stringified dictionary in OAS)
+    processed_data = []
+    skipped = {"numbering": 0, "regions": 0}
+
+    for _, row in tqdm(df.iterrows(), total=n_productive):
+        # 3. Clean and parse ANARCI numbering (a stringified dict in OAS).
+        # Narrow except: only swallow parse failures (incl. NaN passed to literal_eval),
+        # NOT e.g. a KeyError from a renamed column -- that should surface loudly.
         try:
-            # ast.literal_eval is safer than eval() for string-to-dict conversion
             heavy_imgt = ast.literal_eval(row['ANARCI_numbering_heavy'])
             light_imgt = ast.literal_eval(row['ANARCI_numbering_light'])
-        except:
-            continue # Skip if numbering is malformed
+        except (ValueError, SyntaxError, TypeError):
+            skipped["numbering"] += 1
+            continue
+
+        heavy_regions = build_regions(row, "heavy")
+        light_regions = build_regions(row, "light")
+        if not (valid_regions(heavy_regions) and valid_regions(light_regions)):
+            skipped["regions"] += 1
+            continue
 
         # 4. Construct our "Structured Biological Object"
         entry = {
             "sequence_id": row['sequence_id_heavy'],
             "isotype": row['Isotype_heavy'],
-            "heavy": {
-                "fwr1": row['fwr1_aa_heavy'],
-                "cdr1": row['cdr1_aa_heavy'],
-                "fwr2": row['fwr2_aa_heavy'],
-                "cdr2": row['cdr2_aa_heavy'],
-                "fwr3": row['fwr3_aa_heavy'],
-                "cdr3": row['cdr3_aa_heavy'],
-                "fwr4": row['fwr4_aa_heavy'],
-                "full_aa": row['sequence_alignment_aa_heavy'],
-                "imgt_numbering": heavy_imgt
-            },
-            "light": {
-                "fwr1": row['fwr1_aa_light'],
-                "cdr1": row['cdr1_aa_light'],
-                "fwr2": row['fwr2_aa_light'],
-                "cdr2": row['cdr2_aa_light'],
-                "fwr3": row['fwr3_aa_light'],
-                "cdr3": row['cdr3_aa_light'],
-                "fwr4": row['fwr4_aa_light'],
-                "full_aa": row['sequence_alignment_aa_light'],
-                "imgt_numbering": light_imgt
-            }
+            "heavy": {**heavy_regions, "full_aa": row['sequence_alignment_aa_heavy'], "imgt_numbering": heavy_imgt},
+            "light": {**light_regions, "full_aa": row['sequence_alignment_aa_light'], "imgt_numbering": light_imgt},
         }
         processed_data.append(entry)
 
+    print(f"Rows: {n_raw} raw -> {n_productive} productive -> {len(processed_data)} kept "
+          f"(skipped {skipped['numbering']} malformed-numbering, {skipped['regions']} missing/empty regions).")
     return processed_data
 
 if __name__ == "__main__":
@@ -67,4 +78,4 @@ if __name__ == "__main__":
     with open(args.output_file, 'w') as f:
         json.dump(data, f)
 
-    print(f"Successfully processed {len(data)} productive paired sequences.")
+    print(f"Wrote {len(data)} entries to {args.output_file}")

@@ -35,13 +35,23 @@ OAS_CONFIGS=(
 )
 
 # --- Suite 2: SAbDab2 antigen-conditioned matrix ---
-# 3 (loop) x 2 (model) factorial, sourced from processed_sabdab2_data.json (see
-# dataset/preprocess_sabdab2.py). Always light-chain + antigen context together;
-# there's no non-antigen variant here since that's just the OAS suite above.
+# All sourced from processed_sabdab2_data.json (see dataset/preprocess_sabdab2.py).
+# The `_ag` runs carry light-chain + antigen context; the `_ag_lconly` runs are the matched
+# ablation baselines (same SAbDab2 data/split, light chain only, antigen OFF). The valid
+# antigen comparison is `_ag` vs `_ag_lconly` on the SAME data -- NOT `_ag` vs the OAS `_lc`
+# runs, which are a different train/test distribution entirely.
+# Full 3 (loop) x 2 (model) x 2 (antigen on/off) matrix. Scratch first (cheap), and within each
+# model the lconly baseline runs before its matched _ag so the ablation pair lands together.
 ANTIGEN_CONFIGS=(
+    "configs/h1_scratch_ag_lconly.json"
+    "configs/h2_scratch_ag_lconly.json"
+    "configs/h3_scratch_ag_lconly.json"
     "configs/h1_scratch_ag.json"
     "configs/h2_scratch_ag.json"
     "configs/h3_scratch_ag.json"
+    "configs/h1_esm2_ag_lconly.json"
+    "configs/h2_esm2_ag_lconly.json"
+    "configs/h3_esm2_ag_lconly.json"
     "configs/h1_esm2_ag.json"
     "configs/h2_esm2_ag.json"
     "configs/h3_esm2_ag.json"

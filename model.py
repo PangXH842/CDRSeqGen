@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from transformers import PreTrainedModel, PretrainedConfig, EsmForMaskedLM, EsmConfig
+from transformers import PreTrainedModel, PretrainedConfig
 
 # --- Custom Transformer from Scratch ---
 
@@ -56,9 +56,11 @@ class CustomAntibodyModel(PreTrainedModel):
     def forward(self, input_ids, attention_mask=None, labels=None):
         x = self.embedding(input_ids)
         x = x + self.pos_embedding[:, :x.size(1), :]
-        
-        # Transformer (We ignore attention_mask for this simple baseline, but you can add it)
-        x = self.transformer(x)
+
+        # attention_mask is 1=real token / 0=padding; TransformerEncoder's
+        # src_key_padding_mask wants the opposite convention (True = ignore this position).
+        src_key_padding_mask = (attention_mask == 0) if attention_mask is not None else None
+        x = self.transformer(x, src_key_padding_mask=src_key_padding_mask)
         
         logits = self.lm_head(x)
         
@@ -71,18 +73,18 @@ class CustomAntibodyModel(PreTrainedModel):
 
 # --- THE FACTORY FUNCTION ---
 
-def get_model(model_name_or_path, vocab_size=25):
+def build_scratch_model(vocab_size=25, hidden_size=128, num_layers=4, max_len=512):
+    """Build a fresh custom-from-scratch transformer.
+
+    hidden_size/num_layers come straight from the config (ModelArguments); max_position_embeddings
+    is sized from max_len (never below the 512 default) so a longer max_len can't overflow the
+    position-embedding table. Model dispatch lives in backbones.py; this is just the scratch builder.
     """
-    Returns either a custom model or an ESM model based on the name.
-    """
-    if model_name_or_path == "scratch":
-        print("🚀 Initializing Custom Transformer from scratch...")
-        config = CustomAntibodyConfig(vocab_size=vocab_size)
-        return CustomAntibodyModel(config)
-    
-    elif "/esm2" in model_name_or_path:
-        print(f"🧬 Loading Pre-trained ESM-2 Model: {model_name_or_path}")
-        return EsmForMaskedLM.from_pretrained(model_name_or_path)
-    
-    else:
-        raise ValueError("Unknown model choice. Choose 'scratch' or an ESM-2 path.")
+    print("🚀 Initializing Custom Transformer from scratch...")
+    config = CustomAntibodyConfig(
+        vocab_size=vocab_size,
+        hidden_size=hidden_size,
+        num_hidden_layers=num_layers,
+        max_position_embeddings=max(max_len, 512),
+    )
+    return CustomAntibodyModel(config)

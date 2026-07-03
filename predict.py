@@ -1,32 +1,26 @@
 import argparse
 import json
 import torch
-from transformers import EsmTokenizer, EsmForMaskedLM
-from dataset import AntibodyTokenizer
-from model import CustomAntibodyModel
+from backbones import resolve
 
-def generate_sequence(model, tokenizer, model_type, device, name, pt1, pt2, target_length, target_seq=None):
-    """Generates the infill sequence and prints the alignment/results."""
-    
-    # 1. Prepare the Input Sequence
-    # Mirrors dataset.py's AntibodyInfillingDataset.__getitem__ construction exactly:
-    # scratch gets no special tokens; ESM-2 gets [cls] + pt1 + mask + pt2 + [eos].
-    if model_type == "scratch":
-        pt1_ids = tokenizer.encode(pt1)
-        pt2_ids = tokenizer.encode(pt2)
-        mask_id = tokenizer.mask_id
+def generate_sequence(model, tokenizer, device, name, pt1, pt2, target_length, target_seq=None):
+    """Generates the infill sequence and prints the alignment/results.
 
-        mask_ids = [mask_id] * target_length
+    `tokenizer` is a TokenizerAdapter, so this builds inputs identically for any backbone:
+    the wrapping ([cls] ... [end] vs none) and the set of banned special-token ids both come
+    from the adapter rather than being hardcoded per model family.
+    """
+    # 1. Prepare the Input Sequence — mirrors AntibodyInfillingDataset.__getitem__ construction.
+    pt1_ids = tokenizer.encode(pt1)
+    pt2_ids = tokenizer.encode(pt2)
+    mask_ids = [tokenizer.mask_id] * target_length
+
+    if tokenizer.uses_special_tokens:
+        input_ids = [tokenizer.cls_id] + pt1_ids + mask_ids + pt2_ids + [tokenizer.end_id]
+        start_mask_idx = 1 + len(pt1_ids)  # 1 for the leading cls token
+    else:
         input_ids = pt1_ids + mask_ids + pt2_ids
         start_mask_idx = len(pt1_ids)
-    else:
-        pt1_ids = tokenizer.encode(pt1, add_special_tokens=False)
-        pt2_ids = tokenizer.encode(pt2, add_special_tokens=False)
-        mask_id = tokenizer.mask_token_id
-
-        mask_ids = [mask_id] * target_length
-        input_ids = [tokenizer.cls_token_id] + pt1_ids + mask_ids + pt2_ids + [tokenizer.eos_token_id]
-        start_mask_idx = 1 + len(pt1_ids)  # 1 for cls
 
     input_tensor = torch.tensor([input_ids], dtype=torch.long).to(device)
 
@@ -38,19 +32,15 @@ def generate_sequence(model, tokenizer, model_type, device, name, pt1, pt2, targ
     # 3. Extract Predictions
     end_mask_idx = start_mask_idx + target_length
 
-    # Apply logit constraint to prevent special tokens
+    # Ban every non-amino-acid token so only real residues can be predicted.
     mask_logits = logits[0, start_mask_idx:end_mask_idx, :].clone()
-    mask_logits[:, :5] = -float("inf") 
+    for sid in tokenizer.special_ids:
+        mask_logits[:, sid] = -float("inf")
 
     predicted_target_ids = torch.argmax(mask_logits, dim=-1).tolist()
 
     # 4. Decode back to Amino Acids
-    if model_type == "scratch":
-        predicted_target = tokenizer.decode(predicted_target_ids)
-    else:
-        predicted_target = tokenizer.decode(predicted_target_ids).replace(" ", "")
-
-    predicted_target = predicted_target.upper().strip()
+    predicted_target = tokenizer.decode(predicted_target_ids).upper().strip()
 
     # 5. Print Results
     print("\n" + "="*65)
@@ -90,17 +80,14 @@ def generate_sequence(model, tokenizer, model_type, device, name, pt1, pt2, targ
 
 
 def main(args):
-    # --- 1. Load Model and Tokenizer Once ---
+    # --- 1. Load Model and Tokenizer Once (via the backbone registry) ---
     print(f"🧬 Loading model from: {args.model_path}")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    if args.model_type == "scratch":
-        tokenizer = AntibodyTokenizer()
-        model = CustomAntibodyModel.from_pretrained(args.model_path)
-    else:
-        tokenizer = EsmTokenizer.from_pretrained(args.model_type)
-        model = EsmForMaskedLM.from_pretrained(args.model_path)
-        
+
+    backbone = resolve(args.model_type)
+    tokenizer = backbone.build_tokenizer(args.model_type)
+    model = backbone.load_pretrained_model(args.model_path)
+
     model.to(device)
     model.eval()
 
@@ -109,24 +96,24 @@ def main(args):
         # Load from JSON
         with open(args.test_file, 'r') as f:
             test_cases = json.load(f)
-            
+
         for case in test_cases:
             t_seq = case.get("target_seq", None)
             t_len = len(t_seq) if t_seq else case.get("target_length", 10)
-            
+
             generate_sequence(
-                model=model, tokenizer=tokenizer, model_type=args.model_type, device=device,
+                model=model, tokenizer=tokenizer, device=device,
                 name=case.get("name", "Unnamed Test"),
-                pt1=case["pt1"], pt2=case["pt2"], 
+                pt1=case["pt1"], pt2=case["pt2"],
                 target_length=t_len, target_seq=t_seq
             )
     else:
         # Load from CLI (Single Test)
         t_len = len(args.target_seq) if args.target_seq else args.target_length
         generate_sequence(
-            model=model, tokenizer=tokenizer, model_type=args.model_type, device=device,
+            model=model, tokenizer=tokenizer, device=device,
             name="CLI Test Case",
-            pt1=args.pt1, pt2=args.pt2, 
+            pt1=args.pt1, pt2=args.pt2,
             target_length=t_len, target_seq=args.target_seq
         )
 
