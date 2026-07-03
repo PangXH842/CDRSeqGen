@@ -9,17 +9,25 @@ def generate_sequence(model, tokenizer, model_type, device, name, pt1, pt2, targ
     """Generates the infill sequence and prints the alignment/results."""
     
     # 1. Prepare the Input Sequence
+    # Mirrors dataset.py's AntibodyInfillingDataset.__getitem__ construction exactly:
+    # scratch gets no special tokens; ESM-2 gets [cls] + pt1 + mask + pt2 + [eos].
     if model_type == "scratch":
         pt1_ids = tokenizer.encode(pt1)
         pt2_ids = tokenizer.encode(pt2)
         mask_id = tokenizer.mask_id
+
+        mask_ids = [mask_id] * target_length
+        input_ids = pt1_ids + mask_ids + pt2_ids
+        start_mask_idx = len(pt1_ids)
     else:
         pt1_ids = tokenizer.encode(pt1, add_special_tokens=False)
         pt2_ids = tokenizer.encode(pt2, add_special_tokens=False)
         mask_id = tokenizer.mask_token_id
 
-    mask_ids = [mask_id] * target_length
-    input_ids = pt1_ids + mask_ids + pt2_ids
+        mask_ids = [mask_id] * target_length
+        input_ids = [tokenizer.cls_token_id] + pt1_ids + mask_ids + pt2_ids + [tokenizer.eos_token_id]
+        start_mask_idx = 1 + len(pt1_ids)  # 1 for cls
+
     input_tensor = torch.tensor([input_ids], dtype=torch.long).to(device)
 
     # 2. Run the Model
@@ -28,7 +36,6 @@ def generate_sequence(model, tokenizer, model_type, device, name, pt1, pt2, targ
         logits = outputs["logits"] if isinstance(outputs, dict) else outputs.logits
 
     # 3. Extract Predictions
-    start_mask_idx = len(pt1_ids)
     end_mask_idx = start_mask_idx + target_length
 
     # Apply logit constraint to prevent special tokens

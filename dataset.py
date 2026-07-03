@@ -21,13 +21,14 @@ class AntibodyTokenizer:
         return "".join([self.id_to_tok.get(i, "?") for i in ids])
 
 class AntibodyInfillingDataset(Dataset):
-    def __init__(self, json_path, tokenizer, max_len=256, target_region="cdr3", include_light_chain=False):
+    def __init__(self, json_path, tokenizer, max_len=256, target_region="cdr3", include_light_chain=False, include_antigen=False):
         with open(json_path, 'r') as f:
             self.data = json.load(f)
         self.tokenizer = tokenizer
         self.max_len = max_len
         self.target_region = target_region
         self.include_light_chain = include_light_chain
+        self.include_antigen = include_antigen
 
     def __len__(self):
         return len(self.data)
@@ -83,6 +84,32 @@ class AntibodyInfillingDataset(Dataset):
             pt1_ids = light_ids + [sep_id] + pt1_ids
         # ----------------------------------
 
+        # --- NEW: ANTIGEN INJECTION ---
+        # If toggled ON, and the sequence actually has an antigen
+        if self.include_antigen and item.get('antigen') and item['antigen'].get('full_aa'):
+            antigen_seq = item['antigen']['full_aa']
+
+            if is_esm:
+                antigen_ids = self.tokenizer.encode(antigen_seq, add_special_tokens=False)
+                sep_id = self.tokenizer.eos_token_id
+            else:
+                antigen_ids = self.tokenizer.encode(antigen_seq)
+                sep_id = self.tokenizer.tok_to_id.get("<sep>", 3)
+
+            # Prepend Antigen + Separator ahead of the light chain / heavy pt1
+            pt1_ids = antigen_ids + [sep_id] + pt1_ids
+        # -------------------------------
+
+        # --- NEW: LENGTH CAPPING ---
+        # pt1 can now be unboundedly long (antigen + light chain context), so cap it to
+        # fit max_len. Truncate from the left (drop the most distal context first: antigen,
+        # then light chain) and keep the heavy-chain residues immediately before the mask.
+        special_budget = 2 if is_esm else 0  # <cls> + <eos>
+        max_pt1_len = max(0, self.max_len - special_budget - len(target_ids) - len(pt2_ids))
+        if len(pt1_ids) > max_pt1_len:
+            pt1_ids = pt1_ids[len(pt1_ids) - max_pt1_len:]
+        # ---------------------------
+
         # 4. Construct Final Input and Find Mask Start
         if is_esm:
             cls_id = self.tokenizer.cls_token_id
@@ -109,23 +136,27 @@ class AntibodyInfillingDataset(Dataset):
             "target_len": len(target_ids)
         }
 
-def collate_fn(batch):
+def collate_fn(batch, pad_token_id=0):
     """
     Takes a list of items and pads them to the same length so they fit in a Tensor.
+
+    pad_token_id defaults to 0, which is correct for AntibodyTokenizer's <pad> id, but
+    NOT for ESM-2's tokenizer (whose <pad> id is 1, while 0 is <cls>) — callers using an
+    ESM-2 tokenizer must pass its real pad_token_id explicitly (see train.py/predict.py).
     """
     input_ids = [item["input_ids"] for item in batch]
     labels = [item["labels"] for item in batch]
-    
+
     # Pad sequences to the longest one in this specific batch
     input_ids_padded = torch.nn.utils.rnn.pad_sequence(
-        input_ids, batch_first=True, padding_value=0 # 0 is <pad>
+        input_ids, batch_first=True, padding_value=pad_token_id
     )
     labels_padded = torch.nn.utils.rnn.pad_sequence(
         labels, batch_first=True, padding_value=-100 # -100 is ignored by Loss
     )
-    
+
     # Create attention mask (1 for real tokens, 0 for padding)
-    attention_mask = (input_ids_padded != 0).long()
+    attention_mask = (input_ids_padded != pad_token_id).long()
 
     return {
         "input_ids": input_ids_padded,

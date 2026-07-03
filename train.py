@@ -1,6 +1,7 @@
 import os
 import logging
 import sys
+import functools
 import numpy as np
 import pandas as pd
 from datetime import datetime
@@ -66,8 +67,12 @@ class DataArguments:
         metadata={"help": "Which loop to mask (cdr1, cdr2, cdr3)"}
     )
     include_light_chain: bool = field(
-        default=False, 
+        default=False,
         metadata={"help": "Whether to prepend the paired light chain as context."}
+    )
+    include_antigen: bool = field(
+        default=False,
+        metadata={"help": "Whether to prepend the bound antigen sequence as context (SAbDab2-derived data only)."}
     )
 
 
@@ -87,11 +92,12 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, TrainingArguments]:
     
     target_loop = data_args.target_region
     lc_tag = "_LC" if getattr(data_args, 'include_light_chain', False) else ""
+    ag_tag = "_AG" if getattr(data_args, 'include_antigen', False) else ""
     model_short = model_args.model_type.split('/')[-1]
-    
-    # Combine: [DATETIME]_[LOOP][LC_TAG]_[MODEL]
-    # Example: 20260605_175022_cdr3_LC_esm2_t12_35M_UR50D
-    run_name = f"{timestamp}_{target_loop}{lc_tag}_{model_short}"
+
+    # Combine: [DATETIME]_[LOOP][LC_TAG][AG_TAG]_[MODEL]
+    # Example: 20260605_175022_cdr3_LC_AG_esm2_t12_35M_UR50D
+    run_name = f"{timestamp}_{target_loop}{lc_tag}{ag_tag}_{model_short}"
     
     # Update paths
     training_args.output_dir = os.path.join("./results", run_name)
@@ -114,20 +120,28 @@ def get_datasets(model_args, data_args, training_args) -> Tuple[torch.utils.data
     
     # Dataset Loading
     full_dataset = AntibodyInfillingDataset(
-        data_args.data_path, 
-        tokenizer, 
+        data_args.data_path,
+        tokenizer,
         max_len=data_args.max_len,
-        target_region=data_args.target_region,            
-        include_light_chain=data_args.include_light_chain 
+        target_region=data_args.target_region,
+        include_light_chain=data_args.include_light_chain,
+        include_antigen=data_args.include_antigen
     )
-    
+
     # Split
-    train_idx, val_idx = train_test_split(
-        range(len(full_dataset)), 
-        test_size=data_args.test_size, 
-        random_state=training_args.seed
-    )
-    
+    # SAbDab2-derived data carries its own leakage-safe "split" field (from abag_split.csv);
+    # honor it instead of a fresh random split when every entry has one. OAS-derived data has
+    # no such field and falls back to the original random split.
+    if len(full_dataset) > 0 and all('split' in entry for entry in full_dataset.data):
+        train_idx = [i for i, entry in enumerate(full_dataset.data) if entry['split'] == 'train']
+        val_idx = [i for i, entry in enumerate(full_dataset.data) if entry['split'] != 'train']
+    else:
+        train_idx, val_idx = train_test_split(
+            range(len(full_dataset)),
+            test_size=data_args.test_size,
+            random_state=training_args.seed
+        )
+
     train_ds = torch.utils.data.Subset(full_dataset, train_idx)
     eval_ds = torch.utils.data.Subset(full_dataset, val_idx)
     
@@ -251,12 +265,16 @@ def main():
     vocab_size = len(tokenizer.vocab) if hasattr(tokenizer, "vocab") else tokenizer.vocab_size
     model = get_model(model_args.model_type, vocab_size=vocab_size)
 
+    # AntibodyTokenizer exposes .pad_id; HF's EsmTokenizer exposes .pad_token_id (and its
+    # value, 1, is NOT 0 like the scratch tokenizer's — 0 is <cls> for ESM-2).
+    pad_token_id = tokenizer.pad_token_id if hasattr(tokenizer, "pad_token_id") else tokenizer.pad_id
+
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        data_collator=collate_fn,
+        data_collator=functools.partial(collate_fn, pad_token_id=pad_token_id),
         compute_metrics=compute_metrics,
     )
 
