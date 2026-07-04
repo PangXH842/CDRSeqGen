@@ -30,6 +30,31 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Dataset registry: maps a substring found in data_args.data_path to the short tag used in
+# run names. Every training data source gets an explicit tag so the dataset is never silently
+# implied by its absence (an unlabelled "cdr3_scratch" is exactly what makes runs ambiguous).
+# To add a new source, add one (substring, tag) pair here — matching is first-hit, so order
+# more-specific substrings before more-general ones.
+DATASET_TAGS = [
+    ("sabdab2", "SD2"),  # SAbDab2 antibody-antigen structural data
+    ("paired",  "OAS"),  # OAS paired heavy/light repertoire data
+]
+UNKNOWN_DATASET_TAG = "DS"  # fallback so an unrecognised source is still visibly tagged
+
+
+def dataset_tag(data_path: str) -> str:
+    """Resolve the short dataset tag for a data path via DATASET_TAGS (first match wins)."""
+    lowered = data_path.lower()
+    for substring, tag in DATASET_TAGS:
+        if substring in lowered:
+            return tag
+    logger.warning(
+        f"⚠️ Data path '{data_path}' matched no entry in DATASET_TAGS; "
+        f"tagging run as '{UNKNOWN_DATASET_TAG}'. Add it to DATASET_TAGS for a clearer name."
+    )
+    return UNKNOWN_DATASET_TAG
+
+
 @dataclass
 class ModelArguments:
     """Arguments pertaining to which model/config/tokenizer we are going to fine-tune."""
@@ -90,15 +115,15 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, TrainingArguments]:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
     target_loop = data_args.target_region
-    # Dataset tag so otherwise-identical runs on different data don't collide in the run name
-    # (e.g. OAS+lc and SAbDab2+lc would both be "cdr3_LC_scratch" without this).
-    ds_tag = "_SD" if "sabdab2" in data_args.data_path.lower() else ""
+    # Dataset tag so otherwise-identical runs on different data don't collide in the run name,
+    # and so every run name states its source explicitly (see DATASET_TAGS above).
+    ds_tag = f"_{dataset_tag(data_args.data_path)}"
     lc_tag = "_LC" if getattr(data_args, 'include_light_chain', False) else ""
     ag_tag = "_AG" if getattr(data_args, 'include_antigen', False) else ""
     model_short = model_args.model_type.split('/')[-1]
 
     # Combine: [DATETIME]_[LOOP][DS_TAG][LC_TAG][AG_TAG]_[MODEL]
-    # Example: 20260605_175022_cdr3_SD_LC_AG_esm2_t12_35M_UR50D
+    # Example: 20260605_175022_cdr3_SD2_LC_AG_esm2_t12_35M_UR50D
     run_name = f"{timestamp}_{target_loop}{ds_tag}{lc_tag}{ag_tag}_{model_short}"
     
     # Update paths
