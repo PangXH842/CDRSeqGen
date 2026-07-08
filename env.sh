@@ -20,7 +20,8 @@ conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvi
 echo "🤗 Installing Hugging Face and Data Science libraries..."
 # We explicitly require transformers >= 4.41.0 due to the `eval_strategy` update
 # accelerate is required by HuggingFace Trainer
-pip install "transformers>=4.41.0" accelerate pandas scikit-learn tqdm
+# sentencepiece is required to load the protein-BERT tokenizers (IgBert, ProtBert backbones)
+pip install "transformers>=4.41.0" accelerate pandas scikit-learn tqdm sentencepiece
 
 echo "✅ Environment '$ENV_NAME' successfully created!"
 echo "👉 To start working, run: conda activate $ENV_NAME"

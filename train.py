@@ -87,12 +87,13 @@ class DataArguments:
         metadata={"help": "Fraction of data to use for validation."}
     )
     target_region: str = field(
-        default="cdr3", 
-        metadata={"help": "Which loop to mask (cdr1, cdr2, cdr3)"}
+        default="h3",
+        metadata={"help": "Which loop to mask: heavy h1/h2/h3, or light l1/l2/l3"}
     )
-    include_light_chain: bool = field(
+    include_partner_chain: bool = field(
         default=False,
-        metadata={"help": "Whether to prepend the paired light chain as context."}
+        metadata={"help": "Whether to prepend the paired partner chain as context — the light chain "
+                          "for a heavy (h*) target, the heavy chain for a light (l*) target."}
     )
     include_antigen: bool = field(
         default=False,
@@ -118,13 +119,19 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, TrainingArguments]:
     # Dataset tag so otherwise-identical runs on different data don't collide in the run name,
     # and so every run name states its source explicitly (see DATASET_TAGS above).
     ds_tag = f"_{dataset_tag(data_args.data_path)}"
-    lc_tag = "_LC" if getattr(data_args, 'include_light_chain', False) else ""
+    # The partner chain differs by target, so the tag names the chain actually added: light chain
+    # (_LC) for a heavy (h*) target, heavy chain (_HC) for a light (l*) target.
+    if getattr(data_args, 'include_partner_chain', False):
+        partner_tag = "_HC" if target_loop.lower().startswith("l") else "_LC"
+    else:
+        partner_tag = ""
     ag_tag = "_AG" if getattr(data_args, 'include_antigen', False) else ""
     model_short = model_args.model_type.split('/')[-1]
 
-    # Combine: [DATETIME]_[LOOP][DS_TAG][LC_TAG][AG_TAG]_[MODEL]
-    # Example: 20260605_175022_cdr3_SD2_LC_AG_esm2_t12_35M_UR50D
-    run_name = f"{timestamp}_{target_loop}{ds_tag}{lc_tag}{ag_tag}_{model_short}"
+    # Combine: [DATETIME]_[LOOP][DS_TAG][PARTNER_TAG][AG_TAG]_[MODEL]
+    # Example: 20260605_175022_h3_SD2_LC_AG_esm2_t12_35M_UR50D  (heavy target, light-chain context)
+    #          20260605_175022_l3_OAS_HC_scratch                (light target, heavy-chain context)
+    run_name = f"{timestamp}_{target_loop}{ds_tag}{partner_tag}{ag_tag}_{model_short}"
     
     # Update paths
     training_args.output_dir = os.path.join("./results", run_name)
@@ -148,7 +155,7 @@ def get_datasets(model_args, data_args, training_args, backbone) -> Tuple[torch.
         tokenizer,
         max_len=data_args.max_len,
         target_region=data_args.target_region,
-        include_light_chain=data_args.include_light_chain,
+        include_partner_chain=data_args.include_partner_chain,
         include_antigen=data_args.include_antigen
     )
 
@@ -197,9 +204,17 @@ def save_training_csv(trainer, output_dir):
     epochs = [log['epoch'] for log in unique_eval_logs]
     eval_loss = [log['eval_loss'] for log in unique_eval_logs]
     eval_acc = [log.get('eval_accuracy', 0.0) for log in unique_eval_logs]
+    eval_core_acc = [log.get('eval_core_accuracy', 0.0) for log in unique_eval_logs]
+    eval_anchor_acc = [log.get('eval_anchor_accuracy', 0.0) for log in unique_eval_logs]
 
     # Save data to a CSV for easy multi-line plotting later
-    df = pd.DataFrame({"epoch": epochs, "eval_loss": eval_loss, "eval_accuracy": eval_acc})
+    df = pd.DataFrame({
+        "epoch": epochs,
+        "eval_loss": eval_loss,
+        "eval_accuracy": eval_acc,
+        "eval_core_accuracy": eval_core_acc,
+        "eval_anchor_accuracy": eval_anchor_acc,
+    })
     csv_path = os.path.join(output_dir, "epoch_metrics.csv")
     df.to_csv(csv_path, index=False)
 
@@ -248,10 +263,33 @@ def run_training_pipeline(trainer: Trainer, training_args: TrainingArguments):
     save_training_csv(trainer, training_args.output_dir)
     plot_training_curves(training_args.output_dir)
 
+# Residues trimmed from EACH end of the target loop to separate the V/J-gene-determined "anchor"
+# residues (predicted ~80-100% regardless of model) from the hypervariable "core" that is actually
+# being designed. The raw whole-span `accuracy` is dominated by the anchors and can mask a real
+# effect on the core (see README Known Issues). Override with env ANCHOR_TRIM if needed.
+ANCHOR_TRIM = int(os.environ.get("ANCHOR_TRIM", "2"))
+
+
+def _core_anchor_masks(masked_positions: np.ndarray, trim: int = ANCHOR_TRIM):
+    """Split each row's contiguous target span into core (middle) and anchor (trimmed ends) masks.
+
+    The target loop is a single contiguous block of non-(-100) positions per row (see
+    AntibodyInfillingDataset: [cls]+pt1+mask+pt2+[end]). Rows whose loop is too short to have a
+    core after trimming `trim` from each end contribute only anchor tokens.
+    """
+    core = np.zeros_like(masked_positions)
+    for r in range(masked_positions.shape[0]):
+        cols = np.nonzero(masked_positions[r])[0]
+        if cols.size > 2 * trim:
+            core[r, cols[trim:cols.size - trim]] = True
+    anchor = masked_positions & ~core
+    return core, anchor
+
+
 def compute_metrics(eval_pred: EvalPrediction) -> dict:
-    """Calculates sequence recovery rate (accuracy) only on the masked target loop."""
+    """Sequence recovery on the masked loop: whole-span, plus anchor-excluded core and anchor-only."""
     predictions, labels = eval_pred
-    
+
     # If the model outputs a tuple (logits, hidden_states), extract the logits
     if isinstance(predictions, tuple):
         logits = predictions[0]
@@ -267,16 +305,19 @@ def compute_metrics(eval_pred: EvalPrediction) -> dict:
     # Check if there are any masked tokens to evaluate (to avoid division by zero)
     total_masked = masked_positions.sum()
     if total_masked == 0:
-        return {"accuracy": 0.0}
+        return {"accuracy": 0.0, "core_accuracy": 0.0, "anchor_accuracy": 0.0}
 
-    # Calculate how many predictions matched the ground-truth target tokens
-    correct_predictions = (preds[masked_positions] == labels[masked_positions]).sum()
-    
-    # Calculate recovery rate / accuracy
-    accuracy = correct_predictions / total_masked
+    correct = (preds == labels) & masked_positions
+
+    # Split the span into hypervariable core vs. V/J-determined anchor ends.
+    core_mask, anchor_mask = _core_anchor_masks(masked_positions)
+    core_total = core_mask.sum()
+    anchor_total = anchor_mask.sum()
 
     return {
-        "accuracy": float(accuracy)
+        "accuracy": float(correct.sum() / total_masked),
+        "core_accuracy": float((correct & core_mask).sum() / core_total) if core_total else 0.0,
+        "anchor_accuracy": float((correct & anchor_mask).sum() / anchor_total) if anchor_total else 0.0,
     }
 
 

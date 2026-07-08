@@ -1,74 +1,83 @@
-# Data Processing: OAS Antibody Infilling Framework (Phase 1)
-Updated: 2026-05-13
+# Data Processing: Antibody Infilling Framework
+Updated: 2026-07-04
 
-## 📌 Project Goal
-To develop a modular machine learning framework for predicting antibody sequences, specifically starting with **Conditional CDR-H3 Infilling**, with the ability to scale to **Antigen-Aware** and **Structure-Aware** models.
+## 📌 Goal
+Prepare data for **conditional CDR infilling** — predicting a masked CDR loop (H1/H2/H3) from its surrounding framework context — with the ability to layer in **light-chain context**, **antigen context**, and eventually **structure**. Antibodies are never treated as flat strings; each is a **Structured Biological Object** (the 14 IMGT regions kept separate) so any region can be masked at train time without re-processing raw data.
 
-## 🛠 The Data Source
-*   **Database:** Observed Antibody Space (OAS).
-*   **Subset:** Human, Paired (Heavy + Light), Productive.
-*   **Format:** `.csv.gz` (Gzipped CSVs with a single-line metadata header).
+## 🛠 Data Sources
+Two independent datasets feed the framework. **They are different train *and* test distributions — keep them on separate charts** (see the top-level README's Known Issues).
 
-## 🏗 Data Preprocessing Logic
-To ensure the model can eventually handle structural data and multiple tasks, we do not treat the antibody as a simple string. Instead, we treat it as a **Structured Biological Object**.
+| | **OAS** (`processed_paired_data.json`) | **SAbDab2** (`processed_sabdab2_data.json`) |
+|---|---|---|
+| Origin | Observed Antibody Space — repertoire sequencing | SAbDab2 ML-grade structural splits (Zenodo) |
+| Content | Human, paired (H+L), productive | Paired antibody + resolved protein/peptide **antigen** |
+| Size | 21,106 sequences | 3,984 complexes (**3,234 train / 750 test**) |
+| Antigen | none | yes (`antigen` field populated) |
+| Split | random `train_test_split` in `train.py` | dataset's **own leakage-safe** cluster split (carried in a `split` field) |
+| Preprocessor | `preprocess_paired.py` | `preprocess_sabdab2.py` |
+| Download | (raw `.csv.gz` provided) | `data/download_sabdab2.sh` (~876MB, one-time) |
 
-### 1. Quality Control (Filtering)
-*   **Productive Only:** We filter for `productive_heavy == 'T'` and `productive_light == 'T'`. This removes sequences with stop codons or frameshifts.
-*   **Paired Requirement:** Although Phase 1 focuses on CDR-H3 (Heavy), we use paired data from the start. The Light chain is a critical context for CDR-H3 folding and binding in later phases.
+**Why two?** OAS gives repertoire-scale sequence data for the base infilling task; SAbDab2 is the only source with bound antigens, needed for antigen-conditioned generation — but it is ~5× smaller, so numbers from the two are not comparable.
 
-### 2. Regional Segmentation (The "14-Region Split")
-The antibody is parsed into its 14 IMGT-defined regions:
+## 🏗 Preprocessing Logic
+Both preprocessors emit the same Bio-Object schema and **print a per-stage filter breakdown** (rows dropped for non-productive / wrong-type / malformed-numbering / missing-regions) so the final count is auditable, not a black box.
+
+### 1. Quality Control (OAS)
+*   **Productive Only:** `productive_heavy == 'T'` and `productive_light == 'T'` (drops stop codons / frameshifts).
+*   **Paired Requirement:** paired data from the start — the light chain is critical context for H3 folding/binding.
+
+### 2. Regional Segmentation (the "14-Region Split")
+Each antibody is parsed into its 14 IMGT-defined regions:
 *   **Heavy:** FWRH1, CDRH1, FWRH2, CDRH2, FWRH3, **CDRH3**, FWRH4.
 *   **Light:** FWRL1, CDRL1, FWRL2, CDRL2, FWRL3, CDRL3, FWRL4.
 
-**Why?** This allows the `DataCollator` to dynamically mask *any* part of the antibody during training (e.g., masking CDR-H3 today, but masking CDR-L3 or all CDRs tomorrow) without re-processing the raw data.
+This lets the dataset dynamically mask *any* region at train time — heavy `h1/h2/h3` or light `l1/l2/l3`, selected by `target_region` alone — with zero raw re-processing.
 
 ### 3. Structural Preservation (IMGT Numbering)
-*   We extract and store the `ANARCI_numbering` dictionaries.
-*   **Why?** This maps every amino acid to a standardized 3D coordinate position. When we move to **Structural Phase**, we can use these keys to align sequences with PDB structures or inject 3D positional embeddings.
+`imgt_numbering` dictionaries are stored per chain, mapping each residue to a standardized position — the hook for aligning to PDB structures / injecting 3D positional embeddings in the structural phase.
+
+### 4. SAbDab2 specifics
+*   SAbDab2's `abag_split.csv` already carries IMGT-numbered CDR columns **and** a leakage-safe train/test split, so preprocessing is pure CSV parsing — no CIF/structure parsing or re-numbering.
+*   Each entry gains an `antigen` object (`full_aa`, `chains`, `type`) and a `split` field. `train.py` honors that `split` instead of a random one (OAS has no such field and is unaffected).
+*   Multi-chain antigens are joined with `X` (unknown-residue) as a soft chain-break marker, since the amino-acid tokenizer has no literal chain-separator token.
+*   Hardening (2026-07-03) dropped 1 degenerate entry with an empty target CDR (3,985 → 3,984).
 
 ---
 
 ## 📂 Output Schema
-The processed data is saved as a List of Dictionaries (JSON or Parquet). Each entry follows this schema:
+A List of Dictionaries (JSON). OAS entries have `antigen: null`; SAbDab2 entries populate it and add `split`.
 
 ```json
 {
   "sequence_id": "...",
-  "isotype": "IgG",
+  "isotype": "IgG",                         // OAS only
   "heavy": {
-    "fwr1": "...", "cdr1": "...", "fwr2": "...", "cdr2": "...", 
+    "fwr1": "...", "cdr1": "...", "fwr2": "...", "cdr2": "...",
     "fwr3": "...", "cdr3": "...", "fwr4": "...",
     "full_aa": "...",
-    "imgt_numbering": {"1": "E", "2": "V", ...}
+    "imgt_numbering": {"1": "E", "2": "V", "...": "..."}
   },
-  "light": {
-    "fwr1": "...", "cdr1": "...", "fwr2": "...", "cdr2": "...", 
-    "fwr3": "...", "cdr3": "...", "fwr4": "...",
-    "full_aa": "...",
-    "imgt_numbering": {"1": "D", "2": "I", ...}
+  "light": { "...": "... same shape as heavy ..." },
+  "antigen": {                              // null for OAS; populated for SAbDab2
+    "full_aa": "YTTSTRGDLAHVT",
+    "chains": ["P"],
+    "type": "PEPTIDE"                        // e.g. PEPTIDE | PROTEIN
   },
-  "antigen": null  // Placeholder for Phase 2
+  "split": "train"                          // SAbDab2 only: "train" | "test"
 }
 ```
 
 ---
 
-## 🚀 Phase 1 Roadmap: Conditional Infilling
-For the first training task, we prepare the data as follows:
-
-1.  **Input (Context):** `FWRH1 + CDRH1 + FWRH2 + CDRH2 + FWRH3 + [MASK] + FWRH4`
-2.  **Target:** `CDRH3`
-3.  **Task:** Predict the amino acid sequence of the masked H3 loop given the surrounding Framework 1-4 and CDR 1-2.
-
 ## 📝 Usage Notes
-*   **File Decompression:** Use `pd.read_csv(file, compression='gzip', skiprows=1)`.
-*   **Deduplication:** CDR-H3 sequences should be clustered or deduplicated before final training to prevent the model from memorizing common clones.
-*   **Small Subset:** Start with `1287169_1_Paired_All.csv.gz` containing 21106 sequences for debugging before scaling to the full 3M+ dataset.
+*   **Decompress OAS:** `pd.read_csv(file, compression='gzip', skiprows=1)`.
+*   **Debug subset:** `1287169_1_Paired_All.csv.gz` (21,106 seqs) before scaling to the full 3M+ dataset.
+*   **Deduplication is a scale-up prerequisite, not a nice-to-have.** OAS uses a plain random split; exact duplication is low (~0.9%) today, but a random split still leaks *clonal near-duplicates* (same V/J genes, CDR3s a few mutations apart) into both train and eval — which SAbDab2's cluster split prevents. This makes OAS eval optimistic relative to SAbDab2, and becomes a real correctness problem at the 1M+ scale. Treat CD-HIT / identity-cluster dedup (ideally a clustered split matching SAbDab2's rigor) as required before that scale-up.
 
 ---
 
-### 🔜 Future Phases
-- [ ] **Phase 2:** Include Light Chain as additional context.
-- [ ] **Phase 3:** Antigen-Awareness (Injecting antigen sequences into the Transformer cross-attention).
-- [ ] **Phase 4:** Structural prediction using the saved IMGT numbering keys.
+## 🚀 Phase Status
+1. **[x] Conditional CDR infilling** — `FWR1..FWR3 + [MASK] + FWR4` → predict the masked loop. Heavy `h1/h2/h3` all trained on both datasets; light `l1/l2/l3` now supported too (path verified, full suite pending). The `target_region` string alone selects the loop *and* the chain (`h*` heavy, `l*` light; legacy `cdr*`/`lcdr*` still accepted).
+2. **[x] Partner-chain context** — the paired non-target chain is prepended as additional context via one symmetric flag, `include_partner_chain`: light chain for a heavy (`h*`) target, heavy chain for a light (`l*`) target.
+3. **[~] Antigen-awareness** — **sequence-context injection landed** (antigen prepended/appended per the backbone's position type; `include_antigen`), but the completed `_ag` vs `_ag_lconly` ablation shows **no measurable benefit yet**, and this survives the anchor-excluded (core) metric (see top-level README). **True antigen cross-attention** — the originally-envisioned mechanism, and the promising next lever — is *not yet built*.
+4. **[ ] Structure** — use the saved IMGT numbering keys for structural conditioning (IgFold/ABlooper-derived CDR coordinates, etc.).

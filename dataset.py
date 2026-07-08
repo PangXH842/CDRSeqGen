@@ -69,17 +69,25 @@ class TokenizerAdapter:
         )
 
     @classmethod
-    def from_hf(cls, tok, position_type, uses_special_tokens=True):
-        """Wrap any Hugging Face tokenizer (ESM-2, and future BERT/RoBERTa-style PLMs).
+    def from_hf(cls, tok, position_type, uses_special_tokens=True, space_residues=False):
+        """Wrap any Hugging Face tokenizer (ESM-2, and BERT/RoBERTa-style PLMs).
 
         Handles the ESM-vs-BERT separator difference generically: the trailing/chain
         separator is <eos> when the tokenizer has one (ESM/RoBERTa) and <sep> otherwise
         (BERT-style, where eos_token_id is None).
+
+        space_residues bridges the other family difference: BERT-style protein tokenizers
+        (ProtBert, IgBert) expect whitespace-separated residues ("M E V Q") and would otherwise
+        collapse a bare "MEVQ" to a single <unk>; ESM's per-character vocab needs no spacing.
         """
         end_id = tok.eos_token_id if tok.eos_token_id is not None else tok.sep_token_id
         cls_id = tok.cls_token_id if tok.cls_token_id is not None else tok.bos_token_id
+
+        def _encode(seq):
+            return tok.encode(" ".join(seq) if space_residues else seq, add_special_tokens=False)
+
         return cls(
-            encode=lambda seq: tok.encode(seq, add_special_tokens=False),
+            encode=_encode,
             decode=lambda ids: tok.decode(ids).replace(" ", ""),
             vocab_size=tok.vocab_size,
             pad_id=tok.pad_token_id,
@@ -93,48 +101,65 @@ class TokenizerAdapter:
         )
 
 class AntibodyInfillingDataset(Dataset):
-    def __init__(self, json_path, tokenizer, max_len=256, target_region="cdr3", include_light_chain=False, include_antigen=False):
+    def __init__(self, json_path, tokenizer, max_len=256, target_region="h3",
+                 include_partner_chain=False, include_antigen=False):
         with open(json_path, 'r') as f:
             self.data = json.load(f)
         self.tokenizer = tokenizer
         self.max_len = max_len
         self.target_region = target_region
-        self.include_light_chain = include_light_chain
+        self.include_partner_chain = include_partner_chain
         self.include_antigen = include_antigen
 
     def __len__(self):
         return len(self.data)
 
+    @staticmethod
+    def _resolve_target(target_region):
+        """Map a target_region string to (chain, cdr-key).
+
+        Unified form: h1/h2/h3 (heavy) and l1/l2/l3 (light). The legacy cdr1/2/3 and lcdr1/2/3
+        spellings are still accepted so older configs/checkpoints reproduce. Returns e.g.
+        "h3" -> ("heavy", "cdr3"),  "l1" -> ("light", "cdr1").
+        """
+        tr = target_region.lower()
+        chain = "light" if tr.startswith("l") else "heavy"   # covers l1/l2/l3 and lcdr1/2/3
+        return chain, "cdr" + tr[-1]                          # last char is the CDR number
+
+    @staticmethod
+    def _split_regions(chain, region):
+        """Split a chain dict into (pt1, target, pt2) around the requested cdr region."""
+        if region == "cdr1":
+            return chain['fwr1'], chain['cdr1'], chain['fwr2'] + chain['cdr2'] + chain['fwr3'] + chain['cdr3'] + chain['fwr4']
+        elif region == "cdr2":
+            return chain['fwr1'] + chain['cdr1'] + chain['fwr2'], chain['cdr2'], chain['fwr3'] + chain['cdr3'] + chain['fwr4']
+        else:  # cdr3
+            return chain['fwr1'] + chain['cdr1'] + chain['fwr2'] + chain['cdr2'] + chain['fwr3'], chain['cdr3'], chain['fwr4']
+
     def __getitem__(self, idx):
         item = self.data[idx]
-        h = item['heavy']
-        
-        # 1. Define the regions based on target_region
-        if self.target_region == "cdr1":
-            pt1_seq = h['fwr1']
-            target_seq = h['cdr1']
-            pt2_seq = h['fwr2'] + h['cdr2'] + h['fwr3'] + h['cdr3'] + h['fwr4']
-        elif self.target_region == "cdr2":
-            pt1_seq = h['fwr1'] + h['cdr1'] + h['fwr2']
-            target_seq = h['cdr2']
-            pt2_seq = h['fwr3'] + h['cdr3'] + h['fwr4']
-        else: # default to cdr3
-            pt1_seq = h['fwr1'] + h['cdr1'] + h['fwr2'] + h['cdr2'] + h['fwr3']
-            target_seq = h['cdr3']
-            pt2_seq = h['fwr4']
 
-        # 2. Tokenize Heavy Chain Parts (adapter.encode never adds special tokens)
+        # 1. Resolve which chain carries the target and which is the (optional) partner context.
+        #    Heavy targets (h1/h2/h3) keep the light chain as partner; light targets (l1/l2/l3)
+        #    mask the light chain and keep the heavy chain as partner — the mirror image.
+        target_chain_key, region = self._resolve_target(self.target_region)
+        partner_key = "heavy" if target_chain_key == "light" else "light"
+
+        pt1_seq, target_seq, pt2_seq = self._split_regions(item[target_chain_key], region)
+
+        # 2. Tokenize target-chain parts (adapter.encode never adds special tokens)
         t = self.tokenizer  # a TokenizerAdapter; see class docstring
         pt1_ids = t.encode(pt1_seq)
         pt2_ids = t.encode(pt2_seq)
         target_ids = t.encode(target_seq)
 
-        # --- LIGHT CHAIN INJECTION ---
-        # Prepend the paired light chain to pt1 (its length variance is small enough that this
-        # doesn't destabilise the target's position even for absolute-position models).
-        if self.include_light_chain and item.get('light') and item['light'].get('full_aa'):
-            light_ids = t.encode(item['light']['full_aa'])
-            pt1_ids = light_ids + [t.chain_sep_id] + pt1_ids
+        # --- PARTNER CHAIN INJECTION ---
+        # Prepend the paired partner chain (light for a heavy target, heavy for a light target) to
+        # pt1. Its length variance is small enough that this doesn't destabilise the target's
+        # position even for absolute-position models.
+        if self.include_partner_chain and item.get(partner_key) and item[partner_key].get('full_aa'):
+            partner_ids = t.encode(item[partner_key]['full_aa'])
+            pt1_ids = partner_ids + [t.chain_sep_id] + pt1_ids
 
         # --- ANTIGEN INJECTION ---
         # Placement depends on the backbone's position_type (NOT the model family):
@@ -152,7 +177,7 @@ class AntibodyInfillingDataset(Dataset):
 
         # --- LENGTH CAPPING ---
         # Cap whichever side carries the variable-length antigen context, always keeping the
-        # heavy-chain residues immediately adjacent to the masked target and dropping the most
+        # target-chain residues immediately adjacent to the masked target and dropping the most
         # distal antigen context first.
         special_budget = 2 if t.uses_special_tokens else 0  # leading + trailing wrap tokens
         if t.position_type == "relative":

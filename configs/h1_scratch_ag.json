@@ -1,7 +1,7 @@
 {
     "model_type": "scratch",
-    "target_region": "cdr1",
-    "include_light_chain": true,
+    "target_region": "h1",
+    "include_partner_chain": true,
     "include_antigen": true,
     "hidden_size": 128,
     "num_layers": 4,
@@ -11,7 +11,7 @@
     "do_train": true,
     "do_eval": true,
     "per_device_train_batch_size": 32,
-    "learning_rate": 1e-4,
+    "learning_rate": 0.0001,
     "num_train_epochs": 10,
     "eval_strategy": "epoch",
     "save_strategy": "epoch",

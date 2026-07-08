@@ -2,7 +2,8 @@
 
 # Default to GPU 0 if the user doesn't provide one
 GPU_ID=${1:-0}
-# Optionally restrict to one suite: "oas" (default, full matrix) or "antigen"
+# Suite selector (default "all" = oas + antigen). Options:
+#   oas | antigen | all | igbert | protbert | plm   (plm = igbert + protbert; both download ~1.6GB)
 SUITE=${2:-all}
 
 # Activate the environment (Adjust the path if your conda init is different)
@@ -57,17 +58,44 @@ ANTIGEN_CONFIGS=(
     "configs/h3_esm2_ag.json"
 )
 
+# --- Suite 3: antibody/protein BERT PLM backbones (OAS) ---
+# Same OAS data + 3 (loop) x 2 (light-chain) matrix as Suite 1, but with the protein_bert
+# backbone (see backbones.py). IgBert (Exscientia, antibody-specific, OAS-paired-trained) is the
+# antibody PLM; ProtBert (Rostlab) is the general-protein baseline. NOTE: the first run of each
+# downloads a large (~1.6GB) model from the HF Hub, which is why these are opt-in suites and not
+# bundled into "all".
+IGBERT_CONFIGS=(
+    "configs/h1_igbert.json"
+    "configs/h1_igbert_lc.json"
+    "configs/h2_igbert.json"
+    "configs/h2_igbert_lc.json"
+    "configs/h3_igbert.json"
+    "configs/h3_igbert_lc.json"
+)
+PROTBERT_CONFIGS=(
+    "configs/h1_protbert.json"
+    "configs/h1_protbert_lc.json"
+    "configs/h2_protbert.json"
+    "configs/h2_protbert_lc.json"
+    "configs/h3_protbert.json"
+    "configs/h3_protbert_lc.json"
+)
+
 CONFIGS=()
 case "$SUITE" in
-    oas)     CONFIGS=("${OAS_CONFIGS[@]}") ;;
-    antigen) CONFIGS=("${ANTIGEN_CONFIGS[@]}") ;;
-    all)     CONFIGS=("${OAS_CONFIGS[@]}" "${ANTIGEN_CONFIGS[@]}") ;;
-    *) echo "❌ Unknown suite '$SUITE'. Use 'oas', 'antigen', or 'all'."; exit 1 ;;
+    oas)      CONFIGS=("${OAS_CONFIGS[@]}") ;;
+    antigen)  CONFIGS=("${ANTIGEN_CONFIGS[@]}") ;;
+    all)      CONFIGS=("${OAS_CONFIGS[@]}" "${ANTIGEN_CONFIGS[@]}") ;;
+    igbert)   CONFIGS=("${IGBERT_CONFIGS[@]}") ;;
+    protbert) CONFIGS=("${PROTBERT_CONFIGS[@]}") ;;
+    plm)      CONFIGS=("${IGBERT_CONFIGS[@]}" "${PROTBERT_CONFIGS[@]}") ;;
+    *) echo "❌ Unknown suite '$SUITE'. Use: oas | antigen | all | igbert | protbert | plm."; exit 1 ;;
 esac
 
 # Fail fast with a clear message if the required processed data is missing,
 # rather than burning GPU time before crashing on the first config that needs it.
-if [[ "$SUITE" == "oas" || "$SUITE" == "all" ]] \
+# oas, all, and the PLM suites (igbert/protbert/plm) all train on the OAS paired data.
+if [[ "$SUITE" =~ ^(oas|all|igbert|protbert|plm)$ ]] \
     && [[ ! -f dataset/data/processed/processed_paired_data.json ]]; then
     echo "❌ Missing dataset/data/processed/processed_paired_data.json — run dataset/preprocess_paired.py first."
     exit 1

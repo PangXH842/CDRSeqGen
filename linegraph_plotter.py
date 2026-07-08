@@ -53,6 +53,7 @@ def plot_linegraph(runs_dict, metric="eval_loss", title="Comparison", save_dir="
     plt.legend()
 
     output_basename = filename if filename else f"{metric}_curve"
+    os.makedirs(save_dir, exist_ok=True)
     output_name = os.path.join(save_dir, f"{output_basename}.png")
     plt.savefig(output_name, dpi=300, bbox_inches='tight')
     print(f"✅ Plot successfully saved as: {output_name}")
@@ -64,7 +65,7 @@ if __name__ == "__main__":
     parser.add_argument("--metric", type=str, default="eval_accuracy", choices=["eval_loss", "eval_accuracy"], help="Metric to plot (eval_loss or eval_accuracy)")
     parser.add_argument("--title", type=str, default=None, help="Optional custom title for the plot")
     parser.add_argument("--filename", type=str, default=None, help="Optional custom filename for the saved plot (without extension)")
-    parser.add_argument("--save_dir", type=str, default=".", help="Directory to save the plot. Defaults to current directory.")
+    parser.add_argument("--save_dir", type=str, default="results/pngs", help="Directory to save the plot (created if missing). Defaults to results/pngs.")
     args = parser.parse_args()
 
     # Convert the list of parsed pairs into a dictionary
