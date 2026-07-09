@@ -112,14 +112,27 @@ def _bert_tokenizer(mt, pos, wrap):
     return TokenizerAdapter.from_hf(hf_tok, position_type=pos, uses_special_tokens=wrap, space_residues=True)
 
 
+def _load_bert_model(name_or_path):
+    # Some protein-BERT repos (e.g. Rostlab/prot_bert) ship a config.json with NO model_type key,
+    # so AutoModelForMaskedLM/AutoConfig can't resolve them ("Unrecognized model") even though the
+    # architecture is plainly BertForMaskedLM. Try Auto first (works for IgBert etc.), then fall
+    # back to the concrete BertForMaskedLM class.
+    from transformers import AutoModelForMaskedLM, BertForMaskedLM
+    print(f"🧬 Loading protein-BERT masked-LM: {name_or_path}")
+    try:
+        return AutoModelForMaskedLM.from_pretrained(name_or_path)
+    except (ValueError, KeyError):
+        return BertForMaskedLM.from_pretrained(name_or_path)
+
+
 register(Backbone(
     id="protein_bert",
     matches=lambda mt: "bert" in mt.lower(),   # IgBert, prot_bert, AntiBERTy, ...
     position_type="absolute",
     uses_special_tokens=True,
     load_tokenizer=_bert_tokenizer,
-    load_training_model=lambda mt, **kw: _load_automodel(mt),
-    load_pretrained_model=lambda path: _load_automodel(path),
+    load_training_model=lambda mt, **kw: _load_bert_model(mt),
+    load_pretrained_model=lambda path: _load_bert_model(path),
 ))
 
 
