@@ -77,7 +77,7 @@ Convert a raw OAS dataset into our custom "Bio-Object" JSON format. This filters
 ```bash
 python dataset/preprocess_paired.py \
     --input_file dataset/data/raw/1287169_1_Paired_All.csv \
-    --output_file dataset/data/processed/processed_paired_data.json
+    --output_file dataset/data/processed/processed_oas_data.json
 ```
 
 **Antigen-conditioned data (SAbDab2):** for the `_ag` configs, download SAbDab2's ML-grade structural splits (~876MB, one-time) and preprocess them into the same Bio-Object schema plus an `antigen` field. Unlike OAS, SAbDab2's own `abag_split.csv` already carries IMGT-numbered CDR columns and a leakage-safe train/test split, so this step is pure CSV parsing — no structure/CIF parsing or re-numbering needed.

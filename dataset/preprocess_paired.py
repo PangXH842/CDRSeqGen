@@ -170,7 +170,7 @@ def preprocess_oas_paired(file_path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Preprocess OAS paired antibody data.")
     parser.add_argument("--input_file", help="Path to the input CSV file", default="./raw/1287169_1_Paired_All.csv")
-    parser.add_argument("--output_file", help="Path to the output JSON file", default="./processed/processed_paired_data.json")
+    parser.add_argument("--output_file", help="Path to the output JSON file", default="./processed/processed_oas_data.json")
     parser.add_argument("--split", choices=["cluster", "random", "none"], default="cluster",
                         help="Train/test 'split' field to attach. 'cluster' (default) = CDR3-identity "
                              "clustered holdout (leakage-safe, recommended); 'random' = seeded per-entry "

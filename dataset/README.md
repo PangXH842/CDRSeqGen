@@ -7,7 +7,7 @@ Prepare data for **conditional CDR infilling** — predicting a masked CDR loop 
 ## 🛠 Data Sources
 Two independent datasets feed the framework. **They are different train *and* test distributions — keep them on separate charts** (see the top-level README's Known Issues).
 
-| | **OAS** (`processed_paired_data.json`) | **SAbDab2** (`processed_sabdab2_data.json`) |
+| | **OAS** (`processed_oas_data.json`) | **SAbDab2** (`processed_sabdab2_data.json`) |
 |---|---|---|
 | Origin | Observed Antibody Space — repertoire sequencing | SAbDab2 ML-grade structural splits (Zenodo) |
 | Content | Human, paired (H+L), productive | Paired antibody + resolved protein/peptide **antigen** |

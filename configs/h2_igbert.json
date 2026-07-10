@@ -2,7 +2,7 @@
     "model_type": "Exscientia/IgBert",
     "target_region": "h2",
     "include_partner_chain": false,
-    "data_path": "dataset/data/processed/processed_paired_data.json",
+    "data_path": "dataset/data/processed/processed_oas_data.json",
     "max_len": 128,
     "output_dir": "./results",
     "do_train": true,

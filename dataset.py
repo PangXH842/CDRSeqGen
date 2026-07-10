@@ -245,7 +245,7 @@ if __name__ == "__main__":
     # Test the dataset. The dataset expects a TokenizerAdapter, not a raw tokenizer.
     import functools
     adapter = TokenizerAdapter.from_custom(AntibodyTokenizer())
-    dataset = AntibodyInfillingDataset("processed_paired_data.json", adapter)
+    dataset = AntibodyInfillingDataset("processed_oas_data.json", adapter)
     collate = functools.partial(collate_fn, pad_token_id=adapter.pad_id)
     dataloader = DataLoader(dataset, batch_size=4, collate_fn=collate)
 

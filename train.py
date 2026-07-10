@@ -37,7 +37,8 @@ logger = logging.getLogger(__name__)
 # more-specific substrings before more-general ones.
 DATASET_TAGS = [
     ("sabdab2", "SD2"),  # SAbDab2 antibody-antigen structural data
-    ("paired",  "OAS"),  # OAS paired heavy/light repertoire data
+    ("oas",     "OAS"),  # OAS paired repertoire data (processed_oas_data.json)
+    ("paired",  "OAS"),  # legacy filename (processed_paired_data.json)
 ]
 UNKNOWN_DATASET_TAG = "DS"  # fallback so an unrecognised source is still visibly tagged
 
@@ -75,7 +76,7 @@ class ModelArguments:
 class DataArguments:
     """Arguments pertaining to what data we are going to input."""
     data_path: str = field(
-        default="dataset/data/processed/processed_paired_data.json",
+        default="dataset/data/processed/processed_oas_data.json",
         metadata={"help": "The path to the processed JSON data file."}
     )
     max_len: int = field(
