@@ -160,9 +160,10 @@ def get_datasets(model_args, data_args, training_args, backbone) -> Tuple[torch.
     )
 
     # Split
-    # SAbDab2-derived data carries its own leakage-safe "split" field (from abag_split.csv);
-    # honor it instead of a fresh random split when every entry has one. OAS-derived data has
-    # no such field and falls back to the original random split.
+    # Honor a per-entry "split" field when every entry has one: SAbDab2 carries its own
+    # leakage-safe split (from abag_split.csv), and OAS now can too via preprocess_paired.py
+    # --split cluster (CDR3-identity clustered holdout). Only data preprocessed WITHOUT a split
+    # field falls back to the fresh random split below, which leaks clonal near-duplicates.
     if len(full_dataset) > 0 and all('split' in entry for entry in full_dataset.data):
         train_idx = [i for i, entry in enumerate(full_dataset.data) if entry['split'] == 'train']
         val_idx = [i for i, entry in enumerate(full_dataset.data) if entry['split'] != 'train']

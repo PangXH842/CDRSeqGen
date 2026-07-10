@@ -48,8 +48,7 @@ CDRSeqGen/
 ├── train.py                    # HF Trainer pipeline with automated CSV/PNG metric extraction
 ├── rescore.py                  # Re-evaluate a finished run with the anchor-aware metric (no retraining)
 ├── scripts/
-│   ├── run_all.sh              # Runs the OAS and/or SAbDab2-antigen (heavy-CDR) suites on one GPU
-│   └── run_lcdr.sh             # Runs the light-CDR (l1/l2/l3) suite — the mirror of the OAS heavy matrix
+│   └── run.sh                  # Unified runner: ./scripts/run.sh <gpu> [oas|antigen|lcdr|igbert|protbert|plm|all ...]
 ├── linegraph_plotter.py        # CLI tool for multi-line graph comparisons
 └── README.md                   # This file
 ```
@@ -97,20 +96,19 @@ We use `.json` configuration files to manage hyperparameters cleanly. The traine
 CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_scratch.json
 ```
 
-**Run an Automated Experiment Suite:** the suite scripts take a GPU id, fail fast if the processed data they need isn't there, run scratch first (cheap — a broken config surfaces before burning time on ESM-2), and skip to the next config if one fails.
+**Run an Automated Experiment Suite:** [`scripts/run.sh`](scripts/run.sh) takes a GPU id and one or more suite names, fails fast if the processed data a suite needs isn't there, runs scratch first (cheap — a broken config surfaces before burning time on ESM-2/PLMs), and skips to the next config if one fails.
 ```bash
-# Heavy-CDR suites — scripts/run_all.sh <gpu> [oas|antigen|all|igbert|protbert|plm] (default all)
-./scripts/run_all.sh 4            # scratch+ESM-2: 12 OAS + 12 antigen configs
-./scripts/run_all.sh 4 oas        # just the 3x2x2 OAS heavy matrix (h1/h2/h3)
-./scripts/run_all.sh 4 antigen    # just the 3x2x2 SAbDab2 antigen-conditioned matrix
+# One runner, suites chosen (and combined) by arg:  ./scripts/run.sh <gpu> [suite ...]
+./scripts/run.sh 4                # default "all": OAS heavy + SAbDab2 antigen + OAS light (36)
+./scripts/run.sh 4 oas            # OAS heavy matrix, scratch+ESM-2 (h1/h2/h3)          (12)
+./scripts/run.sh 4 antigen        # SAbDab2 heavy antigen matrix (_ag / _ag_lconly)     (12)
+./scripts/run.sh 4 lcdr           # OAS light matrix (l1/l2/l3, heavy-chain context)    (12)
+./scripts/run.sh 4 oas lcdr       # combine suites — deduped, run in order              (24)
 
-# Antibody/protein-BERT PLM backbones on OAS (first run downloads a ~1.6GB model each)
-./scripts/run_all.sh 4 igbert     # IgBert (antibody-specific) — 6 configs
-./scripts/run_all.sh 4 protbert   # ProtBert (general-protein baseline) — 6 configs
-./scripts/run_all.sh 4 plm        # both (igbert + protbert), 12 configs
-
-# Light-CDR suite — scripts/run_lcdr.sh <gpu>  (l1/l2/l3, heavy chain as partner context)
-./scripts/run_lcdr.sh 4           # 3x2x2 OAS light matrix (12 configs)
+# Antibody/protein-BERT PLM backbones on OAS heavy (first run downloads a ~1.6GB model each)
+./scripts/run.sh 4 igbert         # IgBert (antibody-specific)                           (6)
+./scripts/run.sh 4 protbert       # ProtBert (general-protein baseline)                  (6)
+./scripts/run.sh 4 plm            # both (igbert + protbert)                            (12)
 ```
 
 ### Step 3: Result Visualization & Comparison
@@ -212,7 +210,7 @@ All |Δ| ≤ 0.03, sign inconsistent. Not a truncation artifact (60% of examples
 **Done** (findings live in Known Issues; bug fixes in its changelog):
 - Full 3-CDR × 2-dataset **heavy matrix (24 runs)** trained; the valid antigen ablation (`_ag` vs `_ag_lconly`) is complete → **no measurable antigen benefit**, and it survives the anchor-excluded core metric. [07-03/04/08]
 - **Anchor-excluded metric** (`core_accuracy`/`anchor_accuracy` + [`rescore.py`](rescore.py)); explicit extensible **dataset tagging** (`DATASET_TAGS`, `_OAS`/`_SD2`); re-ran the full post-fix ESM-2 matrix. [07-03/04/08]
-- **Light-CDR (`l1/l2/l3`) infilling**: dataset generalized to target either chain, single `include_partner_chain` flag, unified `h*/l*` target vocabulary, 12 configs + [`scripts/run_lcdr.sh`](scripts/run_lcdr.sh). [07-08]
+- **Light-CDR (`l1/l2/l3`) infilling**: dataset generalized to target either chain, single `include_partner_chain` flag, unified `h*/l*` target vocabulary, 12 configs (run via the `lcdr` suite in [`scripts/run.sh`](scripts/run.sh)). [07-08]
 - **Antibody/protein BERT backbones** (IgBert, ProtBert) via the registry + a residue-spacing tokenizer shim; 6 IgBert OAS configs. [07-08]
 
 **Open — near-term:**
