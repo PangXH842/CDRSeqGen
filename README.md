@@ -32,7 +32,7 @@ CDRSeqGen/
 ├── dataset/
 │   ├── data/                   # Ignored in git (Raw and Processed OAS + SAbDab2 data)
 │   │   └── download_sabdab2.sh # Downloads + extracts SAbDab2's ML-grade splits.tar.gz from Zenodo
-│   ├── preprocess_paired.py    # OAS: data cleaning and IMGT formatting
+│   ├── preprocess_oas_paired.py    # OAS: data cleaning and IMGT formatting
 │   └── preprocess_sabdab2.py   # SAbDab2: paired antibody-antigen structures -> Bio-Object JSON
 ├── results/                    # Auto-generated timestamped model checkpoints
 ├── test/                       # JSON files containing curated sequences for benchmarking
@@ -75,7 +75,7 @@ This project uses Conda for strict CUDA handling and pip for Hugging Face tools.
 ### Step 1: Preprocessing Data
 Convert a raw OAS dataset into our custom "Bio-Object" JSON format. This filters for productive sequences, extracts the 14 regions, and preserves `ANARCI` numbering.
 ```bash
-python dataset/preprocess_paired.py \
+python dataset/preprocess_oas_paired.py \
     --input_file dataset/data/raw/1287169_1_Paired_All.csv \
     --output_file dataset/data/processed/processed_oas_data.json
 ```

@@ -15,7 +15,7 @@
 #
 # Scratch runs come first within each suite (cheap — a broken config fails fast before ESM-2/PLMs);
 # a failed run is logged and skipped. OAS suites use whatever split the processed JSON carries
-# (clustered by default; see dataset/preprocess_paired.py).
+# (clustered by default; see dataset/preprocess_oas_paired.py).
 
 GPU_ID=${1:-0}
 shift 2>/dev/null
@@ -98,8 +98,8 @@ echo "🧬 CDRSeqGen runner  |  GPU $GPU_ID  |  suites: ${SUITES[*]}  |  ${#CONF
 echo "=========================================================="
 
 # --- Fail fast if the processed data a suite needs isn't there yet -----------------------------
-if [[ $NEEDS_OAS -eq 1 && ! -f dataset/data/processed/processed_paired_data.json ]]; then
-    echo "❌ Missing dataset/data/processed/processed_paired_data.json — run dataset/preprocess_paired.py first."
+if [[ $NEEDS_OAS -eq 1 && ! -f dataset/data/processed/processed_oas_data.json ]]; then
+    echo "❌ Missing dataset/data/processed/processed_oas_data.json — run dataset/preprocess_oas_paired.py first."
     exit 1
 fi
 if [[ $NEEDS_SD2 -eq 1 && ! -f dataset/data/processed/processed_sabdab2_data.json ]]; then

@@ -13,8 +13,8 @@ Two independent datasets feed the framework. **They are different train *and* te
 | Content | Human, paired (H+L), productive | Paired antibody + resolved protein/peptide **antigen** |
 | Size | 21,106 sequences | 3,984 complexes (**3,234 train / 750 test**) |
 | Antigen | none | yes (`antigen` field populated) |
-| Split | CDR3-clustered holdout via `preprocess_paired.py --split cluster` (default), written to a `split` field; `--split random` for the legacy leaky split | dataset's **own leakage-safe** cluster split (carried in a `split` field) |
-| Preprocessor | `preprocess_paired.py` | `preprocess_sabdab2.py` |
+| Split | CDR3-clustered holdout via `preprocess_oas_paired.py --split cluster` (default), written to a `split` field; `--split random` for the legacy leaky split | dataset's **own leakage-safe** cluster split (carried in a `split` field) |
+| Preprocessor | `preprocess_oas_paired.py` | `preprocess_sabdab2.py` |
 | Download | (raw `.csv.gz` provided) | `data/download_sabdab2.sh` (~876MB, one-time) |
 
 **Why two?** OAS gives repertoire-scale sequence data for the base infilling task; SAbDab2 is the only source with bound antigens, needed for antigen-conditioned generation — but it is ~5× smaller, so numbers from the two are not comparable.
@@ -72,7 +72,7 @@ A List of Dictionaries (JSON). OAS entries have `antigen: null`; SAbDab2 entries
 ## 📝 Usage Notes
 *   **Decompress OAS:** `pd.read_csv(file, compression='gzip', skiprows=1)`.
 *   **Debug subset:** `1287169_1_Paired_All.csv.gz` (21,106 seqs) before scaling to the full 3M+ dataset.
-*   **OAS clustered split (homology-leakage fix).** A plain random split leaks *clonal near-duplicates* (CDR3s a few somatic mutations apart) into both train and eval, making OAS eval optimistic. `preprocess_paired.py --split cluster` (now the default) fixes this: it greedily clusters heavy CDR3s at ≥85% identity and holds out **whole clusters**, writing a leakage-safe `split` field that `train.py` honors automatically. Measured on the current 21,106-seq file: the random split leaks **3.6%** of the test set (test entries with a clonal relative in train); the clustered split leaks **0%**. Runs preprocessed before this used the leaky random split and should be re-run for honest numbers. Note the greedy clustering is same-length/identity-based (captures somatic hypermutation, not indels) and O(n²)-ish within length groups — fine at 21k (~10s); for the 1M+ scale-up, swap in MMseqs2/CD-HIT.
+*   **OAS clustered split (homology-leakage fix).** A plain random split leaks *clonal near-duplicates* (CDR3s a few somatic mutations apart) into both train and eval, making OAS eval optimistic. `preprocess_oas_paired.py --split cluster` (now the default) fixes this: it greedily clusters heavy CDR3s at ≥85% identity and holds out **whole clusters**, writing a leakage-safe `split` field that `train.py` honors automatically. Measured on the current 21,106-seq file: the random split leaks **3.6%** of the test set (test entries with a clonal relative in train); the clustered split leaks **0%**. Runs preprocessed before this used the leaky random split and should be re-run for honest numbers. Note the greedy clustering is same-length/identity-based (captures somatic hypermutation, not indels) and O(n²)-ish within length groups — fine at 21k (~10s); for the 1M+ scale-up, swap in MMseqs2/CD-HIT.
 
 ---
 
