@@ -1,12 +1,21 @@
-# 🧬 CDRSeqGen: Modular Antibody Infilling Framework
+# CDRSeqGen: Modular Antibody Infilling Framework
 
-**Date Updated:** July 8, 2026  
-**Status:** Custom Transformer + ESM-2 + antibody/protein BERT (IgBert) backbones · heavy (h1-h3) & light (l1-l3) CDR infilling · partner-chain + SAbDab2 antigen context · anchor-excluded metric. Full heavy 3-CDR × 2-dataset matrix (24 runs) trained; antigen ablation complete (no measurable antigen benefit yet — see Known Issues).
+**Date Updated:** 2026-07-15  
+**Status:** Adjusting roadmap for specified objective
 
-## 📌 Project Overview
+## Project Overview
 CDRSeqGen is a computational immunology framework designed to predict antibody loop sequences given the surrounding framework context. 
 
-Unlike standard text-based string models, this framework treats antibodies as **Structured Biological Objects**. By cleanly separating the 14 IMGT-defined regions (Frameworks 1-4 and CDRs 1-3 for both Heavy and Light chains), the codebase scales seamlessly from simple CDR-H3 infilling to multi-loop predictions, light-chain aware generation, antigen-aware generation, and eventually 3D structural embeddings.
+Current implemented features include: 
+- **Data Preprocessing**: standardize data into Bio-Object JSON format (IMGT), current datasets: OAS (21106 paired sequences) and SAbDab2 (3984 paired + antigen structures)
+- **Addressing Data Leakage**: clustered train/test split for OAS to prevent clonal near-duplicate leakage
+- **Task-Agnostic Masking**: masking training method for all 6 CDR loops individually by target selection
+- **Pluggable Backbone PLMs**: supports various PLMs, current list: custom transformer (scratch), ESM-2, IgBert, ProtBert
+- **Partner Chain Context**: optional inclusion of non-target chain sequence context
+- **Antigen Context**: optional inclusion of antigen sequence context for SAbDab2 dataset
+- **Evaluation Metrics**: currently implemented: Sequence Recovery Rate (Per-Residue Accuracy), anchor-excluded core accuracy, and anchor accuracy
+- **Logging & Visualization**: TensorBoard logging, csv metric extraction, multi-line graph plotter 
+- **Extensible Architecture**: modular design for easy addition of new PLMs, datasets, and evaluation metrics
 
 ---
 
@@ -14,43 +23,31 @@ Unlike standard text-based string models, this framework treats antibodies as **
 
 ```text
 CDRSeqGen/
-├── configs/                    # target (h1/h2/h3 heavy, l1/l2/l3 light) x model (scratch/esm2/igbert/protbert) x context
-│   ├── h{1,2,3}_scratch[.json|_lc|_ag|_ag_lconly] + h{1,2,3}_esm2[...]   # heavy-CDR suite (target = h*)
-│   ├── h{1,2,3}_igbert[.json|_lc] + h{1,2,3}_protbert[.json|_lc]         # protein-BERT PLMs on OAS (IgBert/ProtBert)
-│   └── l{1,2,3}_scratch[.json|_hc] + l{1,2,3}_esm2[.json|_hc]            # light-CDR suite (target = l*)
-│       # TARGET: h1/h2/h3 mask a heavy CDR; l1/l2/l3 mask a light CDR (target_region in the config).
-│       # PARTNER CONTEXT (include_partner_chain): prepends the *other* chain — light for an h*
-│       #   target (run tag _LC), heavy for an l* target (run tag _HC). One flag, symmetric.
-│       # DATASET MATTERS: base/_lc/_hc train on OAS; _ag AND _ag_lconly train on SAbDab2 (different data).
-│       # _lc = OAS heavy + light context. _hc = OAS light + heavy context. _ag = SAbDab2 + light + antigen.
-│       # _ag_lconly = SAbDab2 + light chain, NO antigen -- the matched ablation baseline for _ag
-│       #              (the ONLY valid same-test-set comparison for isolating the antigen effect).
-│       # Run names carry an explicit dataset tag (_OAS / _SD2) resolved from an extensible
-│       # DATASET_TAGS registry in train.py -- an unrecognised source is tagged _DS with a warning,
-│       # never left blank. (Runs before 2026-07-04 used the older implicit scheme: no OAS tag, _SD;
-│       # and target_region used the older cdr*/lcdr* spelling, still accepted for back-compat.)
+├── configs/                    
+│   ├── h{1,2,3}_scratch[.json|_lc|_ag|_ag_lconly] + h{1,2,3}_esm2[...]   
+│   ├── h{1,2,3}_igbert[.json|_lc] + h{1,2,3}_protbert[.json|_lc]         
+│   └── l{1,2,3}_scratch[.json|_hc] + l{1,2,3}_esm2[.json|_hc]            
 ├── dataset/
 │   ├── data/                   # Ignored in git (Raw and Processed OAS + SAbDab2 data)
-│   │   └── download_sabdab2.sh # Downloads + extracts SAbDab2's ML-grade splits.tar.gz from Zenodo
-│   ├── preprocess_oas_paired.py    # OAS: data cleaning and IMGT formatting
-│   └── preprocess_sabdab2.py   # SAbDab2: paired antibody-antigen structures -> Bio-Object JSON
-├── results/                    # Auto-generated timestamped model checkpoints
+│   ├── preprocess_oas_paired.py    
+│   └── preprocess_sabdab2.py   
+├── results/                    # Ignored in git (Auto-generated timestamped model checkpoints)
 ├── test/                       # JSON files containing curated sequences for benchmarking
 │   ├── test_h1.json
 │   ├── test_h3.json
 │   ├── test_h3_lc.json
 │   └── test_h3_ag.json
-├── backbones.py                # Model registry — add a new PLM (AbLang, ProtBert, ...) in ONE entry here
+├── backbones.py                # PLM model registry 
 ├── dataset.py                  # Tokenizers, TokenizerAdapter, Dataset logic, and Collator
-├── env.sh                      # One-click environment setup script
-├── model.py                    # The from-scratch custom transformer definition
-├── predict.py                  # Inference script for generating novel loops
-├── train.py                    # HF Trainer pipeline with automated CSV/PNG metric extraction
-├── rescore.py                  # Re-evaluate a finished run with the anchor-aware metric (no retraining)
+├── env.sh                      
+├── model.py                    # Custom transformer (scratch) definition
+├── predict.py                  # Inference script for CDR loop generation
+├── train.py                    # Main training script
+├── rescore.py                  # Re-evaluate finished runs with anchor-aware metric (no retraining)
 ├── scripts/
 │   └── run.sh                  # Unified runner: ./scripts/run.sh <gpu> [oas|antigen|lcdr|igbert|protbert|plm|all ...]
-├── linegraph_plotter.py        # CLI tool for multi-line graph comparisons
-└── README.md                   # This file
+├── linegraph_plotter.py        # Utility for data visualization
+└── README.md                   
 ```
 
 ---
@@ -73,16 +70,17 @@ This project uses Conda for strict CUDA handling and pip for Hugging Face tools.
 ## 🚀 Workflow & Execution
 
 ### Step 1: Preprocessing Data
-Convert a raw OAS dataset into our custom "Bio-Object" JSON format. This filters for productive sequences, extracts the 14 regions, and preserves `ANARCI` numbering.
+Convert datasets into a custom "Bio-Object" JSON format, extracting the regions and preserving `ANARCI` numbering.
+
+**OAS**: currently only including 21106 paired sequences from 1287169_1_Paired_All.csv, pending future scale-ups
 ```bash
 python dataset/preprocess_oas_paired.py \
     --input_file dataset/data/raw/1287169_1_Paired_All.csv \
     --output_file dataset/data/processed/processed_oas_data.json
 ```
 
-**Antigen-conditioned data (SAbDab2):** for the `_ag` configs, download SAbDab2's ML-grade structural splits (~876MB, one-time) and preprocess them into the same Bio-Object schema plus an `antigen` field. Unlike OAS, SAbDab2's own `abag_split.csv` already carries IMGT-numbered CDR columns and a leakage-safe train/test split, so this step is pure CSV parsing — no structure/CIF parsing or re-numbering needed.
+**SAbDab2**: currently including 3984 structures - paired with resolved antigen, remaining >10k structures without antigen pending future inclusion
 ```bash
-bash dataset/data/download_sabdab2.sh
 python dataset/preprocess_sabdab2.py \
     --input_file dataset/data/raw/sabdab2/splits_final/abag_split.csv \
     --output_file dataset/data/processed/processed_sabdab2_data.json
@@ -96,7 +94,7 @@ We use `.json` configuration files to manage hyperparameters cleanly. The traine
 CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_scratch.json
 ```
 
-**Run an Automated Experiment Suite:** [`scripts/run.sh`](scripts/run.sh) takes a GPU id and one or more suite names, fails fast if the processed data a suite needs isn't there, runs scratch first (cheap — a broken config surfaces before burning time on ESM-2/PLMs), and skips to the next config if one fails.
+**Run an Automated Experiment Suite:** [`scripts/run.sh`](scripts/run.sh) takes a GPU id and one or more suite names, skips to the next config if one fails.
 ```bash
 # One runner, suites chosen (and combined) by arg:  ./scripts/run.sh <gpu> [suite ...]
 ./scripts/run.sh 4                # default "all": OAS heavy + SAbDab2 antigen + OAS light (36)
@@ -122,67 +120,35 @@ python linegraph_plotter.py \
   --title "Sequence Recovery Comparison: Scratch vs ESM-2"
 ```
 
-> **⚠️ Never mix datasets on one chart.** OAS (`_OAS`) and SAbDab2 (`_SD2`) runs are evaluated on *different test sets*, so their accuracies are not comparable on shared axes — plot one graph per dataset (e.g. `cdr3_oas` with the 4 OAS runs, `cdr3_sd2` with the 4 SAbDab2 runs). The `results/comparisons/*_oas_*.png` / `*_sd2_*.png` pairs follow this convention.
+<!-- > **⚠️ Never mix datasets on one chart.** OAS (`_OAS`) and SAbDab2 (`_SD2`) runs are evaluated on *different test sets*, so their accuracies are not comparable on shared axes — plot one graph per dataset (e.g. `cdr3_oas` with the 4 OAS runs, `cdr3_sd2` with the 4 SAbDab2 runs). The `results/comparisons/*_oas_*.png` / `*_sd2_*.png` pairs follow this convention. -->
 
 ### Step 4: Batch Inference & Evaluation
-Evaluate your trained model on a library of specific antibody frameworks using JSON test files. The model acts as a "Design Tool," filling the gap and comparing it to the ground truth.
+Evaluate the trained model on a library of specific antibody frameworks using JSON test files. 
 
 ```bash
 python predict.py \
-    --model_type facebook/esm2_t12_35M_UR50D \
+    --model_type scratch \
     --model_path ./results/latest \
     --test_file test/test_h3.json
 ```
 
 ---
 
-## 🧠 Key Architectural Features
+## 📊 Findings
 
-### 1. Task-Agnostic Masking (The "LEGO" Principle)
-The `AntibodyInfillingDataset` separates sequences into `pt1` (left context), `mask` (target gap), and `pt2` (right context). The `target_region` string alone chooses the loop — `h1/h2/h3` mask a heavy CDR, `l1/l2/l3` mask the *light* chain's CDR (the mirror case; the older `cdr*`/`lcdr*` spellings are still accepted). Switching target requires changing zero core tokenization logic. Labels are strictly length-enforced to prevent cross-entropy dimension mismatches.
+Phase 1 (the sequence sweep) is a **leakage-safe benchmark** for CDR infilling. What it establishes:
 
-### 2. Pluggable Backbones (the extensibility core)
-Model choice is a **registry**, not a chain of `if "esm2" in name` checks. [`backbones.py`](backbones.py) holds one `Backbone` entry per model family; `train.py`, `predict.py`, and `dataset.py` never branch on model type — they all go through `resolve(model_type)`, which returns the matching backbone and a uniform `TokenizerAdapter`. The same pipeline trains the from-scratch transformer, fine-tunes ESM-2, or fine-tunes any Hugging Face masked-LM just by changing the `"model_type"` string.
+**1. Model choice doesn't matter on OAS.** A 128-dim from-scratch transformer matches ESM-2 *and* antibody-specific IgBert on the H3 anchor-excluded core (0.31–0.32, clustered split); every model clusters within ~0.02. → the OAS ceiling is **data/task-bound, not model-bound.** Pretraining only pays off in the *small-data* regime — on the ~5× smaller SAbDab2, scratch→ESM-2 lifts H3 0.21→0.32 (though ESM-2 overfits there — read best-epoch).
 
-Each backbone declares two conventions **explicitly** instead of letting them be guessed from the tokenizer (the previous code overloaded a single `is_esm` boolean to mean three different things, which silently mishandled non-ESM models):
-- **`position_type`** (`"absolute"` | `"relative"`) — controls where antigen context is injected (see §4). Absolute-position models (the scratch transformer, BERT-style protein LMs) need it appended after the target; relative/rotary models (ESM-2) can take it prepended.
-- **`uses_special_tokens`** — whether inputs are wrapped as `[cls] … [end]`. The `TokenizerAdapter` also resolves the ESM-vs-BERT separator difference generically (`<eos>` when the tokenizer has one, else `<sep>`), so BERT-style tokenizers with `eos_token_id = None` work without special-casing.
+**2. CDR-H3 is the only hard loop.** Anchor-excluded core recovery: H1/H2/L1/L2/L3 all ~0.90+, **H3 ~0.32**. Matches the biology — heavy CDR3 gets D-gene + junctional diversity; the rest is comparatively templated. The entire design difficulty concentrates in one loop.
 
-**Adding a new PLM (e.g. AbLang, ProtBert, ESM-C) is one registry entry** — often *zero*, because any `AutoModelForMaskedLM` + `AutoTokenizer` with absolute positions is already covered by the generic `hf_encoder` fallback (just pass its hub id as `model_type`). Add an explicit `register(Backbone(...))` above the fallback only when a model needs different conventions (e.g. relative positions, or a bespoke tokenizer/model class). No edits to `train.py`/`predict.py`/`dataset.py` are needed either way.
-
-### 3. Partner Chain Context Injection
-Biologically, Heavy and Light chains physically interact, so the framework can prepend the paired **partner chain** (the non-target chain) to `pt1` (separated by `<eos>`) when `"include_partner_chain": true` is passed, enriching structural context. It's symmetric: for a heavy (`h*`) target the partner is the light chain (run tag `_LC`); for a light (`l*`) target the partner is the heavy chain (run tag `_HC`). A single flag covers both directions — the target region determines which chain gets added.
-
-### 4. Antigen Context Injection (SAbDab2)
-Same "LEGO" pattern as light-chain injection, but **the injection side is keyed on the backbone's `position_type`** (§2) — this isn't cosmetic, it fixes a real bug (see Known Issues below). For **relative**-position models (ESM-2), the antigen is prepended *ahead of* the light chain into `pt1`: `antigen <sep> light <sep> heavy_pt1 <mask> pt2`. For **absolute**-position models (the scratch transformer, and BERT-style PLMs), the antigen is instead *appended* into `pt2`, with the light chain still prepended to `pt1`: `light <sep> heavy_pt1 <mask> fwr4 <sep> antigen`. Multi-chain antigens are joined with `X` (the standard "unknown residue" convention) as a soft chain-break marker, since the amino-acid tokenizer has no token for a literal chain separator.
-
-Antigen sequences (up to ~2,300 residues for large multi-chain complexes) made the pre-existing "no truncation" gap in `AntibodyInfillingDataset` actually bite, so this feature also added a real length cap, applied on whichever side carries the antigen: truncated from the left for relative-position `pt1`, from the right for absolute-position `pt2` — always dropping antigen context first and keeping the heavy-chain residues immediately adjacent to the masked loop.
-
-This data comes from `dataset/preprocess_sabdab2.py`, which is a *different, much smaller* dataset than the OAS-derived one — 3,984 paired-chain (heavy+light) structures with a resolved protein/peptide antigen (3,234 train / 750 test), versus OAS's repertoire-scale sequencing data. `train.py` detects the `"split"` field this preprocessing script attaches to every entry and uses SAbDab2's own leakage-safe split instead of drawing a fresh random one (OAS-derived data has no such field and is unaffected). Both preprocessors report a per-stage filter breakdown (how many rows were dropped for non-productive/wrong-type/malformed-numbering/missing-regions) so the final count is auditable rather than a black box.
-
-**Explicit dataset tagging (extensible).** Every run's output-dir name states its data source so runs are never silently confused on a chart (the old scheme left OAS *untagged*, so an `_SD`-less name ambiguously read as "OAS" or "self-distillation" or "std-dev"). `train.py` resolves the tag from a module-level `DATASET_TAGS` registry — an ordered `(substring, tag)` list (`sabdab2 → SD2`, `paired → OAS`), first match wins — via `dataset_tag(data_path)`. Adding a new source is one line; an unrecognised path is tagged `DS` **with a logged warning** rather than left blank. Runs produced before 2026-07-04 predate this and carry the old implicit tags (`_SD`, no OAS tag).
-
-### 5. Automated Tracking & Evaluation
-*   **TensorBoard:** Live tracking via `"report_to": "tensorboard"`.
-*   **Metric Extraction:** At the end of training, `train.py` automatically parses Hugging Face logs, dumps `epoch_metrics.csv`, and generates standalone `.png` curves for Loss and Sequence Recovery Rate.
-
----
-
-## ⚠️ Known Issues & Evaluation Caveats (as of July 8, 2026)
-
-### Live caveats — keep these in mind when reading any result
-
-**`eval_accuracy` is anchor-inflated (worst for H3).** The whole-span average is dominated by the 2-3 V/J-gene-determined anchor residues at each loop end (predicted ~80-100% by any model); the hypervariable middle that's actually being "designed" is far lower. On H3 the gap is large — whole-span 0.361 vs anchor-excluded **core 0.221** (`h3_esm2`, SAbDab2). This is now measurable: `compute_metrics` logs `core_accuracy`/`anchor_accuracy`, and [`rescore.py`](rescore.py) re-scores any finished run. Report core (or position-stratified) recovery, not the raw average — especially for the high H1/H2 numbers (0.97-0.996 on OAS). Position-resolved (`h3_esm2`):
+**3. The standard metric misleads (anchor inflation).** Whole-span `eval_accuracy` (~0.46 on H3) is dominated by the 2-3 V/J-gene-determined anchor residues at each loop end (~0.90 recovery, any model); the hypervariable middle actually being "designed" is ~0.32. The gap is **H3-specific** (H1/H2/L core ≈ whole-span). Measured via `core_accuracy`/`anchor_accuracy` + [`rescore.py`](rescore.py). Position-resolved (illustrative, `h3_esm2`):
 
 | Position from start | 0 | 1 | 2 | 3 | 4 | 5 |
 |---|---|---|---|---|---|---|
 | Accuracy | 100% | 89% | 35% | 21% | 20% | 14% |
 
-**ESM-2's benefit is dataset-size-specific.** On OAS (21k) ESM-2 ≈ scratch — H3 0.455 vs 0.458, H1/H2 both ~0.99 — the from-scratch transformer already saturates the task, so pretraining adds nothing (and light-chain context slightly *hurts* H3). On the ~5× smaller SAbDab2 pretraining wins big: H1 0.49→0.72, H2 0.37→0.60, H3 0.21→0.32 (scratch→ESM-2, lc-only). "ESM-2 doesn't help" holds *only* in the large-data regime.
-
-**ESM-2 overfits on SAbDab2.** Curves peak then decline over 10 epochs (H3 esm2+lc 0.361→0.320). `load_best_model_at_end` saves the peak, so read best-epoch not final-epoch numbers there, and consider early stopping.
-
-**Antigen conditioning gives no measurable benefit.** The valid same-data ablation (`_ag` vs `_ag_lconly`, SAbDab2, all 3 CDRs) shows no signal — and it *survives the anchor-excluded core metric* too, so it isn't a measurement artifact:
+**4. Sequence context — partner chain and antigen — gives no measurable benefit.** The valid same-data antigen ablation (`_ag` vs `_ag_lconly`, SAbDab2, all 3 CDRs) shows no signal, and it *survives the core metric*:
 
 | CDR | scratch lc-only → +ag | ESM-2 lc-only → +ag |
 |---|---|---|
@@ -190,39 +156,97 @@ This data comes from `dataset/preprocess_sabdab2.py`, which is a *different, muc
 | H2 | 0.370 → 0.365 | 0.599 → 0.595 |
 | H3 | 0.205 → 0.212 | 0.320 → 0.324 |
 
-All |Δ| ≤ 0.03, sign inconsistent. Not a truncation artifact (60% of examples keep the full antigen at `max_len=512`). Likely the data budget (~3.2k) and/or the flat-context mechanism — cross-attention or an explicit epitope/contact signal is the promising next lever. **Never plot OAS and SAbDab2 on shared axes** (different test sets); the `_OAS`/`_SD2` run tags enforce the distinction, and per-dataset charts live in `results/pngs/*_{oas,sd2}_*.png`.
+|Δ| ≤ 0.03, sign inconsistent. Not a truncation artifact (60% of examples keep the full antigen at `max_len=512`). Partner-chain context is likewise net-neutral-to-negative (overhead for the small model). **Interpretation:** binding information is geometric, not linear-sequence — so the next lever is structure / cross-attention, not more sequence context.
 
-**OAS and SAbDab2 use different leakage standards.** SAbDab2 has a sequence-identity-cluster split; OAS uses a plain random `train_test_split` ([train.py](train.py)) that leaks clonal near-duplicates (same V/J, CDR3s a few mutations apart) into eval, making **OAS numbers optimistic relative to SAbDab2**. CD-HIT / clustered-split dedup is a *prerequisite* for the 1M+ scale-up, not a nice-to-have.
+**5. The homology leak was real but immaterial.** OAS's original random split leaked clonal near-duplicates (3.6% of the test set share a CDR3 cluster with train). The clustered-split fix removed it (→0%), and re-running confirmed the H3 core moved by **≤0.004** — the conclusions above are robust to it. (Now the default; see [`preprocess_oas_paired.py`](dataset/preprocess_oas_paired.py).)
 
-### Fixed bugs (changelog)
-- **2026-07-08** — `CustomAntibodyModel.from_pretrained` silently returned *randomly initialized* weights (never loaded the checkpoint, no warning) — had also been breaking `predict.py` for scratch models. Now loads the state dict explicitly (strict).
-- **2026-07-03** — `collate_fn` padded with a hardcoded `0`, which is ESM-2's `<cls>` id, zeroing the real `<cls>` out of every `attention_mask`. Now threads the correct `pad_token_id` per tokenizer.
-- **2026-07-03** — `predict.py` built ESM-2 inputs without the `<cls>`/`<eos>` wrap that training uses (train/inference mismatch). Now mirrors the training-time construction.
-- **2026-07-03** — scratch model couldn't learn from antigen context (flat ~0.145): absolute position embeddings + a variable-length *prepended* antigen shifted the target unpredictably. Fixed by appending antigen after the target for absolute-position models (see §4); climbs to ~0.21.
-- **2026-07-03** — `CustomAntibodyModel.forward()` ignored `attention_mask` (attended over padding); now passed as `src_key_padding_mask`.
-- **2026-07-03** — config `hidden_size`/`num_layers`/`max_len` were dropped by the model builder (defaults always used) and `max_position_embeddings` was hardcoded to 512; now threaded through and sized `max(max_len, 512)`.
-- **2026-07-03** — preprocessing: narrowed a bare `except: continue`, added null/empty-region guards and a per-stage filter breakdown (dropped 1 degenerate SAbDab2 entry, 3,985→3,984).
+> **Bottom line:** sequence-only CDR infilling saturates at ~0.32 H3 core regardless of model, context, or dataset quality — which is exactly what motivates the shift to a **structure objective** (see Roadmap).
+
+---
+
+## 🧠 Architectural Feature Details
+
+### 1. Task-Agnostic Masking (The "LEGO" Principle)
+The `AntibodyInfillingDataset` separates sequences into `pt1` (left context), `mask` (target gap), and `pt2` (right context). The `target_region` string alone chooses the loop — `h1/h2/h3` mask a heavy CDR, `l1/l2/l3` mask the *light* chain's CDR (legacy `cdr*`/`lcdr*` spellings still parse). Switching target requires changing zero core tokenization logic. Labels are strictly length-enforced to prevent cross-entropy dimension mismatches.
+
+### 2. Pluggable Backbones (the extensibility core)
+The model registry [`backbones.py`](backbones.py) holds one `Backbone` entry per model family; `train.py`, `predict.py`, and `dataset.py` never branch on model type — they all go through `resolve(model_type)`, which returns the matching backbone and a uniform `TokenizerAdapter`. The same pipeline trains the from-scratch transformer, fine-tunes ESM-2, or fine-tunes any Hugging Face masked-LM just by changing the `"model_type"` string.
+
+Each backbone declares two conventions **explicitly** instead of letting them be guessed from the tokenizer (the previous code overloaded a single `is_esm` boolean to mean three different things, which silently mishandled non-ESM models):
+- **`position_type`** (`"absolute"` | `"relative"`) — controls where antigen context is injected (see §4). Absolute-position models (the scratch transformer, BERT-style protein LMs) need it appended after the target; relative/rotary models (ESM-2) can take it prepended.
+- **`uses_special_tokens`** — whether inputs are wrapped as `[cls] … [end]`. The `TokenizerAdapter` also resolves the ESM-vs-BERT separator difference generically (`<eos>` when the tokenizer has one, else `<sep>`), so BERT-style tokenizers with `eos_token_id = None` work without special-casing.
+
+**Adding a new PLM is usually one `register(Backbone(...))` entry** — occasionally *zero*, when a model is already covered by the generic `hf_encoder` fallback (any `AutoModelForMaskedLM` + `AutoTokenizer`, absolute positions, per-character vocab — just pass its hub id as `model_type`). In practice most protein LMs need an explicit entry: e.g. BERT-style ones (ProtBert, IgBert) expect *whitespace-separated* residues and ship tokenizer/loader quirks (a fast-tokenizer that needs `sentencepiece`, or a `config.json` with no `model_type`), all handled once in the `protein_bert` backbone. Either way, no edits to `train.py`/`predict.py`/`dataset.py` are needed.
+
+### 3. Partner Chain Context Injection
+Biologically, Heavy and Light chains physically interact, so the framework can prepend the paired **partner chain** (the non-target chain) to `pt1` (separated by `<eos>`) when `"include_partner_chain": true` is passed, enriching structural context. It's symmetric: for a heavy (`h*`) target the partner is the light chain (run tag `_LC`); for a light (`l*`) target the partner is the heavy chain (run tag `_HC`). A single flag covers both directions — the target region determines which chain gets added.
+
+### 4. Antigen Context Injection (SAbDab2)
+Same "LEGO" pattern as partner-chain injection (§3), but **the injection side is keyed on the backbone's `position_type`**. For **relative**-position models (ESM-2), the antigen is prepended *ahead of* the light chain into `pt1`: `antigen <sep> light <sep> heavy_pt1 <mask> pt2`. For **absolute**-position models (the scratch transformer, and BERT-style PLMs), the antigen is instead *appended* into `pt2`, with the light chain still prepended to `pt1`: `light <sep> heavy_pt1 <mask> fwr4 <sep> antigen`. Multi-chain antigens are joined with `X` (the standard "unknown residue" convention) as a soft chain-break marker, since the amino-acid tokenizer has no token for a literal chain separator.
+
+Antigen sequences (up to ~2,300 residues for large multi-chain complexes) made the pre-existing "no truncation" gap in `AntibodyInfillingDataset` actually bite, so this feature also added a real length cap, applied on whichever side carries the antigen: truncated from the left for relative-position `pt1`, from the right for absolute-position `pt2` — always dropping antigen context first and keeping the target-chain residues immediately adjacent to the masked loop.
+
+### 5. Automated Tracking & Evaluation
+*   **TensorBoard:** Live tracking via `"report_to": "tensorboard"`.
+*   **Metric Extraction:** At the end of training, `train.py` parses the Hugging Face logs, dumps `epoch_metrics.csv` (loss + recovery, whole-span **and** the anchor-excluded `core`/`anchor` accuracies), and generates standalone `.png` curves.
+
+### 6. Extensibility Principles
+The recurring rule: **a new capability is added in one place, and the rest of the pipeline stays oblivious.** Four "add-one-line" seams:
+- **New model** → one `Backbone` entry in [`backbones.py`](backbones.py) (§2) — `train.py`/`predict.py`/`dataset.py` never learn about it.
+- **New target loop** → change the `target_region` string (§1); masking logic is untouched.
+- **New context** → one boolean flag (`include_partner_chain`, `include_antigen`), resolved symmetrically (§3–4).
+- **New dataset source** → one `(substring, tag)` pair in `train.py`'s `DATASET_TAGS` registry (`oas → OAS`, `sabdab2 → SD2`), so every run's output-dir name states its source explicitly instead of leaving it silently implied; an unrecognised path is tagged `DS` **with a logged warning** rather than left blank.
+
+The guiding constraint: **conventions are declared explicitly, never inferred.** The predecessor overloaded a single `is_esm` boolean to mean three different things and silently mishandled non-ESM models; each backbone now states its `position_type` and `uses_special_tokens` up front. This isn't free — protein-BERT models (IgBert/ProtBert) still needed their own entry for residue-spacing and tokenizer/loader quirks (§2) — but the cost is paid once, in the registry, not scattered across the pipeline.
+
+---
+
+## ⚠️ Current Issues 
+*(current as of 2026-07-15; update per commit)*
+
+### Open problems
+- **Evaluation is narrow.** Only accuracy + loss (+ the anchor-excluded core). No diversity / novelty / perplexity — and recovery *rewards copying the native*, the opposite of design. This is the main blocker on judging the design objective.
+- **Decoder is argmax-only.** [`predict.py`](predict.py) decodes greedily per masked position — no temperature/sampling, no joint decoding — so no generative evaluation is possible yet (gates the metrics above).
+- **Single-seed runs.** Small differences (e.g. light chain hurts scratch ~0.01, neutral for ESM-2) need multiple seeds + error bars before they can be claimed.
+- **Structure not yet available.** SAbDab2 preprocessing parses *sequences* only; the Phase-2 structure objective needs a coordinate-parsing step (or predicted structures via IgFold/ABlooper).
+
+### How to read the numbers 
+- **Report core, not whole-span** — whole-span is anchor-inflated on H3 (Findings §3).
+- **Read best-epoch, not last-epoch** — ESM-2 overfits on SAbDab2/H3; `load_best_model_at_end` saves the peak, but the last CSV row can sit well below it.
+- **Never plot OAS and SAbDab2 on shared axes** — different test sets; the `_OAS`/`_SD2` run tags enforce it, and per-dataset charts live in `results/pngs/*_{oas,sd2}_*.png`.
+
+### Changelog
+- **2026-07-15** -- Polished README (half-manually), updated roadmap (pending manual edit)
 
 ---
 
 ## ⏭️ Roadmap
+*(to be manually edited)*
 
-**Done** (findings live in Known Issues; bug fixes in its changelog):
-- Full 3-CDR × 2-dataset **heavy matrix (24 runs)** trained; the valid antigen ablation (`_ag` vs `_ag_lconly`) is complete → **no measurable antigen benefit**, and it survives the anchor-excluded core metric. [07-03/04/08]
-- **Anchor-excluded metric** (`core_accuracy`/`anchor_accuracy` + [`rescore.py`](rescore.py)); explicit extensible **dataset tagging** (`DATASET_TAGS`, `_OAS`/`_SD2`); re-ran the full post-fix ESM-2 matrix. [07-03/04/08]
-- **Light-CDR (`l1/l2/l3`) infilling**: dataset generalized to target either chain, single `include_partner_chain` flag, unified `h*/l*` target vocabulary, 12 configs (run via the `lcdr` suite in [`scripts/run.sh`](scripts/run.sh)). [07-08]
-- **Antibody/protein BERT backbones** (IgBert, ProtBert) via the registry + a residue-spacing tokenizer shim; 6 IgBert OAS configs. [07-08]
+> **Framing (reframed 2026-07-15):** the project runs **objective-first**. Masking, PLMs, and context injection are *mechanisms*, not goals — the deliverable is measurable progress on a **defined design objective**. The exploratory sequence sweep is **Phase 1: a leakage-safe benchmark** that establishes how far sequence-only CDR infilling can go; its result motivates the **Phase 2** objective.
 
-**Open — near-term:**
-- **Make antigen conditioning actually work** (the core research question): cross-attention to the antigen or an explicit epitope/contact signal instead of flat context, and/or more antigen data (~3.2k is thin). This supersedes fiddling with the current injection.
-- **Run the IgBert and light-CDR suites** (both wired, not yet swept). IgBert vs ESM-2 on OAS tests whether the OAS ceiling is model-bound — the cheap way to check before any data scale-up.
-- **Fine-tune `scratch_ag` from an OAS-pretrained checkpoint** rather than from scratch — pretraining is what carries the small-data SAbDab2 regime (`h3_scratch_ag` ~0.21 vs `h3_esm2_ag` ~0.32).
-- Early stopping / best-epoch reporting for the overfitting SAbDab2 runs.
-- **Clustered/dedup OAS split** (CD-HIT) — fixes the optimistic-eval leakage and is a prerequisite for any scale-up.
-- **Generative eval beyond recovery** (diversity / novelty / perplexity) — recovery rewards copying the native, the opposite of design.
+### 🎯 Objective
+**Design CDR-H3** — the one hard, therapeutically decisive loop (H1/H2/L1-L3 are already near-solved on the core, so they're not the target).
+- **Phase 1 — sequence benchmark (largely done).** *How well can sequence-only infilling recover CDR-H3 under a leakage-safe protocol?* → **~0.32 anchor-excluded core, flat across model / context / dataset.** The ceiling is **data/task-bound, not model-bound**.
+- **Phase 2 — structure objective (next; lock the exact target with advisor).** *Generate CDR-H3 with minimal **RMSD-to-native** (→ eventually antigen binding).* Motivated directly by Phase 1: sequence is saturated, so the objective moves to structure. Primary metric: RMSD-to-native; later a docking/binding proxy.
 
-**Open — mid/long-term:**
-- **AbLang2** proper — ships a non-HF tokenizer, so it needs a small `load_tokenizer` shim (unlike the HF-native IgBert/ProtBert already supported).
-- **IgLM** baseline — the field-standard comparison, but GPT-2/autoregressive, so it needs its own generation/scoring path rather than a drop-in `model_type`.
-- **Data expansion:** OAS → 1M+ (paired with the clustered split above).
-- **Structure:** IgFold/ABlooper-derived CDR coordinates as conditioning; antigen-aware structure-conditioned generation (informed by dyMEAN, DiffAb rather than building diffusion machinery from scratch).
+### Phase 1 — benchmark: done
+- Heavy + light OAS matrices and the SAbDab2 antigen ablation trained; **leakage-safe clustered OAS split** implemented and the OAS heavy matrix re-run on it (findings unchanged — leak was immaterial, ≤0.004 core). [07-03 → 07-10]
+- **Anchor-excluded core metric** (`core_accuracy`/`anchor_accuracy` + [`rescore.py`](rescore.py)); **IgBert/ProtBert backbones**; unified `h*/l*` targets + single `include_partner_chain` flag; extensible dataset tagging.
+- Findings (see Known Issues): model choice doesn't matter on OAS; H3 is the only hard loop; anchor inflation is H3-specific; sequence partner/antigen context give no lift.
+
+### Phase 1 — benchmark: to finish (makes it a clean, defensible result)
+- **Generative eval beyond recovery** — add a sampler (temperature/top-k; the decoder is argmax-only today) and diversity / novelty / perplexity, so *design* is measured rather than *copying the native*. **This is the gating item** — recovery alone can't judge a design objective.
+- Re-run the light-CDR + PLM suites on the clustered split for one fully consistent leakage-safe table; retrain ProtBert (loader now fixed).
+- Multi-seed the key H3 configs so the ±0.01 model/context differences carry error bars.
+
+### Phase 2 — structure objective (the pivot)
+- **Get structure coordinates** — currently only *sequences* are parsed; needs a structure-parsing step (SAbDab provides structures) or predicted coordinates via IgFold/ABlooper.
+- **Structure-aware methods as tools for the objective:** IPA, E(n)-equivariant GNNs, diffusion — informed by dyMEAN / DiffAb rather than built from scratch.
+- **Antigen conditioning, done right:** cross-attention / epitope-contact signal. The sequence version was provably inert, so this belongs in the structure phase, not more sequence-context tweaking.
+
+### Deliverables
+The iterated framework · a **leakage-safe CDR benchmark** (Phase 1 result) · and, if Phase 2 lands, a **structure-conditioned H3 design method**. → benchmark paper and/or novel method.
+
+### Deprioritized (Phase-1 evidence says low value for the objective)
+- More sequence PLMs (AbLang2, IgLM) and OAS scale-up **for the recovery objective** — model choice and data quality barely move the H3 core. Data scale-up may still matter, but paired with the *structure* objective or a *functional* metric, not sequence recovery.
