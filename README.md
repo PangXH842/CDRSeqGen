@@ -1,6 +1,6 @@
 # CDRSeqGen: Modular Antibody Infilling Framework
 
-**Date Updated:** 2026-07-15  
+**Date Updated:** 2026-07-16  
 **Status:** Adjusting roadmap for specified objective
 
 ## Project Overview
@@ -216,37 +216,64 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **Never plot OAS and SAbDab2 on shared axes** — different test sets; the `_OAS`/`_SD2` run tags enforce it, and per-dataset charts live in `results/pngs/*_{oas,sd2}_*.png`.
 
 ### Changelog
+- **2026-07-16** Updated roadmap (checklists)
 - **2026-07-15** -- Polished README (half-manually), updated roadmap (pending manual edit)
 
 ---
 
 ## ⏭️ Roadmap
-*(to be manually edited)*
 
-> **Framing (reframed 2026-07-15):** the project runs **objective-first**. Masking, PLMs, and context injection are *mechanisms*, not goals — the deliverable is measurable progress on a **defined design objective**. The exploratory sequence sweep is **Phase 1: a leakage-safe benchmark** that establishes how far sequence-only CDR infilling can go; its result motivates the **Phase 2** objective.
+> **Objective-first:** the target is **CDR-H3 design**. **Phase 1** = a leakage-safe *sequence benchmark* (done — establishes the ~0.32 core ceiling; see Findings). **Phase 2** = *structure-conditioned* design (RMSD-to-native; exact target to lock with advisor). Everything below is a tool toward that objective.
 
-### 🎯 Objective
-**Design CDR-H3** — the one hard, therapeutically decisive loop (H1/H2/L1-L3 are already near-solved on the core, so they're not the target).
-- **Phase 1 — sequence benchmark (largely done).** *How well can sequence-only infilling recover CDR-H3 under a leakage-safe protocol?* → **~0.32 anchor-excluded core, flat across model / context / dataset.** The ceiling is **data/task-bound, not model-bound**.
-- **Phase 2 — structure objective (next; lock the exact target with advisor).** *Generate CDR-H3 with minimal **RMSD-to-native** (→ eventually antigen binding).* Motivated directly by Phase 1: sequence is saturated, so the objective moves to structure. Primary metric: RMSD-to-native; later a docking/binding proxy.
+**General — next steps**
+- [ ] Sampler in `predict.py` (temperature / top-k) + generative metrics — **gating item**: recovery can't judge design
+- [ ] Multi-seed the key H3 configs (error bars on the ±0.01 model/context deltas)
+- [ ] Lock the Phase-2 objective + primary metric with advisor
 
-### Phase 1 — benchmark: done
-- Heavy + light OAS matrices and the SAbDab2 antigen ablation trained; **leakage-safe clustered OAS split** implemented and the OAS heavy matrix re-run on it (findings unchanged — leak was immaterial, ≤0.004 core). [07-03 → 07-10]
-- **Anchor-excluded core metric** (`core_accuracy`/`anchor_accuracy` + [`rescore.py`](rescore.py)); **IgBert/ProtBert backbones**; unified `h*/l*` targets + single `include_partner_chain` flag; extensible dataset tagging.
-- Findings (see Known Issues): model choice doesn't matter on OAS; H3 is the only hard loop; anchor inflation is H3-specific; sequence partner/antigen context give no lift.
+**Datasets**
+- OAS
+  - [x] 21,106 paired sequences (`1287169_1_Paired_All.csv`)
+  - [ ] Remaining paired sequences (→ 1M+ scale)
+  - [ ] Unpaired sequences
+- SAbDab2
+  - [x] 3,984 paired Ab with resolved antigen
+  - [ ] Remaining ~10k+ structures without antigen
+- Other sources
+  - [ ] SAbDab (full) / Thera-SAbDab
 
-### Phase 1 — benchmark: to finish (makes it a clean, defensible result)
-- **Generative eval beyond recovery** — add a sampler (temperature/top-k; the decoder is argmax-only today) and diversity / novelty / perplexity, so *design* is measured rather than *copying the native*. **This is the gating item** — recovery alone can't judge a design objective.
-- Re-run the light-CDR + PLM suites on the clustered split for one fully consistent leakage-safe table; retrain ProtBert (loader now fixed).
-- Multi-seed the key H3 configs so the ±0.01 model/context differences carry error bars.
+**Preprocessing**
+- [x] Bio-Object JSON schema (14 IMGT regions)
+- [x] Partner-chain context (light ↔ heavy)
+- [x] Antigen context (SAbDab2)
+- [x] Clustered split — homology-leak-safe (OAS)
+- [ ] Structure / coordinate parsing (for Phase 2)
+- [ ] Unpaired-OAS preprocessor (`preprocess_oas_unpaired.py`)
 
-### Phase 2 — structure objective (the pivot)
-- **Get structure coordinates** — currently only *sequences* are parsed; needs a structure-parsing step (SAbDab provides structures) or predicted coordinates via IgFold/ABlooper.
-- **Structure-aware methods as tools for the objective:** IPA, E(n)-equivariant GNNs, diffusion — informed by dyMEAN / DiffAb rather than built from scratch.
-- **Antigen conditioning, done right:** cross-attention / epitope-contact signal. The sequence version was provably inert, so this belongs in the structure phase, not more sequence-context tweaking.
+**Training / methods**
+- Sequence-only
+  - [x] Masked-LM infilling objective
+  - Models
+    - [x] From-scratch transformer (baseline — *not* pretrained)
+    - [x] ESM-2 (general PLM)
+    - [x] IgBert (antibody PLM)
+    - [x] ProtBert (general-protein PLM)
+    - [ ] AbLang2  *(low priority — model choice barely moves OAS; see Findings)*
+    - [ ] IgLM  *(autoregressive — needs its own generation/scoring path)*
+- Structure-aware  *(Phase 2)*
+  - [ ] Invariant Point Attention (IPA)
+  - [ ] E(n)-equivariant GNNs
+  - [ ] Diffusion (dyMEAN / DiffAb-informed)
+  - [ ] Antigen cross-attention / epitope-contact signal  *(the flat-sequence version was inert)*
 
-### Deliverables
-The iterated framework · a **leakage-safe CDR benchmark** (Phase 1 result) · and, if Phase 2 lands, a **structure-conditioned H3 design method**. → benchmark paper and/or novel method.
+**Evaluation**
+- [x] Sequence recovery (AAR) — whole-span
+- [x] Anchor-excluded **core** recovery (+ [`rescore.py`](rescore.py))
+- [ ] Perplexity / pseudo-perplexity
+- [ ] Diversity & novelty  *(needs the sampler above)*
+- [ ] Structure metrics — RMSD, TM-score  *(Phase 2)*
 
-### Deprioritized (Phase-1 evidence says low value for the objective)
-- More sequence PLMs (AbLang2, IgLM) and OAS scale-up **for the recovery objective** — model choice and data quality barely move the H3 core. Data scale-up may still matter, but paired with the *structure* objective or a *functional* metric, not sequence recovery.
+**Long-term objectives / deliverables**
+- Leakage-safe **benchmark** for CDR-infilling methods (the Phase-1 result)
+- Structure-conditioned CDR-H3 design
+- Integrated sequence + structure design framework
+- → benchmark paper and/or a novel antibody-design method
