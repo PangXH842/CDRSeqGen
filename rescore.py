@@ -27,8 +27,8 @@ from train import (
     _core_anchor_masks,
     ANCHOR_TRIM,
 )
-from backbones import resolve
-from dataset import collate_fn
+from cdrseqgen.models.backbones import resolve
+from cdrseqgen.data.dataset import collate_fn
 
 MAX_POS = 16  # positions-from-start reported in the stratified breakdown
 

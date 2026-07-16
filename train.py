@@ -18,9 +18,9 @@ from transformers import (
     set_seed
 )
 
-from dataset import AntibodyInfillingDataset, collate_fn
-from backbones import resolve
-from linegraph_plotter import plot_linegraph
+from cdrseqgen.data.dataset import AntibodyInfillingDataset, collate_fn
+from cdrseqgen.models.backbones import resolve
+from cdrseqgen.eval.linegraph_plotter import plot_linegraph
 
 # Setup Logging
 logging.basicConfig(

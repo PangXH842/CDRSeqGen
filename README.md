@@ -23,31 +23,35 @@ Current implemented features include:
 
 ```text
 CDRSeqGen/
-├── configs/                    
-│   ├── h{1,2,3}_scratch[.json|_lc|_ag|_ag_lconly] + h{1,2,3}_esm2[...]   
-│   ├── h{1,2,3}_igbert[.json|_lc] + h{1,2,3}_protbert[.json|_lc]         
-│   └── l{1,2,3}_scratch[.json|_hc] + l{1,2,3}_esm2[.json|_hc]            
-├── dataset/
+├── configs/                    # 48 run configs (flat; run.sh references them by path)
+│   ├── h{1,2,3}_scratch[.json|_lc|_ag|_ag_lconly] + h{1,2,3}_esm2[...]
+│   ├── h{1,2,3}_igbert[.json|_lc] + h{1,2,3}_protbert[.json|_lc]
+│   └── l{1,2,3}_scratch[.json|_hc] + l{1,2,3}_esm2[.json|_hc]
+├── cdrseqgen/                  # Library package — grouped by concern (entrypoints stay at root)
+│   ├── data/dataset.py         # Tokenizers, TokenizerAdapter, Dataset logic, Collator
+│   ├── models/
+│   │   ├── backbones.py        # PLM model registry (resolve)
+│   │   └── model.py            # Custom transformer (scratch) definition
+│   └── eval/
+│       ├── sampling.py         # Decoders (greedy/independent/iterative Mask-Predict) + pseudo-perplexity
+│       ├── metrics.py          # Pure sequence stats: recovery, diversity, novelty, per-position entropy
+│       └── linegraph_plotter.py  # Training-curve plotting utility
+├── dataset/                    # Data + preprocessing (stays put: configs' data_path points here)
 │   ├── data/                   # Ignored in git (Raw and Processed OAS + SAbDab2 data)
-│   ├── preprocess_oas_paired.py    
-│   └── preprocess_sabdab2.py   
+│   ├── preprocess_oas_paired.py
+│   └── preprocess_sabdab2.py
 ├── results/                    # Ignored in git (Auto-generated timestamped model checkpoints)
 ├── test/                       # JSON files containing curated sequences for benchmarking
 │   ├── test_h1.json
 │   ├── test_h3.json
 │   ├── test_h3_lc.json
 │   └── test_h3_ag.json
-├── backbones.py                # PLM model registry 
-├── dataset.py                  # Tokenizers, TokenizerAdapter, Dataset logic, and Collator
-├── env.sh                      
-├── model.py                    # Custom transformer (scratch) definition
-├── predict.py                  # Inference script for CDR loop generation
-├── train.py                    # Main training script
-├── rescore.py                  # Re-evaluate finished runs with anchor-aware metric (no retraining)
-├── scripts/
-│   └── run.sh                  # Unified runner: ./scripts/run.sh <gpu> [oas|antigen|lcdr|igbert|protbert|plm|all ...]
-├── linegraph_plotter.py        # Utility for data visualization
-└── README.md                   
+├── train.py                    # Entrypoint — training   (python train.py configs/x.json)
+├── predict.py                  # Entrypoint — sampling + generative evaluation
+├── rescore.py                  # Entrypoint — re-score a finished run with the anchor-aware metric
+├── scripts/run.sh              # Unified runner: ./scripts/run.sh <gpu> [oas|antigen|lcdr|igbert|protbert|plm|all ...]
+├── env.sh
+└── README.md
 ```
 
 ---
@@ -122,15 +126,25 @@ python linegraph_plotter.py \
 
 <!-- > **⚠️ Never mix datasets on one chart.** OAS (`_OAS`) and SAbDab2 (`_SD2`) runs are evaluated on *different test sets*, so their accuracies are not comparable on shared axes — plot one graph per dataset (e.g. `cdr3_oas` with the 4 OAS runs, `cdr3_sd2` with the 4 SAbDab2 runs). The `results/comparisons/*_oas_*.png` / `*_sd2_*.png` pairs follow this convention. -->
 
-### Step 4: Batch Inference & Evaluation
-Evaluate the trained model on a library of specific antibody frameworks using JSON test files. 
+### Step 4: Batch Sampling & Generative Evaluation
+Fill the CDR gap for a library of antibody frameworks (JSON test files) and score the results. The
+default `--decoding greedy` reproduces the old argmax report; the sampling modes draw `--num_samples`
+candidates per framework and report the **generative metrics** recovery can't (diversity, novelty vs.
+native, native-free pseudo-perplexity). Samples + metrics are also written to `<model_path>/generation_results.json`.
 
 ```bash
-python predict.py \
-    --model_type scratch \
-    --model_path ./results/latest \
-    --test_file test/test_h3.json
+# Argmax (recovery-style) report — unchanged default
+python predict.py --model_type scratch --model_path ./results/latest --test_file test/test_h3.json
+
+# Sample 50 H3 designs per framework: nucleus sampling + iterative (Mask-Predict) decoding
+python predict.py --model_type scratch --model_path ./results/latest --test_file test/test_h3.json \
+    --decoding iterative --num_samples 50 --temperature 1.0 --top_p 0.9
 ```
+
+`--decoding`: `greedy` (argmax, deterministic) · `independent` (per-position sampling, 1 forward pass) ·
+`iterative` (confidence-ordered Mask-Predict — conditions each residue on those already committed, so
+intra-H3 dependencies are respected). Warp with `--temperature` / `--top_k` / `--top_p`; `--skip_perplexity`
+drops the compute-heavy per-candidate scoring; `--seed` makes a run reproducible.
 
 ---
 
@@ -170,7 +184,7 @@ Phase 1 (the sequence sweep) is a **leakage-safe benchmark** for CDR infilling. 
 The `AntibodyInfillingDataset` separates sequences into `pt1` (left context), `mask` (target gap), and `pt2` (right context). The `target_region` string alone chooses the loop — `h1/h2/h3` mask a heavy CDR, `l1/l2/l3` mask the *light* chain's CDR (legacy `cdr*`/`lcdr*` spellings still parse). Switching target requires changing zero core tokenization logic. Labels are strictly length-enforced to prevent cross-entropy dimension mismatches.
 
 ### 2. Pluggable Backbones (the extensibility core)
-The model registry [`backbones.py`](backbones.py) holds one `Backbone` entry per model family; `train.py`, `predict.py`, and `dataset.py` never branch on model type — they all go through `resolve(model_type)`, which returns the matching backbone and a uniform `TokenizerAdapter`. The same pipeline trains the from-scratch transformer, fine-tunes ESM-2, or fine-tunes any Hugging Face masked-LM just by changing the `"model_type"` string.
+The model registry [`backbones.py`](cdrseqgen/models/backbones.py) holds one `Backbone` entry per model family; `train.py`, `predict.py`, and `dataset.py` never branch on model type — they all go through `resolve(model_type)`, which returns the matching backbone and a uniform `TokenizerAdapter`. The same pipeline trains the from-scratch transformer, fine-tunes ESM-2, or fine-tunes any Hugging Face masked-LM just by changing the `"model_type"` string.
 
 Each backbone declares two conventions **explicitly** instead of letting them be guessed from the tokenizer (the previous code overloaded a single `is_esm` boolean to mean three different things, which silently mishandled non-ESM models):
 - **`position_type`** (`"absolute"` | `"relative"`) — controls where antigen context is injected (see §4). Absolute-position models (the scratch transformer, BERT-style protein LMs) need it appended after the target; relative/rotary models (ESM-2) can take it prepended.
@@ -192,7 +206,7 @@ Antigen sequences (up to ~2,300 residues for large multi-chain complexes) made t
 
 ### 6. Extensibility Principles
 The recurring rule: **a new capability is added in one place, and the rest of the pipeline stays oblivious.** Four "add-one-line" seams:
-- **New model** → one `Backbone` entry in [`backbones.py`](backbones.py) (§2) — `train.py`/`predict.py`/`dataset.py` never learn about it.
+- **New model** → one `Backbone` entry in [`backbones.py`](cdrseqgen/models/backbones.py) (§2) — `train.py`/`predict.py`/`dataset.py` never learn about it.
 - **New target loop** → change the `target_region` string (§1); masking logic is untouched.
 - **New context** → one boolean flag (`include_partner_chain`, `include_antigen`), resolved symmetrically (§3–4).
 - **New dataset source** → one `(substring, tag)` pair in `train.py`'s `DATASET_TAGS` registry (`oas → OAS`, `sabdab2 → SD2`), so every run's output-dir name states its source explicitly instead of leaving it silently implied; an unrecognised path is tagged `DS` **with a logged warning** rather than left blank.
@@ -205,8 +219,8 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 *(current as of 2026-07-15; update per commit)*
 
 ### Open problems
-- **Evaluation is narrow.** Only accuracy + loss (+ the anchor-excluded core). No diversity / novelty / perplexity — and recovery *rewards copying the native*, the opposite of design. This is the main blocker on judging the design objective.
-- **Decoder is argmax-only.** [`predict.py`](predict.py) decodes greedily per masked position — no temperature/sampling, no joint decoding — so no generative evaluation is possible yet (gates the metrics above).
+- **Generative metrics built, not yet swept.** [`predict.py`](predict.py) now samples (see below) and reports diversity / novelty / pseudo-perplexity per framework, but they haven't been run across the model/context matrix — so there are no *design-quality* findings yet, only the recovery ceiling. Next: sweep the H3 configs and decide which generative metric(s) headline. **Training still optimizes masked-LM recovery**, which rewards copying the native; a design-aligned objective is still open.
+- **Sampler is marginal-based, not learned-joint.** The `iterative` (Mask-Predict) decoder approximates the loop joint by conditioning on committed residues, but the model is still a masked-LM trained on independent-position recovery — true joint/generative *training* (autoregressive or diffusion) is Phase-2 territory.
 - **Single-seed runs.** Small differences (e.g. light chain hurts scratch ~0.01, neutral for ESM-2) need multiple seeds + error bars before they can be claimed.
 - **Structure not yet available.** SAbDab2 preprocessing parses *sequences* only; the Phase-2 structure objective needs a coordinate-parsing step (or predicted structures via IgFold/ABlooper).
 
@@ -216,6 +230,8 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **Never plot OAS and SAbDab2 on shared axes** — different test sets; the `_OAS`/`_SD2` run tags enforce it, and per-dataset charts live in `results/pngs/*_{oas,sd2}_*.png`.
 
 ### Changelog
+- **2026-07-16** Repo restructure: library modules moved into a `cdrseqgen/` package (`data/` · `models/` · `eval/`); entrypoints (`train.py`/`predict.py`/`rescore.py`) stay at root and are still run the same way. Imports are now `cdrseqgen.*`; configs/`dataset/`/`scripts` unchanged. Removed empty `model/` + `train/` cruft dirs.
+- **2026-07-16** Sampler + generative metrics: `predict.py` now samples (independent / iterative Mask-Predict, temp/top-k/top-p); added [`sampling.py`](cdrseqgen/eval/sampling.py) (decoders + pseudo-perplexity) and [`metrics.py`](cdrseqgen/eval/metrics.py) (diversity/novelty/entropy). Greedy stays the default. Roadmap/Issues updated.
 - **2026-07-16** Updated roadmap (checklists)
 - **2026-07-15** -- Polished README (half-manually), updated roadmap (pending manual edit)
 
@@ -226,7 +242,8 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 > **Objective-first:** the target is **CDR-H3 design**. **Phase 1** = a leakage-safe *sequence benchmark* (done — establishes the ~0.32 core ceiling; see Findings). **Phase 2** = *structure-conditioned* design (RMSD-to-native; exact target to lock with advisor). Everything below is a tool toward that objective.
 
 **General — next steps**
-- [ ] Sampler in `predict.py` (temperature / top-k) + generative metrics — **gating item**: recovery can't judge design
+- [x] Sampler in `predict.py` (temperature / top-k / top-p, independent + iterative Mask-Predict) + generative metrics ([`sampling.py`](cdrseqgen/eval/sampling.py), [`metrics.py`](cdrseqgen/eval/metrics.py))
+- [ ] **Sweep the generative metrics across the H3 model/context matrix** — the sampler exists; now produce design-quality findings (was: recovery can't judge design)
 - [ ] Multi-seed the key H3 configs (error bars on the ±0.01 model/context deltas)
 - [ ] Lock the Phase-2 objective + primary metric with advisor
 
@@ -268,8 +285,9 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 **Evaluation**
 - [x] Sequence recovery (AAR) — whole-span
 - [x] Anchor-excluded **core** recovery (+ [`rescore.py`](rescore.py))
-- [ ] Perplexity / pseudo-perplexity
-- [ ] Diversity & novelty  *(needs the sampler above)*
+- [x] Pseudo-perplexity — masked-LM PLL over the loop ([`sampling.py`](cdrseqgen/eval/sampling.py))
+- [x] Diversity & novelty — pairwise Hamming, unique fraction, per-position entropy, novelty-vs-native ([`metrics.py`](cdrseqgen/eval/metrics.py))
+- [ ] Novelty vs. *training set* (nearest-neighbour CDR3 identity — needs the train CDR3 index)
 - [ ] Structure metrics — RMSD, TM-score  *(Phase 2)*
 
 **Long-term objectives / deliverables**
