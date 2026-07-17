@@ -1,4 +1,5 @@
 import os
+import json
 import logging
 import sys
 import functools
@@ -142,10 +143,24 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
     parser = HfArgumentParser((ModelArguments, DataArguments, GenerationArguments, TrainingArguments))
 
     if len(sys.argv) >= 2 and sys.argv[1].endswith(".json"):
-        model_args, data_args, gen_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+        config_path = os.path.abspath(sys.argv[1])
         if len(sys.argv) > 2:
-            remaining_args = sys.argv[2:]
-            model_args, data_args, gen_args, training_args = parser.parse_args_into_dataclasses(args=remaining_args)
+            # Trailing CLI args OVERRIDE the config; they used to REPLACE it. This branch previously
+            # re-parsed only sys.argv[2:], silently discarding the JSON entirely — so
+            #   train.py configs/h3_scratch.json --learning_rate 3e-4
+            # ran at HF's defaults (3 epochs, batch 8, max_len 256) instead of the config's
+            # (10 epochs, batch 32, max_len 128), while still *looking* like an h3/scratch/OAS run
+            # because those happen to be the dataclass defaults. Feeding the JSON in as argv first
+            # and appending the real CLI args lets argparse's last-wins do the merge properly.
+            with open(config_path) as f:
+                json_cfg = json.load(f)
+            argv = []
+            for key, value in json_cfg.items():
+                argv += [f"--{key}", str(value)]
+            argv += sys.argv[2:]
+            model_args, data_args, gen_args, training_args = parser.parse_args_into_dataclasses(args=argv)
+        else:
+            model_args, data_args, gen_args, training_args = parser.parse_json_file(json_file=config_path)
     else:
         model_args, data_args, gen_args, training_args = parser.parse_args_into_dataclasses()
 
