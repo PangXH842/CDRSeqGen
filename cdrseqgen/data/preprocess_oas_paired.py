@@ -1,6 +1,7 @@
 import pandas as pd
 import ast
 import json
+import os
 import argparse
 import random
 from collections import defaultdict
@@ -169,8 +170,12 @@ def preprocess_oas_paired(file_path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Preprocess OAS paired antibody data.")
-    parser.add_argument("--input_file", help="Path to the input CSV file", default="./raw/1287169_1_Paired_All.csv")
-    parser.add_argument("--output_file", help="Path to the output JSON file", default="./processed/processed_oas_data.json")
+    # Defaults are relative to the REPO ROOT, which is where this is run from
+    # (python -m cdrseqgen.data.preprocess_oas_paired). The data blob lives outside the package.
+    parser.add_argument("--input_file", help="Path to the input CSV file",
+                        default="dataset/data/raw/1287169_1_Paired_All.csv")
+    parser.add_argument("--output_file", help="Path to the output JSON file",
+                        default="dataset/data/processed/processed_oas_data.json")
     parser.add_argument("--split", choices=["cluster", "random", "none"], default="cluster",
                         help="Train/test 'split' field to attach. 'cluster' (default) = CDR3-identity "
                              "clustered holdout (leakage-safe, recommended); 'random' = seeded per-entry "
@@ -184,6 +189,8 @@ if __name__ == "__main__":
     data = preprocess_oas_paired(args.input_file)
     add_split_field(data, args.split, args.test_size, args.seed, args.cluster_identity)
 
+    # dataset/data/ is gitignored, so the output tree does not exist on a fresh clone.
+    os.makedirs(os.path.dirname(os.path.abspath(args.output_file)), exist_ok=True)
     with open(args.output_file, 'w') as f:
         json.dump(data, f)
 

@@ -8,7 +8,7 @@ set is reconstructed identically (SAbDab2 uses its own 'split' field; OAS uses t
 seed/test_size).
 
 Example:
-    python rescore.py --config configs/h3_esm2_ag.json \
+    python eval_recovery.py --config configs/h3_esm2_ag.json \
         --model_dir results/20260703_210913_cdr3_SD_LC_AG_esm2_t12_35M_UR50D
 """
 import os
@@ -22,6 +22,7 @@ from transformers import HfArgumentParser, TrainingArguments, Trainer
 from train import (
     ModelArguments,
     DataArguments,
+    GenerationArguments,
     get_datasets,
     compute_metrics,
     _core_anchor_masks,
@@ -40,8 +41,10 @@ def main():
     ap.add_argument("--json", action="store_true", help="Emit one JSON line instead of a table.")
     args = ap.parse_args()
 
-    parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
-    model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(args.config))
+    # GenerationArguments is in the parser only so configs carrying "run_generative_eval"/"gen_*"
+    # keys still parse here; rescore itself is recovery-only.
+    parser = HfArgumentParser((ModelArguments, DataArguments, GenerationArguments, TrainingArguments))
+    model_args, data_args, _gen_args, training_args = parser.parse_json_file(json_file=os.path.abspath(args.config))
     training_args.output_dir = args.model_dir  # evaluate-only; nothing is written here
     training_args.report_to = []
     training_args.eval_strategy = "no"  # we drive eval manually via trainer.predict()

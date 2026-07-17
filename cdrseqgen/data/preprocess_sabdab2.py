@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 
 import pandas as pd
 from tqdm import tqdm
@@ -107,16 +108,20 @@ def preprocess_sabdab2(csv_path, limit=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Preprocess SAbDab2 paired antibody-antigen data.")
+    # Defaults are relative to the REPO ROOT, which is where this is run from
+    # (python -m cdrseqgen.data.preprocess_sabdab2). The data blob lives outside the package.
     parser.add_argument("--input_file", help="Path to SAbDab2's abag_split.csv",
-                         default="./raw/sabdab2/splits_final/abag_split.csv")
+                         default="dataset/data/raw/sabdab2/splits_final/abag_split.csv")
     parser.add_argument("--output_file", help="Path to the output JSON file",
-                         default="./processed/processed_sabdab2_data.json")
+                         default="dataset/data/processed/processed_sabdab2_data.json")
     parser.add_argument("--limit", type=int, default=None,
                          help="Only process the first N rows (for sanity-checking).")
     args = parser.parse_args()
 
     data = preprocess_sabdab2(args.input_file, limit=args.limit)
 
+    # dataset/data/ is gitignored, so the output tree does not exist on a fresh clone.
+    os.makedirs(os.path.dirname(os.path.abspath(args.output_file)), exist_ok=True)
     with open(args.output_file, "w") as f:
         json.dump(data, f)
 

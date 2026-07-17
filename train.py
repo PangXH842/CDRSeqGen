@@ -102,17 +102,52 @@ class DataArguments:
     )
 
 
-def setup_args() -> Tuple[ModelArguments, DataArguments, TrainingArguments]:
+@dataclass
+class GenerationArguments:
+    """Optional post-training generative evaluation (see cdrseqgen/eval/generation.py).
+
+    Training optimizes masked-LM *recovery*, which rewards copying the native loop — the opposite of
+    design. Opting in here samples a library of candidates from the finished best model and reports
+    diversity / novelty / pseudo-perplexity alongside the usual recovery curves.
+
+    Off by default, so the existing configs and quick debug runs are unaffected. Every field has a
+    default, so configs that omit these keys still parse.
+
+    NOTE on gen_judge: a judge is only meaningful *across* models (the same judge applied to each),
+    which a single training run cannot do by construction — and loading one alongside the trainer's
+    optimizer state risks OOM. So it stays off here; use eval_generative.py for judged comparisons.
+    """
+    run_generative_eval: bool = field(
+        default=False,
+        metadata={"help": "After training, sample designs from the best model and write generation_eval.json."}
+    )
+    gen_num_examples: int = field(default=150, metadata={"help": "Eval frameworks to sample (-1 = all)."})
+    gen_num_samples: int = field(default=20, metadata={"help": "Candidates per framework."})
+    gen_decoding: str = field(default="iterative", metadata={"help": "greedy | independent | iterative."})
+    gen_temperature: float = field(default=1.0, metadata={"help": "Sampling temperature."})
+    gen_top_k: int = field(default=0, metadata={"help": "Top-k filter (0 = disabled)."})
+    gen_top_p: float = field(default=0.9, metadata={"help": "Nucleus cutoff (1.0 = disabled)."})
+    gen_stratify: bool = field(default=True, metadata={"help": "Balance the draw across H3 length buckets."})
+    gen_skip_perplexity: bool = field(default=False, metadata={"help": "Skip self pseudo-perplexity."})
+    gen_seed: int = field(default=42, metadata={"help": "Seed for reproducible sampling."})
+    gen_judge: str = field(
+        default=None,
+        metadata={"help": "Independent judge LM. Normally leave unset — see class docstring; prefer eval_generative.py."}
+    )
+    gen_judge_path: str = field(default=None, metadata={"help": "Weights for the judge (default: the gen_judge id)."})
+
+
+def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, TrainingArguments]:
     """Parses CLI arguments and sets up the timestamped output directory."""
-    parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
-    
+    parser = HfArgumentParser((ModelArguments, DataArguments, GenerationArguments, TrainingArguments))
+
     if len(sys.argv) >= 2 and sys.argv[1].endswith(".json"):
-        model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+        model_args, data_args, gen_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
         if len(sys.argv) > 2:
             remaining_args = sys.argv[2:]
-            model_args, data_args, training_args = parser.parse_args_into_dataclasses(args=remaining_args)
+            model_args, data_args, gen_args, training_args = parser.parse_args_into_dataclasses(args=remaining_args)
     else:
-        model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+        model_args, data_args, gen_args, training_args = parser.parse_args_into_dataclasses()
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
@@ -141,8 +176,8 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, TrainingArguments]:
 
     os.makedirs(training_args.output_dir, exist_ok=True)
     logger.info(f"📁 Workspace initialized at: {training_args.output_dir}")
-    
-    return model_args, data_args, training_args
+
+    return model_args, data_args, gen_args, training_args
 
 
 def get_datasets(model_args, data_args, training_args, backbone) -> Tuple[torch.utils.data.Dataset, torch.utils.data.Dataset, any]:
@@ -323,8 +358,53 @@ def compute_metrics(eval_pred: EvalPrediction) -> dict:
     }
 
 
+def post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_args, training_args):
+    """Sample designs from the finished model and write generation_eval.json (opt-in).
+
+    Uses trainer.model directly: with "load_best_model_at_end" that IS the peak checkpoint and it is
+    already on the GPU, so nothing is reloaded from disk. The whole thing is guarded — a generation
+    failure (e.g. an OOM from a judge) must never destroy a training run that already succeeded and
+    saved, so it degrades to a warning.
+    """
+    from cdrseqgen.eval.generation import run_generative_eval, build_judge
+
+    try:
+        judge_model = judge_tokenizer = judge_dataset = None
+        if gen_args.gen_judge:
+            judge_model, judge_tokenizer, judge_dataset = build_judge(
+                gen_args.gen_judge, gen_args.gen_judge_path,
+                data_path=data_args.data_path, max_len=data_args.max_len,
+                target_region=data_args.target_region,
+                include_partner_chain=data_args.include_partner_chain,
+                include_antigen=data_args.include_antigen,
+                device=training_args.device,
+            )
+
+        logger.info("🎲 Running post-training generative evaluation...")
+        run_generative_eval(
+            trainer.model, tokenizer, eval_dataset,
+            device=training_args.device,
+            decoding=gen_args.gen_decoding, num_samples=gen_args.gen_num_samples,
+            temperature=gen_args.gen_temperature, top_k=gen_args.gen_top_k, top_p=gen_args.gen_top_p,
+            num_examples=gen_args.gen_num_examples, stratify=gen_args.gen_stratify,
+            seed=gen_args.gen_seed, skip_perplexity=gen_args.gen_skip_perplexity,
+            judge_model=judge_model, judge_tokenizer=judge_tokenizer,
+            judge_dataset=judge_dataset, judge_name=gen_args.gen_judge,
+            output_path=os.path.join(training_args.output_dir, "generation_eval.json"),
+            title=f"{os.path.basename(training_args.output_dir)}   target={data_args.target_region}",
+            meta={
+                "model_dir": training_args.output_dir,
+                "target_region": data_args.target_region,
+                "include_partner_chain": bool(data_args.include_partner_chain),
+                "include_antigen": bool(data_args.include_antigen),
+            },
+        )
+    except Exception as e:
+        logger.warning(f"⚠️ Generative eval failed — the training run itself is unaffected: {e}")
+
+
 def main():
-    model_args, data_args, training_args = setup_args()
+    model_args, data_args, gen_args, training_args = setup_args()
     set_seed(training_args.seed)
 
     backbone = resolve(model_args.model_type)
@@ -349,6 +429,12 @@ def main():
     )
 
     run_training_pipeline(trainer, training_args)
+
+    # Opt-in (config: "run_generative_eval": true). Recovery curves above judge copying; this judges
+    # design. Runs last so it can never interfere with training or the saved checkpoint.
+    if gen_args.run_generative_eval:
+        post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_args, training_args)
+
 
 if __name__ == "__main__":
     main()

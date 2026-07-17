@@ -15,7 +15,7 @@ Two independent datasets feed the framework. **They are different train *and* te
 | Antigen | none | yes (`antigen` field populated) |
 | Split | CDR3-clustered holdout via `preprocess_oas_paired.py --split cluster` (default), written to a `split` field; `--split random` for the legacy leaky split | dataset's **own leakage-safe** cluster split (carried in a `split` field) |
 | Preprocessor | `preprocess_oas_paired.py` | `preprocess_sabdab2.py` |
-| Download | (raw `.csv.gz` provided) | `data/download_sabdab2.sh` (~876MB, one-time) |
+| Download | `cdrseqgen/data/bulk_download_human_paired.sh` (or the provided raw `.csv.gz`) | `cdrseqgen/data/download_sabdab2.sh` (~876MB, one-time) |
 
 **Why two?** OAS gives repertoire-scale sequence data for the base infilling task; SAbDab2 is the only source with bound antigens, needed for antigen-conditioned generation — but it is ~5× smaller, so numbers from the two are not comparable.
 
