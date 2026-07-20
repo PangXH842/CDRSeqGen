@@ -42,6 +42,9 @@ export CUDA_VISIBLE_DEVICES=$GPU
 STAMP=$(date +'%Y%m%d_%H%M%S')
 OUT="results/sweeps/scratch_$STAMP"
 mkdir -p "$OUT"
+# Keep the sweep's run dirs WITH its summary/logs instead of scattering them across results/.
+# train.py creates each run dir under CDRSEQGEN_RESULTS_ROOT (see train.py: results_root()).
+export CDRSEQGEN_RESULTS_ROOT="$OUT"
 MAP="$OUT/runs.tsv"
 printf 'lr\tepochs\twarmup\trun_dir\n' > "$MAP"
 
@@ -61,6 +64,10 @@ for lr in $LRS; do
       echo ""
       echo "▶️ [$i/$total] lr=$lr  epochs=$ep  warmup=$wu"
       LOG="$OUT/run_${i}.log"
+      # Every grid point reuses $BASE, so all runs would resolve to the SAME folder name. Tag each
+      # with its hyperparameters: the folder becomes self-describing (h3_OAS_scratch_lr1e-3_ep20_wu0.06)
+      # instead of needing runs.tsv to tell you which grid point it was.
+      export CDRSEQGEN_RUN_SUFFIX="lr${lr}_ep${ep}_wu${wu}"
       # Trailing flags override the base config (see setup_args) — the config is NOT discarded.
       python train.py "$BASE" \
         --learning_rate "$lr" \

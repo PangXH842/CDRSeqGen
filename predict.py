@@ -38,7 +38,7 @@ from cdrseqgen.eval.sampling import (
     sample_iterative,
     pseudo_log_likelihood,
 )
-from cdrseqgen.eval.metrics import sequence_recovery, summarize
+from cdrseqgen.eval.metrics import get_aar, summarize
 
 
 def build_masked_input(tokenizer, pt1, pt2, target_length):
@@ -94,7 +94,7 @@ def decode_case(model, tokenizer, device, args, generator, case):
         seq = tokenizer.decode(ids).upper().strip()
         entry = {"seq": seq}
         if native:
-            entry["recovery"] = sequence_recovery(seq, native)
+            entry["recovery"] = get_aar(seq, native)
         if not args.skip_perplexity:
             _, ppl = pseudo_log_likelihood(
                 model, input_ids, mask_positions, ids, banned, tokenizer.mask_id, device

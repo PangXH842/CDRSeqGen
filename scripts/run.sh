@@ -93,8 +93,19 @@ for suite in "${SUITES[@]}"; do
     done < <(expand_suite "$suite")
 done
 
+# --- One folder per round ---------------------------------------------------------------------
+# Every run of this invocation lands in results/<batch-timestamp>/ instead of scattering across
+# results/. train.py reads CDRSEQGEN_RESULTS_ROOT and creates its run dir underneath it, so the
+# per-run names are unchanged — only where they live. (This automates the grouping that was
+# previously done by hand afterwards: results/20260710/, results/20260708/, ...)
+BATCH_STAMP=$(date +'%Y%m%d_%H%M%S')
+BATCH_DIR="results/$BATCH_STAMP"
+mkdir -p "$BATCH_DIR"
+export CDRSEQGEN_RESULTS_ROOT="$BATCH_DIR"
+
 echo "=========================================================="
 echo "🧬 CDRSeqGen runner  |  GPU $GPU_ID  |  suites: ${SUITES[*]}  |  ${#CONFIGS[@]} runs"
+echo "📦 Batch dir: $BATCH_DIR"
 echo "=========================================================="
 
 # --- Fail fast if the processed data a suite needs isn't there yet -----------------------------
@@ -121,4 +132,5 @@ for config in "${CONFIGS[@]}"; do
 done
 
 echo ""
-echo "🎉 Done (${#CONFIGS[@]} runs). Results in results/ ; comparison plots via 'python -m cdrseqgen.eval.linegraph_plotter'."
+echo "🎉 Done (${#CONFIGS[@]} runs). Results in $BATCH_DIR/ ; comparison plots via 'python -m cdrseqgen.eval.linegraph_plotter'."
+echo "   $(find "$BATCH_DIR" -maxdepth 1 -mindepth 1 -type d | wc -l) run dir(s) written."

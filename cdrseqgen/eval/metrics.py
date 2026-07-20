@@ -1,12 +1,12 @@
 """Pure sequence-level generative metrics for sampled CDR loops.
 
-These take the *strings* a sampler produced (see sampling.py) and answer what recovery cannot:
+These take the *strings* a sampler produced (see sampling.py) and answer what aar cannot:
 are the samples diverse, and how far do they stray from the native loop (novelty) rather than
 just copying it. Model-facing scoring (pseudo-perplexity) lives in sampling.py; everything here
 is a pure function of sequences, so it needs no model, no torch, and is trivially testable.
 
 Within one test case every sample has the same length L (the gap length is fixed), so diversity
-and per-position entropy assume equal length; sequence_recovery still tolerates a length mismatch
+and per-position entropy assume equal length; get_aar still tolerates a length mismatch
 against the native so it mirrors predict.py's original alignment semantics exactly.
 """
 import math
@@ -14,7 +14,7 @@ from collections import Counter
 from itertools import combinations
 
 
-def sequence_recovery(pred, native):
+def get_aar(pred, native):
     """Per-residue identity of `pred` to `native` in [0, 1] (denominator = len(native)).
 
     Mirrors predict.py's original alignment: compare over the overlapping length and divide by the
@@ -81,13 +81,13 @@ def summarize(samples, native=None):
     }
 
     if native:
-        recoveries = [sequence_recovery(s, native) for s in samples]
-        recoveries = [r for r in recoveries if r is not None]
-        if recoveries:
-            mean_recovery = sum(recoveries) / len(recoveries)
-            out["recovery_mean"] = mean_recovery
-            out["recovery_max"] = max(recoveries)
-            out["recovery_min"] = min(recoveries)
-            out["novelty_mean"] = 1.0 - mean_recovery  # mean distance from the native loop
+        aars = [get_aar(s, native) for s in samples]
+        aars = [r for r in aars if r is not None]
+        if aars:
+            mean_aar = sum(aars) / len(aars)
+            out["aar_mean"] = mean_aar
+            out["aar_max"] = max(aars)
+            out["aar_min"] = min(aars)
+            out["novelty_mean"] = 1.0 - mean_aar  # mean distance from the native loop
 
     return out

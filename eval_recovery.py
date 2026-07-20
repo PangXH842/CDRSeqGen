@@ -93,6 +93,9 @@ def main():
         "accuracy": acc(masked),
         "core_accuracy": acc(core_mask),
         "anchor_accuracy": acc(anchor_mask),
+        # Rows backing core_accuracy. Loops <= 2*ANCHOR_TRIM residues have no core, so a core score
+        # can rest on a tiny slice while looking normal (L2: ~30 of 2111). See README.
+        "core_coverage": float((core_mask.sum(axis=-1) > 0).sum() / masked.shape[0]) if masked.shape[0] else 0.0,
         "pos_from_start_acc": pos_acc,
     }
 
@@ -102,7 +105,10 @@ def main():
         print(f"\n📄 {os.path.basename(args.model_dir)}")
         print(f"   target={result['target']}  antigen={result['include_antigen']}  n_eval={result['n_eval']}  trim={ANCHOR_TRIM}")
         print(f"   whole-span accuracy : {result['accuracy']:.4f}")
-        print(f"   CORE accuracy       : {result['core_accuracy']:.4f}   <-- anchor-excluded, the designable middle")
+        cov = result["core_coverage"]
+        flag = "" if cov >= 0.5 else f"   ⚠️ backed by only {cov:.1%} of rows — loops too short; report whole-span"
+        print(f"   CORE accuracy       : {result['core_accuracy']:.4f}   <-- anchor-excluded, the designable middle{flag}")
+        print(f"   core coverage       : {cov:.4f}   (fraction of eval rows with any core residue)")
         print(f"   anchor accuracy     : {result['anchor_accuracy']:.4f}")
         shown = " ".join(f"{a:.2f}" if a is not None else "  -" for a in pos_acc if a is not None)
         print(f"   pos-from-start acc  : {shown}")
