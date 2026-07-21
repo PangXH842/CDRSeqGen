@@ -20,7 +20,7 @@ from transformers import (
 )
 
 from cdrseqgen.data.dataset import AntibodyInfillingDataset, collate_fn
-from cdrseqgen.models.backbones import resolve
+from cdrseqgen.models.models import resolve
 from cdrseqgen.eval.linegraph_plotter import plot_linegraph, plot_metric_breakdown
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
@@ -53,7 +53,7 @@ def attach_file_logging(output_dir: str) -> str:
         if isinstance(handler, logging.FileHandler) and getattr(handler, "baseFilename", None) == os.path.abspath(log_path):
             return log_path
 
-    file_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+    file_handler = logging.FileHandler(log_path, mode="a+", encoding="utf-8")
     file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
     root.addHandler(file_handler)
 
@@ -208,14 +208,26 @@ class DataArguments:
 
 @dataclass
 class GenerationArguments:
-    """Optional post-training generative evaluation (see cdrseqgen/eval/generation.py).
+    """Post-training generative evaluation (see cdrseqgen/eval/generation.py). ON by default.
 
-    NOTE on gen_judge: a judge is only meaningful *across* models (the same judge applied to each),
-    which a single training run cannot do by construction — and loading one alongside the trainer's
-    optimizer state risks OOM. So it stays off here; use eval_generative.py for judged comparisons.
+    Training optimizes masked-LM *recovery*, which rewards copying the native loop — the opposite of
+    design. So every run also samples a library of candidates from its finished best model and scores
+    diversity / novelty / perplexity into generation_eval.json, beside epoch_metrics.csv.
+
+    On gen_judge: pseudo-perplexity under a model's OWN distribution measures self-consistency, not
+    quality — an overconfident model rates its own samples highly regardless. Comparing self-ppl
+    across models compares two different measuring sticks (empirically it put the scratch-vs-ESM-2
+    gap at 2.65x where a judge put it at 1.52x). Scoring every candidate under one INDEPENDENT
+    reference LM fixes this. Comparability requires the same judge across runs — NOT the same
+    process — so per-run judging is valid. IgBert is a good default: antibody-specific, and
+    independent of both the scratch model and ESM-2.
+
+    Cost, measured on scratch/H3 at these defaults: ~80s sampling + ~15s to load the judge, against
+    ~60s of training. Trim gen_num_examples for cheap runs, or set run_generative_eval false to skip.
+    eval_generative.py re-scores a finished checkpoint with other settings/judges, no retraining.
     """
     run_generative_eval: bool = field(
-        default=False,
+        default=True,
         metadata={"help": "After training, sample designs from the best model and write generation_eval.json."}
     )
     gen_num_examples: int = field(default=150, metadata={"help": "Eval frameworks to sample (-1 = all)."})
@@ -228,8 +240,9 @@ class GenerationArguments:
     gen_skip_perplexity: bool = field(default=False, metadata={"help": "Skip self pseudo-perplexity."})
     gen_seed: int = field(default=42, metadata={"help": "Seed for reproducible sampling."})
     gen_judge: str = field(
-        default=None,
-        metadata={"help": "Independent judge LM. Normally leave unset — see class docstring; prefer eval_generative.py."}
+        default="Exscientia/IgBert",
+        metadata={"help": "Independent LM scoring every candidate, making perplexity comparable ACROSS "
+                          "runs (self-ppl is not). Empty string disables judging."}
     )
     gen_judge_path: str = field(default=None, metadata={"help": "Weights for the judge (default: the gen_judge id)."})
 

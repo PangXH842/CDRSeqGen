@@ -37,27 +37,26 @@ CDRSeqGen/
 │   │   ├── bulk_download_human_paired.sh  # Fetch OAS paired repertoires → dataset/data/raw/
 │   │   └── README.md           # Data subsystem docs (sources, splits, leakage analysis)
 │   ├── models/
-│   │   ├── backbones.py        # PLM model registry (resolve)
-│   │   └── model.py            # Custom transformer (scratch) definition
+│   │   ├── models.py           # PLM model registry (resolve)
+│   │   └── custom.py           # Custom transformer (scratch) definition
 │   └── eval/
 │       ├── sampling.py         # Decoders (greedy/independent/iterative Mask-Predict) + pseudo-perplexity
 │       ├── metrics.py          # Pure sequence stats: recovery, diversity, novelty, per-position entropy
-│       ├── generation.py       # Shared generative-eval core (used by BOTH train.py and eval_generative.py)
+│       ├── generation.py       # Shared generative-eval core (used by BOTH train.py and gen_eval.py)
 │       └── linegraph_plotter.py  # Training-curve plotting utility
 ├── dataset/data/               # THE DATA — gitignored, ~4.4GB (raw + processed OAS/SAbDab2).
 │                               #   Deliberately outside the package; configs' data_path points here.
 ├── results/                    # Ignored in git. Always results/<batch>/<run>/ (two levels);
 │                               #   results/latest -> newest run dir.
 ├── test/                       # Small curated frameworks — qualitative showcase for predict.py ONLY
-│                               #   (real evaluation uses the held-out split via eval_generative.py)
+│                               #   (real evaluation uses the held-out split via gen_eval.py)
 │   ├── test_h1.json
 │   ├── test_h3.json
 │   ├── test_h3_lc.json
 │   └── test_h3_ag.json
 ├── train.py                    # Entrypoint — training  (python train.py configs/x.json)
 ├── predict.py                  # Entrypoint — sampling on curated frameworks (qualitative showcase)
-├── eval_recovery.py            # Entrypoint — RECOVERY metrics on a finished run (anchor/core)
-├── eval_generative.py          # Entrypoint — GENERATIVE metrics on a finished run (+ --judge)
+├── gen_eval.py                 # Entrypoint — GENERATIVE metrics on a finished run (+ --judge)
 ├── scripts/
 │   ├── run.sh                  # Unified runner: ./scripts/run.sh <gpu> [oas|antigen|lcdr|igbert|protbert|plm|all ...]
 │   └── sweep_scratch.sh        # HP sweep for the scratch model (LR × epochs × warmup)
@@ -177,7 +176,7 @@ flagging runs that overfit after their peak or are still improving at the last e
 LRS="1e-4 3e-4 1e-3" EPOCHS="10 20" WARMUPS="0.0 0.06" ./scripts/sweep_scratch.sh 4
 ```
 > **⚠️ Don't sweep `hidden_size` yet.** `num_attention_heads` (8) and `intermediate_size` (512) are hardcoded in
-> [`model.py`](cdrseqgen/models/model.py) and never passed by `build_scratch_model`, so `intermediate_size` does
+> [`custom.py`](cdrseqgen/models/custom.py) and never passed by `build_scratch_model`, so `intermediate_size` does
 > **not** follow `hidden_size` — the FFN ratio silently drifts (4× at 128, 2× at 256) and `hidden_size` must stay a
 > multiple of 8. Plumb those through before sweeping architecture.
 >
@@ -236,14 +235,14 @@ python predict.py --model_type scratch --model_path ./results/latest --test_file
 intra-H3 dependencies are respected). Warp with `--temperature` / `--top_k` / `--top_p`; `--skip_perplexity`
 drops the compute-heavy per-candidate scoring; `--seed` makes a run reproducible.
 
-### Step 5: Generative Evaluation on the Held-Out Split (`eval_generative.py`)
+### Step 5: Generative Evaluation on the Held-Out Split (`gen_eval.py`)
 The reportable version of Step 4. Reconstructs the **exact training-time eval split** from the config
 (same clustered leakage-safe holdout, same partner/antigen injection, a real native on *every*
 framework — 2,111 held-out antibodies for OAS), samples `--num_samples` candidates each, and aggregates
 the generative metrics — overall **and bucketed by H3 length**, since difficulty scales with it.
 
 ```bash
-python eval_generative.py \
+python gen_eval.py \
     --config configs/h3_esm2.json \
     --model_dir results/20260710/20260710_184547_h3_OAS_esm2_t12_35M_UR50D \
     --num_examples 150 --stratify --num_samples 20 \
@@ -261,8 +260,18 @@ python eval_generative.py \
 short/medium/long H3 buckets so rare long loops aren't washed out. Results land in
 `<model_dir>/generation_eval.json`.
 
-#### Automatic generation at the end of a training run (opt-in)
-`train.py` can do this itself once all epochs finish — add to any config:
+#### Generative evaluation runs automatically after every training run
+Once all epochs finish, `train.py` samples designs from the finished best model and writes
+`generation_eval.json` beside `epoch_metrics.csv`. **On by default** — no config change needed.
+
+It samples from **`trainer.model`** (with `load_best_model_at_end` that's the peak checkpoint, already
+on the GPU, so nothing is reloaded from disk), runs last, and is exception-guarded: a generation
+failure logs a warning and **cannot** damage a training run that already finished and saved.
+
+Every candidate is also scored by an **independent judge** (`gen_judge`, default
+`Exscientia/IgBert`), which is what makes perplexity comparable *across* runs — self-perplexity is
+not. Comparability requires the same judge in every run, **not** the same process, so per-run
+judging is valid. Tune or disable via config:
 
 ```json
 "run_generative_eval": true,
@@ -281,10 +290,10 @@ existing configs and quick debug runs are untouched.
 > **The judge stays out of training on purpose.** A judge is only meaningful *across* models (the same
 > judge applied to each) — which a single training run cannot do by construction — and loading one next
 > to the trainer's optimizer state invites an OOM *after* training succeeded. So in-train generation
-> gives you diversity / novelty / entropy / self-ppl per run; use `eval_generative.py` for judged comparisons.
+> gives you diversity / novelty / entropy / self-ppl per run; use `gen_eval.py` for judged comparisons.
 
 Both paths share one implementation ([`cdrseqgen/eval/generation.py`](cdrseqgen/eval/generation.py)) —
-they differ only in where the model comes from. `eval_generative.py` stays the tool of choice for scoring
+they differ only in where the model comes from. `gen_eval.py` stays the tool of choice for scoring
 checkpoints you already trained, or re-sweeping temperature / top-p / judge without retraining.
 
 ---
@@ -325,7 +334,7 @@ Phase 1 (the sequence sweep) is a **leakage-safe benchmark** for CDR infilling. 
 The `AntibodyInfillingDataset` separates sequences into `pt1` (left context), `mask` (target gap), and `pt2` (right context). The `target_region` string alone chooses the loop — `h1/h2/h3` mask a heavy CDR, `l1/l2/l3` mask the *light* chain's CDR (legacy `cdr*`/`lcdr*` spellings still parse). Switching target requires changing zero core tokenization logic. Labels are strictly length-enforced to prevent cross-entropy dimension mismatches.
 
 ### 2. Pluggable Backbones (the extensibility core)
-The model registry [`backbones.py`](cdrseqgen/models/backbones.py) holds one `Backbone` entry per model family; `train.py`, `predict.py`, and `dataset.py` never branch on model type — they all go through `resolve(model_type)`, which returns the matching backbone and a uniform `TokenizerAdapter`. The same pipeline trains the from-scratch transformer, fine-tunes ESM-2, or fine-tunes any Hugging Face masked-LM just by changing the `"model_type"` string.
+The model registry [`models.py`](cdrseqgen/models/models.py) holds one `Backbone` entry per model family; `train.py`, `predict.py`, and `dataset.py` never branch on model type — they all go through `resolve(model_type)`, which returns the matching backbone and a uniform `TokenizerAdapter`. The same pipeline trains the from-scratch transformer, fine-tunes ESM-2, or fine-tunes any Hugging Face masked-LM just by changing the `"model_type"` string.
 
 Each backbone declares two conventions **explicitly** instead of letting them be guessed from the tokenizer (the previous code overloaded a single `is_esm` boolean to mean three different things, which silently mishandled non-ESM models):
 - **`position_type`** (`"absolute"` | `"relative"`) — controls where antigen context is injected (see §4). Absolute-position models (the scratch transformer, BERT-style protein LMs) need it appended after the target; relative/rotary models (ESM-2) can take it prepended.
@@ -347,7 +356,7 @@ Antigen sequences (up to ~2,300 residues for large multi-chain complexes) made t
 
 ### 6. Extensibility Principles
 The recurring rule: **a new capability is added in one place, and the rest of the pipeline stays oblivious.** Four "add-one-line" seams:
-- **New model** → one `Backbone` entry in [`backbones.py`](cdrseqgen/models/backbones.py) (§2) — `train.py`/`predict.py`/`dataset.py` never learn about it.
+- **New model** → one `Backbone` entry in [`models.py`](cdrseqgen/models/models.py) (§2) — `train.py`/`predict.py`/`dataset.py` never learn about it.
 - **New target loop** → change the `target_region` string (§1); masking logic is untouched.
 - **New context** → one boolean flag (`include_partner_chain`, `include_antigen`), resolved symmetrically (§3–4).
 - **New dataset source** → one `(substring, tag)` pair in `train.py`'s `DATASET_TAGS` registry (`oas → OAS`, `sabdab2 → SD2`), so every run's output-dir name states its source explicitly instead of leaving it silently implied; an unrecognised path is tagged `DS` **with a logged warning** rather than left blank.
@@ -366,7 +375,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **Sampler is marginal-based, not learned-joint.** The `iterative` (Mask-Predict) decoder approximates the loop joint by conditioning on committed residues, but the model is still a masked-LM trained on independent-position recovery — true joint/generative *training* (autoregressive or diffusion) is Phase-2 territory.
 - **Hyperparameters were never tuned.** All 48 configs pin one LR per family (scratch `1e-4`, pretrained `5e-5`) and exactly `num_train_epochs: 10`, with no warmup / weight-decay / scheduler set (HF defaults throughout). The curves show 10 is wrong for **both**, in opposite directions: `h3_esm2` peaks at **epoch 4** (core 0.3209) then decays to 0.3063 by 10 — six wasted epochs, rescued only by `load_best_model_at_end` — while `h3_scratch` is still creeping at 10 (~0.001 loss/epoch). *Mitigating evidence for Finding #1:* the two reach ~0.32 core from **opposite directions** (ESM-2 from above in 1–4 epochs, scratch from below over 10), which argues the ceiling is real rather than a shared-settings artifact. Sweep with [`scripts/sweep_scratch.sh`](scripts/sweep_scratch.sh).
 - **Checkpoint selection uses the metric we say is misleading.** Every config sets `"metric_for_best_model": "accuracy"` — *whole-span*, the anchor-inflated one (Findings §3). It happens to pick the same epoch as core on `h3_esm2` (both peak at 4), but that's luck. `"eval_core_accuracy"` is a one-line fix per config.
-- **Scratch architecture isn't tunable.** `hidden_size`/`num_layers` reach the model, but `num_attention_heads` (8) and `intermediate_size` (512) are hardcoded in [`model.py`](cdrseqgen/models/model.py) and never forwarded by `build_scratch_model` — so `intermediate_size` doesn't track `hidden_size` and the FFN ratio drifts silently if you change it.
+- **Scratch architecture isn't tunable.** `hidden_size`/`num_layers` reach the model, but `num_attention_heads` (8) and `intermediate_size` (512) are hardcoded in [`custom.py`](cdrseqgen/models/custom.py) and never forwarded by `build_scratch_model` — so `intermediate_size` doesn't track `hidden_size` and the FFN ratio drifts silently if you change it.
 - **Single-seed runs.** Small differences (e.g. light chain hurts scratch ~0.01, neutral for ESM-2) need multiple seeds + error bars before they can be claimed.
 - **Structure not yet available.** SAbDab2 preprocessing parses *sequences* only; the Phase-2 structure objective needs a coordinate-parsing step (or predicted structures via IgFold/ABlooper).
 
@@ -378,17 +387,19 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **`epoch_metrics.csv` and `*_results.json` measure different models — they're *supposed* to disagree.** The CSV is the per-epoch **trajectory** (the model as it stood at each epoch); `eval_results.json`/`all_results.json` come from the post-training `trainer.evaluate()`, which with `load_best_model_at_end` runs on the **best** checkpoint while still being stamped with the final epoch number. On `h3_esm2` the CSV's epoch-10 row reads core **0.3063** (the actual last model) while `eval_results.json` reads **0.3209** (the epoch-4 best model). `save_training_csv` de-duplicates on epoch and **keeps the first** occurrence precisely so the curve keeps the real last-epoch point — keeping the last would silently redraw the best model at x=10 and erase the overfitting decay entirely.
 
 ### Changelog
-- **2026-07-20** -- Short-CDR core metric is now **self-detecting** rather than silently wrong: `compute_metrics` reports `core_coverage`, it is written to `epoch_metrics.csv`, `train.py` warns once below 50%, and `eval_recovery.py` prints it with an inline warning. Fixes a second failure mode too — when *no* row has a core, `core_accuracy` fell back to `0.0`, indistinguishable from 'the model got everything wrong'. The metric definition is unchanged, so all existing numbers stay comparable; only visibility was added.
-- **2026-07-20** -- Plotted the 07-17 batch: 9 comparison charts in `results/pngs/*_0717.png` (one per loop x dataset family, 4 models each, core recovery, OAS and SAbDab2 never mixed). Surfaced a metric bug while doing it: **L2 core accuracy is computed over ~30 of 2,111 eval examples** because 98.8% of L2 loops are 3aa and `ANCHOR_TRIM=2` needs length > 4 — so L2 core numbers are noise (the apparent scratch+HC 'collapse' to 0.5957 is 0.9590 on whole-span). `l2_oas_0717.png` uses whole-span accordingly.
-- **2026-07-20** -- Run folders dropped their timestamp prefix — it's already on the batch folder — so a round reads `results/<batch>/{h1_OAS_scratch, h3_OAS_LC_scratch}`. Verified first that all 48 configs resolve to **distinct** timestamp-free names; the two cases that still clash are guarded rather than left to overwrite: `unique_run_dir()` appends `_2` with a warning, and `CDRSEQGEN_RUN_SUFFIX` tags a run (sweeps set it to the grid point, e.g. `h3_OAS_scratch_lr1e-3_ep20_wu0.06`, which also makes `runs.tsv` unnecessary for identifying a run).
-- **2026-07-20** -- `predict.py`: repaired two dangling references to `sequence_recovery`, renamed to `get_aar` during the manual cleanup — `predict.py` failed at import until now (`summarize()` had already been updated; only these two callers were left behind).
-- **2026-07-20** -- Run layout is now uniformly **`results/<batch>/<run>/`**, plus a **`results/latest`** symlink to the newest run. A `run.sh`/`sweep_scratch.sh` round shares one batch folder (runners export `CDRSEQGEN_RESULTS_ROOT`); a standalone `train.py` gets its own — so `results/` never collects loose run dirs and the hand-grouping (`results/20260710/`, ...) is automatic. Run folders keep their **resolved-argument** names, not the config filename: `--target_region l3` on `h3_scratch.json` must produce an `..._l3_...` folder, and the timestamp is what keeps a reused config unique (the sweep reuses one base config for all 12 runs). `results/latest` fixes the two `predict.py --model_path ./results/latest` examples, which had been documented but never existed; it refuses to overwrite a real directory of that name.
-- **2026-07-20** -- `linegraph_plotter.py` + `train.py`: **core recovery is now plotted, not just recorded.** All three metrics were already written to `epoch_metrics.csv` every epoch, but runs only auto-plotted loss + whole-span — i.e. the anchor-inflated metric the README says *not* to report, while hiding the core metric it says to use. Runs now also emit `eval_core_accuracy_curve.png` and a combined `recovery_breakdown.png` (new `plot_metric_breakdown`). Also removed `--metric`'s `choices=["eval_loss","eval_accuracy"]`, which had made `--metric eval_core_accuracy` an argparse error — core was literally unplottable from the CLI.
-- **2026-07-20** -- `train.py`: every run now writes its own **`train.log`** (`attach_file_logging`, attached to the root logger so `transformers`/Trainer output is captured too). Previously `logger.info` went to stdout only — a `run.sh` or bare `train.py` run left no readable log at all, just numbers and binary TensorBoard events. Uncaught exceptions are logged with their traceback, so a crashed run explains itself (`run.sh` continues past failures with `|| true`, which used to leave an unexplained empty dir). Also removed the dead `logging_dir = output_dir/"logs"` line — TensorBoard writes to `output_dir/runs/<datetime>_<host>/` regardless and no `logs/` was ever created, so it only implied a folder that never existed.
-- **2026-07-20** -- Scratch HP sweep (12 runs, LR × epochs × warmup): `1e-4` was too low. Tuned (`lr=1e-3`) reaches core **0.3213** vs the default's **0.3149** — which lands on **ESM-2's peak of 0.3209**, i.e. tuning scratch *closes* the recovery gap and sharpens Finding #1 rather than threatening it. Single-seed; needs multi-seed before it's a claim.
+- **2026-07-21** -- `eval_recovery.py`: temporarily discarded (now in `old/`)
+- **2026-07-21** -- `gen_eval.py`[`eval_generative.py`]: rename
+- **2026-07-21** -- `custom.py`[`model.py`]: rename
+- **2026-07-21** -- `models.py`[`backbones.py`]: rename
+- **2026-07-21** -- `train.py`: Gen eval after per training run
+- **2026-07-20** -- Fixed issue with anchor excluded AAR for short CDRs
+- **2026-07-20** -- Edited results directory naming (`[timestamp]/[configs]/` (timestamp at time of `run.sh` round start))
+- **2026-07-20** -- Enabled line graph plotting for whole + core (no anchor) AARs for each run
+- **2026-07-20** -- `train.py`: now generates `train.log` (pending verification, file not found in new training runs eg. 0720)
+- **2026-07-20** -- Run hyperparameter sweep on scratch model 
 - **2026-07-20** -- Launched manual code cleaning (order - see roadmap)
 - **2026-07-17** -- Preparation for hyperparameter sweep on scratch model
-- **2026-07-17** -- Data storage restructure
+- **2026-07-17** -- Dataset data storage restructure
 - **2026-07-17** -- `eval_recovery.py`[`rescore.py`]: renamed 
 - **2026-07-17** -- `eval_generative.py`[new]: generative eval on the held-out split (2,111 frameworks — real natives, leakage-safe, injection reused so nothing drifts)
 - **2026-07-17** -- `cdrseqgen/eval/generation.py`[new]: generative eval metrics: diversity, novelty, pseudo-perplexity, per-position entropy
@@ -420,14 +431,13 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
  - [ ] Code structure overhaul
 - Manual code cleaning
  - [ ] `train.py` 
- - [ ] `backbones.py` 
- - [ ] `model.py` (rename to "custom"?)
+ - [ ] `models.py` 
+ - [ ] `custom.py` 
  - [ ] `dataset.py` 
  - [ ] `metrics.py`
  - [ ] `sampling.py`
  - [ ] `generation.py`
- - [ ] `eval_recovery.py`
- - [ ] `eval_generative.py`
+ - [ ] `gen_eval.py`
  - [ ] `predict.py`
  - [ ] `run.sh`
  - [ ] hyperparameter tuning script (`sweep_scratch.sh`)

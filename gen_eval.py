@@ -28,7 +28,7 @@ import torch
 from transformers import HfArgumentParser, TrainingArguments
 
 from train import ModelArguments, DataArguments, GenerationArguments, get_datasets
-from cdrseqgen.models.backbones import resolve
+from cdrseqgen.models.models import resolve
 from cdrseqgen.eval.generation import run_generative_eval, build_judge
 
 
@@ -52,7 +52,7 @@ def main():
                          "(makes perplexity comparable ACROSS models; self-ppl is not).")
     ap.add_argument("--judge_path", type=str, default=None, help="Weights for the judge (default: the --judge hub id).")
     ap.add_argument("--output", type=str, default=None,
-                    help="Results JSON path (default: <model_dir>/generation_eval.json).")
+                    help="Results JSON path ('none' to skip writing; default: <model_dir>/generation_eval.json).")
     args = ap.parse_args()
 
     # --- rebuild the exact training-time eval split from the config (same as eval_recovery.py) ---
@@ -93,7 +93,10 @@ def main():
         skip_perplexity=args.skip_perplexity,
         judge_model=judge_model, judge_tokenizer=judge_tokenizer,
         judge_dataset=judge_dataset, judge_name=args.judge,
-        output_path=args.output or os.path.join(args.model_dir, "generation_eval.json"),
+        # 'none' means "don't write", matching predict.py. Without this sentinel the string is taken
+        # literally and the results land in a file called ./none.
+        output_path=(None if args.output == "none"
+                     else args.output or os.path.join(args.model_dir, "generation_eval.json")),
         title=f"{os.path.basename(args.model_dir)}   target={data_args.target_region}",
         meta={
             "config": args.config,

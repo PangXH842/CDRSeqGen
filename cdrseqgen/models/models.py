@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from cdrseqgen.data.dataset import AntibodyTokenizer, TokenizerAdapter
-from cdrseqgen.models.model import build_scratch_model
+from cdrseqgen.models.custom import build_scratch_model
 
 
 @dataclass
@@ -166,7 +166,7 @@ def _load_custom_pretrained(path):
     # freshly built model exactly, so strict loading is a hard correctness guard.
     import os
     from safetensors.torch import load_file
-    from cdrseqgen.models.model import CustomAntibodyModel, CustomAntibodyConfig
+    from cdrseqgen.models.custom import CustomAntibodyModel, CustomAntibodyConfig
     config = CustomAntibodyConfig.from_pretrained(path)
     model = CustomAntibodyModel(config)
     state_dict = load_file(os.path.join(path, "model.safetensors"))

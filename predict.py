@@ -31,7 +31,7 @@ import json
 import os
 import torch
 
-from cdrseqgen.models.backbones import resolve
+from cdrseqgen.models.models import resolve
 from cdrseqgen.eval.sampling import (
     decode_greedy,
     sample_independent,

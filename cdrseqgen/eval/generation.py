@@ -120,7 +120,7 @@ def build_judge(model_type, weights_path=None, *, data_path, max_len, target_reg
 
     Returns (judge_model, judge_tokenizer, judge_dataset).
     """
-    from cdrseqgen.models.backbones import resolve  # local: avoids a heavy import at module load
+    from cdrseqgen.models.models import resolve  # local: avoids a heavy import at module load
 
     judge_backbone = resolve(model_type)
     judge_tokenizer = judge_backbone.build_tokenizer(model_type)
