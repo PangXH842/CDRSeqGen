@@ -1,23 +1,23 @@
-"""Shared core for generative evaluation — used by BOTH callers, one implementation.
+"""Core script for retrieving generative evaluation metrics from a trained model. 
+Primarily used in `train.py` for post-training-batch evaluation (no judge) and 
+`gen_eval.py` for direct window used to evaluate existing trained models.
 
-  * train.py   — post-training hook: samples from the in-memory best model when a config opts in
-                 with "run_generative_eval": true.
-  * eval_generative.py — standalone entrypoint: samples from any finished checkpoint on disk, with an
-                 optional independent judge for cross-model comparison.
+  * run_generative_eval -- master function, loads eval dataset, 
 
-The two differ only in *where the model comes from*, not in what "generative evaluation" means, so
-the logic lives here once. Nothing in this module imports train.py (that would be circular): the
-callers unpack their own arg dataclasses and pass plain values in.
+  * select_indices      -- randomly select CDRs from eval dataset, 
+                            stratify by CDR lengths if option selected
+  * _decode             -- select sampling method, generate sample CDRs using loaded model
+  * build_judge         -- optional, set specified third-party model to judge perplexity
+  * print_report        -- print results to terminal and output file if given
 
-What it measures, and why it isn't recovery: recovery rewards reproducing the native loop, which is
-the opposite of design. Here each held-out framework gets a *library* of sampled candidates, scored
-for diversity, novelty vs. the native, and plausibility (pseudo-perplexity). Summaries are also
-bucketed by CDR-H3 length, because difficulty scales with it and a single mean hides that.
+Imports: 
+  * metrics.calculate               -- retrieve dict of sequence-based metrics for generated samples
+  * sampling.sample_independent     -- sampling method: independent per masked position
+  * sampling.sample_iterative       -- sampling method: iterative from most-confident position
+  * sampling.pseudo_log_likelihood  -- calculate pll and pseudo-perplexity of filled loop 
 
-Cross-model caveat, enforced by the API: self pseudo-perplexity is computed under the model's OWN
-distribution, so it measures self-consistency and is NOT comparable across models (empirically it
-inflated a scratch-vs-ESM-2 gap from 1.5x to 2.6x). Pass a judge built by build_judge() to score
-every candidate under one INDEPENDENT reference LM — that is what makes perplexity comparable.
+Notes:
+  * tba
 """
 import os
 import json
@@ -28,9 +28,8 @@ from collections import defaultdict
 import torch
 
 from cdrseqgen.data.dataset import AntibodyInfillingDataset
-from cdrseqgen.eval.metrics import summarize
+from cdrseqgen.eval.metrics import calculate
 from cdrseqgen.eval.sampling import (
-    decode_greedy,
     sample_independent,
     sample_iterative,
     pseudo_log_likelihood,
@@ -59,14 +58,16 @@ def bucket_of(length):
 
 
 def select_indices(lengths, k, stratify, rng):
-    """Pick which eval examples to generate for (all of them if k < 0 or k >= n)."""
+    """Pick which eval CDR data examples to generate for (all if k < 0 or k >= n)"""
     n = len(lengths)
-    if k is None or k < 0 or k >= n:
-        return list(range(n))
-    if not stratify:
-        return sorted(rng.sample(range(n), k))
 
-    # Balanced across length buckets so rare long H3s aren't washed out by a random draw.
+    if k is None or k < 0 or k >= n:
+        return list(range(n))       # Select all
+
+    if not stratify:
+        return sorted(rng.sample(range(n), k))      # Simple randomized select
+
+    # Balanced across length buckets so rare long H3s will not be left out by random draws
     by_bucket = defaultdict(list)
     for i, length in enumerate(lengths):
         by_bucket[bucket_of(length)].append(i)
@@ -78,12 +79,7 @@ def select_indices(lengths, k, stratify, rng):
 
 
 def masked_view(item):
-    """(input_ids, mask_positions, native_ids) for one dataset item.
-
-    The dataset already assembled the context (partner/antigen injection included) and marked the
-    target span in `labels`, so the samplers consume it directly — no hand-built pt1/pt2, and no
-    chance of drifting out of sync with the injection rules.
-    """
+    """(input_ids, mask_positions, native_ids) for one dataset item"""
     input_ids = item["input_ids"].tolist()
     labels = item["labels"].tolist()
     mask_positions = [p for p, l in enumerate(labels) if l != -100]
@@ -93,18 +89,25 @@ def masked_view(item):
 
 def _decode(model, tokenizer, device, generator, input_ids, mask_positions,
             decoding, num_samples, temperature, top_k, top_p):
-    banned = tokenizer.special_ids
-    if decoding == "greedy":
-        return decode_greedy(model, input_ids, mask_positions, banned, device)
+    # Note: temperature=0 -> greedy algo, details refer to sampling.py
     if decoding == "independent":
-        return sample_independent(model, input_ids, mask_positions, banned, num_samples,
-                                  temperature, top_k, top_p, device, generator)
-    return sample_iterative(model, input_ids, mask_positions, banned, num_samples,
-                            temperature, top_k, top_p, device, tokenizer.mask_id, generator)
+        return sample_independent(model, input_ids, mask_positions, banned_ids=tokenizer.special_ids, 
+                                  device=device, num_samples=num_samples, temperature=temperature,
+                                  top_k=top_k, top_p=top_p, generator=generator)
+    elif decoding == "iterative":
+        return sample_iterative(model, input_ids, mask_positions, banned_ids=tokenizer.special_ids, 
+                                mask_id=tokenizer.mask_id, device=device,
+                                num_samples=num_samples, temperature=temperature,
+                                top_k=top_k, top_p=top_p, generator=generator)
+    else: # default to iterative for now
+        return sample_iterative(model, input_ids, mask_positions, banned_ids=tokenizer.special_ids, 
+                                mask_id=tokenizer.mask_id, device=device,
+                                num_samples=num_samples, temperature=temperature,
+                                top_k=top_k, top_p=top_p, generator=generator)
 
 
 def aggregate(records, key):
-    """(mean, stdev) of a per-example metric across the sweep; (nan, 0) if never present."""
+    """(mean, stdev) of a per-example metric across the sweep; (nan, 0) if never present"""
     vals = [r["metrics"][key] for r in records if r["metrics"].get(key) is not None]
     if not vals:
         return float("nan"), 0.0
@@ -114,10 +117,7 @@ def aggregate(records, key):
 def build_judge(model_type, weights_path=None, *, data_path, max_len, target_region,
                 include_partner_chain=False, include_antigen=False, device=None):
     """Load an INDEPENDENT reference LM plus a parallel dataset in its own vocabulary.
-
-    Same data, same split, same injection — only the tokenizer differs — so eval example i lines up
-    with judge example i and candidates can be re-encoded into the judge's vocab and scored.
-
+    
     Returns (judge_model, judge_tokenizer, judge_dataset).
     """
     from cdrseqgen.models.models import resolve  # local: avoids a heavy import at module load
@@ -140,7 +140,7 @@ def build_judge(model_type, weights_path=None, *, data_path, max_len, target_reg
 
 
 def print_report(records, title="", judge_name=None):
-    """Console summary: overall, then per H3-length bucket."""
+    """Console summary: overall, then per H3-length bucket"""
     def block(label, subset):
         if not subset:
             return
@@ -170,45 +170,48 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
                         temperature=1.0, top_k=0, top_p=1.0,
                         num_examples=200, stratify=False, seed=42,
                         skip_perplexity=False,
-                        judge_model=None, judge_tokenizer=None, judge_dataset=None,
-                        judge_name=None, output_path=None, meta=None,
-                        title="", progress=True):
-    """Sample + score candidate loops for a subsample of the eval split. Returns the payload dict.
-
-    `model` may be mid-training (train.py passes trainer.model), so eval mode is forced here —
-    otherwise dropout would silently corrupt every sample.
-    """
+                        judge_model=None, judge_tokenizer=None, 
+                        judge_dataset=None, judge_name=None, 
+                        output_path=None, meta=None, title=""):
+    """Sample + score candidate loops for a subsample of the eval split, returns the payload dict"""
+    # Set model to eval mode
     model.eval()
 
+    # Set seed
     torch.manual_seed(seed)
     generator = torch.Generator(device=device)
     generator.manual_seed(seed)
 
+    # Get target region lengths from eval dataset
     lengths = [eval_dataset[i]["target_len"] for i in range(len(eval_dataset))]
+
+    # Select examples, stratify option for different CDR bucket lengths
     rng = random.Random(seed)
     selected = select_indices(lengths, num_examples, stratify, rng)
 
-    iterator = selected
-    if progress:
-        try:
-            from tqdm import tqdm
-            iterator = tqdm(selected, desc="frameworks")
-        except ImportError:
-            pass
+    # set data iterator, tqdm progress bar in terminal
+    try:
+        from tqdm import tqdm
+        data_iterator = tqdm(selected, desc="frameworks", disable=None)  # None -> off when not a terminal
+    except ImportError:
+        data_iterator = selected
 
     records = []
-    for i in iterator:
+    for i in data_iterator:
+        # retrieve eval data, extract native (target) region ids
         item = eval_dataset[i]
         input_ids, mask_positions, native_ids = masked_view(item)
         if not mask_positions:
             continue
         native = tokenizer.decode(native_ids).upper().strip()
 
+        # generate samples from input_ids using selected model
         sampled_ids = _decode(model, tokenizer, device, generator, input_ids, mask_positions,
                               decoding, num_samples, temperature, top_k, top_p)
         seqs = [tokenizer.decode(ids).upper().strip() for ids in sampled_ids]
 
-        metrics = summarize(seqs, native)
+        # calculate sequence based metrics: aar, diversity, novelty, pseudo-ppl/log likelihood
+        metrics = calculate(seqs, native)
         metrics["target_len"] = len(mask_positions)
 
         if not skip_perplexity:
@@ -218,7 +221,7 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
             metrics["self_perplexity_mean"] = sum(ppls) / len(ppls)
 
         if judge_model is not None:
-            # Map the eval-subset index back to the full dataset so the judge sees the same entry.
+            # Map the eval-subset index back to the full dataset so the judge sees the same entry
             full_idx = eval_dataset.indices[i] if hasattr(eval_dataset, "indices") else i
             j_input, j_mask_pos, _ = masked_view(judge_dataset[full_idx])
             j_ppls = []

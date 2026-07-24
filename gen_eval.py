@@ -1,35 +1,52 @@
-"""Generative evaluation of a finished checkpoint, on the held-out eval split.
+"""Generative evaluation of a finished checkpoint, on the held-out eval split. 
 
-[`eval_recovery.py`](eval_recovery.py) answers "how often does the model reproduce the native loop?" (recovery).
-This answers what recovery *cannot*: sample a library of candidate loops per held-out framework and
-measure whether they are diverse, novel, and plausible — i.e. whether the model can **design**.
+Entrypoint used to evaluate trained model checkpoints, especially CDR generation capabilities. 
+Recommended to set up judge to measure perplexity since its not automatically done in train.py. 
 
-Why not test/*.json? Those are a handful of hand-assembled frameworks: far too few for a
-distribution, mostly without natives, and the _lc/_ag variants hand-encode the context-injection
-rules — so they drift silently the moment dataset.py changes. Here the eval set is reconstructed
-from the config exactly as in training: same clustered leakage-safe split, same injection, a real
-native on every example. (The curated JSONs remain a qualitative showcase via predict.py.)
-
-train.py can run this automatically at the end of a run (config: "run_generative_eval": true) — the
-shared implementation lives in cdrseqgen/eval/generation.py. This entrypoint exists because you
-usually should NOT have to retrain to (re)evaluate: it scores checkpoints you already have, and lets
-you re-sweep temperature/top-p or swap the judge without touching the training run.
-
-Example:
+Usage example:
     python eval_generative.py --config configs/h3_esm2.json \
         --model_dir results/20260710/20260710_184547_h3_OAS_esm2_t12_35M_UR50D \
         --num_examples 150 --stratify --num_samples 20 --top_p 0.9 \
         --judge Exscientia/IgBert
 """
 import os
+import json
 import argparse
 
 import torch
 from transformers import HfArgumentParser, TrainingArguments
 
-from train import ModelArguments, DataArguments, GenerationArguments, get_datasets
+from train import ModelArguments, DataArguments, GenerationArguments, get_datasets, RUN_META_FILENAME
 from cdrseqgen.models.models import resolve
 from cdrseqgen.eval.generation import run_generative_eval, build_judge
+
+
+def read_run_meta(model_dir):
+    """Load the run_meta.json a training run wrote, or None (older runs won't have it)."""
+    path = os.path.join(model_dir, RUN_META_FILENAME)
+    if os.path.exists(path):
+        with open(path) as f:
+            return json.load(f)
+    return None
+
+
+def check_target_region(model_dir, config_target):
+    """Report the CDR loop the checkpoint was trained for, and warn if the config disagrees.
+
+    The eval runs on config_target (the dataset is built from --config). If the checkpoint's own
+    run_meta says it was trained for a DIFFERENT loop, we're masking the wrong CDR — the numbers
+    would be confident and meaningless — so warn loudly. Returns the model's trained loop (or None).
+    """
+    meta = read_run_meta(model_dir)
+    trained_for = meta.get("target_region") if meta else None
+    if trained_for is None:
+        print(f"ℹ️  No {RUN_META_FILENAME} in {model_dir} (older run) — can't verify the model's trained loop.")
+    elif trained_for != config_target:
+        print(f"⚠️  LOOP MISMATCH: model was trained for '{trained_for}', but --config targets "
+              f"'{config_target}'. Evaluating on the WRONG CDR — metrics will be meaningless.")
+    else:
+        print(f"🧬 Model trained for CDR '{trained_for}' (matches config).")
+    return trained_for
 
 
 def main():
@@ -39,7 +56,7 @@ def main():
     ap.add_argument("--num_examples", type=int, default=200, help="Eval examples to sample (-1 = all).")
     ap.add_argument("--stratify", action="store_true", help="Balance the draw across H3 length buckets.")
 
-    ap.add_argument("--decoding", choices=["greedy", "independent", "iterative"], default="iterative")
+    ap.add_argument("--decoding", choices=["independent", "iterative"], default="iterative")
     ap.add_argument("--num_samples", type=int, default=20, help="Candidates per framework.")
     ap.add_argument("--temperature", type=float, default=1.0)
     ap.add_argument("--top_k", type=int, default=0)
@@ -55,14 +72,14 @@ def main():
                     help="Results JSON path ('none' to skip writing; default: <model_dir>/generation_eval.json).")
     args = ap.parse_args()
 
-    # --- rebuild the exact training-time eval split from the config (same as eval_recovery.py) ---
-    # GenerationArguments is in the parser only so configs carrying "run_generative_eval"/"gen_*"
-    # keys still parse here; this entrypoint takes its sampling settings from the CLI instead.
     parser = HfArgumentParser((ModelArguments, DataArguments, GenerationArguments, TrainingArguments))
     model_args, data_args, _gen_args, training_args = parser.parse_json_file(json_file=os.path.abspath(args.config))
-    training_args.output_dir = args.model_dir  # evaluate-only; nothing is written here
+    training_args.output_dir = args.model_dir  
     training_args.report_to = []
     training_args.eval_strategy = "no"
+
+    # Provenance: what CDR was this checkpoint actually trained for? (warns on config mismatch)
+    trained_for = check_target_region(args.model_dir, data_args.target_region)
 
     backbone = resolve(model_args.model_type)
     _, eval_dataset, tokenizer = get_datasets(model_args, data_args, training_args, backbone)
@@ -93,15 +110,14 @@ def main():
         skip_perplexity=args.skip_perplexity,
         judge_model=judge_model, judge_tokenizer=judge_tokenizer,
         judge_dataset=judge_dataset, judge_name=args.judge,
-        # 'none' means "don't write", matching predict.py. Without this sentinel the string is taken
-        # literally and the results land in a file called ./none.
         output_path=(None if args.output == "none"
                      else args.output or os.path.join(args.model_dir, "generation_eval.json")),
         title=f"{os.path.basename(args.model_dir)}   target={data_args.target_region}",
         meta={
             "config": args.config,
             "model_dir": args.model_dir,
-            "target_region": data_args.target_region,
+            "target_region": data_args.target_region,        # loop this eval ran on (from --config)
+            "model_trained_for": trained_for,                # loop the checkpoint was trained for (run_meta)
             "include_partner_chain": bool(data_args.include_partner_chain),
             "include_antigen": bool(data_args.include_antigen),
         },

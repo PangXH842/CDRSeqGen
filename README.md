@@ -1,7 +1,7 @@
 # CDRSeqGen: Modular Antibody Infilling Framework
 
-**Date Updated:** 2026-07-20  
-**Status:** Project flow chart plotting, preparation for another code restructure, pending manual code review 
+**Date Updated:** 2026-07-24  
+**Status:** Operation Reclamation - finished with the eval scripts (`metrics.py`, `sampling.py`, `generation.py`)
 
 ## Project Overview
 CDRSeqGen is a computational immunology framework designed to predict antibody loop sequences given the surrounding framework context. 
@@ -13,7 +13,7 @@ Current implemented features include:
 - **Pluggable Backbone PLMs**: supports various PLMs, current list: custom transformer (scratch), ESM-2, IgBert, ProtBert
 - **Partner Chain Context**: optional inclusion of non-target chain sequence context
 - **Antigen Context**: optional inclusion of antigen sequence context for SAbDab2 dataset
-- **Generative Sampling**: greedy / independent / iterative (Mask-Predict) decoding with temperature, top-k, top-p — samples a *library* of candidate loops instead of one argmax guess
+- **Generative Sampling**: independent / iterative (Mask-Predict) decoding with temperature (`0` = greedy), top-k, top-p — samples a *library* of candidate loops instead of one argmax guess
 - **Evaluation Metrics**: *recovery-side* — Sequence Recovery Rate (Per-Residue Accuracy), anchor-excluded core accuracy, anchor accuracy. *Design-side* — diversity, novelty, per-position entropy, pseudo-perplexity, plus judge-scored perplexity for cross-model comparison
 - **Logging & Visualization**: TensorBoard logging, csv metric extraction, multi-line graph plotter 
 - **Extensible Architecture**: modular design for easy addition of new PLMs, datasets, and evaluation metrics
@@ -39,10 +39,11 @@ CDRSeqGen/
 │   ├── models/
 │   │   ├── models.py           # PLM model registry (resolve)
 │   │   └── custom.py           # Custom transformer (scratch) definition
-│   └── eval/
-│       ├── sampling.py         # Decoders (greedy/independent/iterative Mask-Predict) + pseudo-perplexity
-│       ├── metrics.py          # Pure sequence stats: recovery, diversity, novelty, per-position entropy
-│       ├── generation.py       # Shared generative-eval core (used by BOTH train.py and gen_eval.py)
+│   ├── eval/
+│   │   ├── sampling.py         # Decoders (independent / iterative Mask-Predict; temperature 0 = greedy) + pseudo-perplexity
+│   │   ├── metrics.py          # Pure sequence stats: recovery, diversity, novelty, per-position entropy
+│   │   └── generation.py       # Shared generative-eval core (used by BOTH train.py and gen_eval.py)
+│   └── utils/
 │       └── linegraph_plotter.py  # Training-curve plotting utility
 ├── dataset/data/               # THE DATA — gitignored, ~4.4GB (raw + processed OAS/SAbDab2).
 │                               #   Deliberately outside the package; configs' data_path points here.
@@ -201,7 +202,7 @@ breakdown's y-axis spans ~0.3–0.9, which compresses within-line movement (ESM-
 Compare runs on one chart with `--metric` (any column in `epoch_metrics.csv`; defaults to core):
 
 ```bash
-python -m cdrseqgen.eval.linegraph_plotter \
+python -m cdrseqgen.utils.linegraph_plotter \
   --run "H3 Scratch" "./results/20260717_174605_h3_OAS_scratch" \
   --run "H3 ESM-2"  "./results/20260717_182339_h3_OAS_esm2_t12_35M_UR50D" \
   --metric eval_core_accuracy \
@@ -211,29 +212,33 @@ python -m cdrseqgen.eval.linegraph_plotter \
 <!-- > **⚠️ Never mix datasets on one chart.** OAS (`_OAS`) and SAbDab2 (`_SD2`) runs are evaluated on *different test sets*, so their accuracies are not comparable on shared axes — plot one graph per dataset (e.g. `cdr3_oas` with the 4 OAS runs, `cdr3_sd2` with the 4 SAbDab2 runs). The `results/comparisons/*_oas_*.png` / `*_sd2_*.png` pairs follow this convention. -->
 
 ### Step 4: Qualitative Sampling on Curated Frameworks (`predict.py`)
-Fill the CDR gap for a few hand-picked frameworks and eyeball the designs. The default
-`--decoding greedy` reproduces the old argmax report; the sampling modes draw `--num_samples`
-candidates per framework and report diversity / novelty / pseudo-perplexity. Samples + metrics are
-written to `<model_path>/generation_results.json`.
+Give it a framework with its CDR loop cut out (`pt1` / gap / `pt2`) and it fills the gap: samples a
+library of candidate loops (default **iterative**) and prints them, each with recovery-vs-native (when
+you provide the native) and pseudo-perplexity, plus per-framework diversity/novelty. It also reports
+which CDR the checkpoint was trained for (read from `run_meta.json`). Samples + metrics are written to
+`<model_path>/generation_results.json`.
 
 > **This is a showcase, not an evaluation.** `test/*.json` holds only a handful of curated frameworks
 > (mostly without natives), and the `_lc`/`_ag` variants hand-encode the context-injection rules — so they
 > drift silently whenever `dataset.py` changes. For numbers you can report, use **Step 5**, which draws
-> real held-out frameworks straight from the eval split.
+> real held-out frameworks straight from the eval split (built by the dataset, so they can't drift).
 
 ```bash
-# Argmax (recovery-style) report — unchanged default
-python predict.py --model_type scratch --model_path ./results/latest --test_file test/test_h3.json
+# design coherent loops for a batch of curated frameworks (default: iterative sampling)
+python predict.py --model_path ./results/latest --test_file test/test_h3.json
 
-# Sample 50 H3 designs per framework: nucleus sampling + iterative (Mask-Predict) decoding
-python predict.py --model_type scratch --model_path ./results/latest --test_file test/test_h3.json \
-    --decoding iterative --num_samples 50 --temperature 1.0 --top_p 0.9
+# more candidates + nucleus sampling
+python predict.py --model_path ./results/latest --test_file test/test_h3.json \
+    --decoding iterative --num_samples 50 --top_p 0.9
+
+# a single framework straight from the CLI
+python predict.py --model_path ./results/latest --pt1 EVQL...YYCAR --pt2 WGQGT... --target_length 17
 ```
 
-`--decoding`: `greedy` (argmax, deterministic) · `independent` (per-position sampling, 1 forward pass) ·
-`iterative` (confidence-ordered Mask-Predict — conditions each residue on those already committed, so
-intra-H3 dependencies are respected). Warp with `--temperature` / `--top_k` / `--top_p`; `--skip_perplexity`
-drops the compute-heavy per-candidate scoring; `--seed` makes a run reproducible.
+`--decoding`: `independent` (per-position sampling, 1 forward pass) · `iterative` (confidence-ordered
+Mask-Predict — conditions each residue on those already committed, so intra-H3 dependencies are
+respected). **`--temperature 0` makes either deterministic (greedy)** and returns a single loop. Warp
+with `--temperature` / `--top_k` / `--top_p`; `--skip_perplexity` drops the compute-heavy scoring.
 
 ### Step 5: Generative Evaluation on the Held-Out Split (`gen_eval.py`)
 The reportable version of Step 4. Reconstructs the **exact training-time eval split** from the config
@@ -281,16 +286,8 @@ judging is valid. Tune or disable via config:
 "gen_top_p": 0.9
 ```
 
-Every run then drops a `generation_eval.json` beside `epoch_metrics.csv`, with no extra command. It
-samples from **`trainer.model`** — with `load_best_model_at_end` that's the peak checkpoint, already on
-the GPU, so nothing is reloaded. It runs last and is exception-guarded: a generation failure logs a
-warning and **cannot** damage a training run that already finished and saved. Defaults are **off**, so
-existing configs and quick debug runs are untouched.
-
-> **The judge stays out of training on purpose.** A judge is only meaningful *across* models (the same
-> judge applied to each) — which a single training run cannot do by construction — and loading one next
-> to the trainer's optimizer state invites an OOM *after* training succeeded. So in-train generation
-> gives you diversity / novelty / entropy / self-ppl per run; use `gen_eval.py` for judged comparisons.
+Set `run_generative_eval: false` (or `gen_judge: ""` to keep the metrics but skip the judge) to opt out;
+trim `gen_num_examples` for cheap runs. Cost is ~80s of sampling + ~15s to load the judge per run.
 
 Both paths share one implementation ([`cdrseqgen/eval/generation.py`](cdrseqgen/eval/generation.py)) —
 they differ only in where the model comes from. `gen_eval.py` stays the tool of choice for scoring
@@ -306,7 +303,7 @@ Phase 1 (the sequence sweep) is a **leakage-safe benchmark** for CDR infilling. 
 
 **2. CDR-H3 is the only hard loop.** Anchor-excluded core recovery: H1/H2/L1/L2/L3 all ~0.90+, **H3 ~0.32**. Matches the biology — heavy CDR3 gets D-gene + junctional diversity; the rest is comparatively templated. The entire design difficulty concentrates in one loop.
 
-**3. The standard metric misleads (anchor inflation).** Whole-span `eval_accuracy` (~0.46 on H3) is dominated by the 2-3 V/J-gene-determined anchor residues at each loop end (~0.90 recovery, any model); the hypervariable middle actually being "designed" is ~0.32. The gap is **H3-specific** (H1/H2/L core ≈ whole-span). Measured via `core_accuracy`/`anchor_accuracy` + [`eval_recovery.py`](eval_recovery.py). Position-resolved (illustrative, `h3_esm2`):
+**3. The standard metric misleads (anchor inflation).** Whole-span `eval_accuracy` (~0.46 on H3) is dominated by the 2-3 V/J-gene-determined anchor residues at each loop end (~0.90 recovery, any model); the hypervariable middle actually being "designed" is ~0.32. The gap is **H3-specific** (H1/H2/L core ≈ whole-span). Measured via `core_accuracy`/`anchor_accuracy` (`compute_metrics` in `train.py`); the position-resolved breakdown below is from the standalone re-scorer `eval_recovery.py` (archived in `old/`). Illustrative (`h3_esm2`):
 
 | Position from start | 0 | 1 | 2 | 3 | 4 | 5 |
 |---|---|---|---|---|---|---|
@@ -381,12 +378,20 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 
 ### How to read the numbers 
 - **Report core, not whole-span** — whole-span is anchor-inflated on H3 (Findings §3).
-- **…except for L2, where core is meaningless.** `ANCHOR_TRIM=2` trims 2 residues from each end, so a loop needs length > 4 to contribute *any* core token — but **98.8% of light-chain CDR2 loops are 3 residues** (20,847/21,106). L2 core is therefore computed over ~**30 of 2,111** eval examples (1.4%), and its values are noise: the 07-17 batch shows L2 core of `1.0000` for scratch and `0.5957` for scratch+HC, while the *valid* whole-span numbers are `0.9921` vs `0.9590`. **Report whole-span for L2**; H1/H2/H3/L1/L3 are unaffected (2110-2111/2111 eval entries contribute core). This is now **self-detecting**: every run records **`eval_core_coverage`** (fraction of eval rows with any core residue) in `epoch_metrics.csv`, `train.py` warns once when it drops below 50%, and `eval_recovery.py` prints it with a warning beside the core score. A coverage well under 1.0 means the core number is noise.
+- **…except for L2, where core is meaningless.** `ANCHOR_TRIM=2` trims 2 residues from each end, so a loop needs length > 4 to contribute *any* core token — but **98.8% of light-chain CDR2 loops are 3 residues** (20,847/21,106). L2 core is therefore computed over ~**30 of 2,111** eval examples (1.4%), and its values are noise: the 07-17 batch shows L2 core of `1.0000` for scratch and `0.5957` for scratch+HC, while the *valid* whole-span numbers are `0.9921` vs `0.9590`. **Report whole-span for L2**; H1/H2/H3/L1/L3 are unaffected (2110-2111/2111 eval entries contribute core). This is now **self-detecting**: every run records **`eval_core_coverage`** (fraction of eval rows with any core residue) in `epoch_metrics.csv`, and `train.py` warns once when it drops below 50%. A coverage well under 1.0 means the core number is noise.
 - **Read best-epoch, not last-epoch** — ESM-2 overfits on SAbDab2/H3; `load_best_model_at_end` saves the peak, but the last CSV row can sit well below it.
 - **Never plot OAS and SAbDab2 on shared axes** — different test sets; the `_OAS`/`_SD2` run tags enforce it, and per-dataset charts live in `results/pngs/*_{oas,sd2}_*.png`.
 - **`epoch_metrics.csv` and `*_results.json` measure different models — they're *supposed* to disagree.** The CSV is the per-epoch **trajectory** (the model as it stood at each epoch); `eval_results.json`/`all_results.json` come from the post-training `trainer.evaluate()`, which with `load_best_model_at_end` runs on the **best** checkpoint while still being stamped with the final epoch number. On `h3_esm2` the CSV's epoch-10 row reads core **0.3063** (the actual last model) while `eval_results.json` reads **0.3209** (the epoch-4 best model). `save_training_csv` de-duplicates on epoch and **keeps the first** occurrence precisely so the curve keeps the real last-epoch point — keeping the last would silently redraw the best model at x=10 and erase the overfitting decay entirely.
 
 ### Changelog
+<!-- Latest updates can be added here before protection zone -->
+- **2026-07-24** -- `run_meta.json` provenance: `train.py` records the CDR loop (+ model/context) each run was trained for; `gen_eval.py` warns on config↔model mismatch, `predict.py` displays it
+- **2026-07-24** -- `predict.py`: reframed as the design/inference tool — default decoding now `iterative` (greedy is `--temperature 0`); `gen_eval.py` is the benchmark
+- **2026-07-24** -- `sampling.py`/`generation.py`/`predict.py`: keyword-only sampler signatures (`device` kw-only) + all call sites pass optional args by keyword → reorder-safe
+<!-- MANUAL PROTECTION ZONE BEGINS -->
+- **2026-07-24** -- [RECLAIM] Reclaimed: `metrics.py`, `sampling.py`, `generate.py`, `gen_eval.py`
+- **2026-07-24** -- `linegraph_plotter.py`: moved to new `utils/` folder
+- **2026-07-24** -- `sampling.py`: handled greedy algo for both independent and iterative decoders
 - **2026-07-21** -- `eval_recovery.py`: temporarily discarded (now in `old/`)
 - **2026-07-21** -- `gen_eval.py`[`eval_generative.py`]: rename
 - **2026-07-21** -- `custom.py`[`model.py`]: rename
@@ -397,20 +402,17 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **2026-07-20** -- Enabled line graph plotting for whole + core (no anchor) AARs for each run
 - **2026-07-20** -- `train.py`: now generates `train.log` (pending verification, file not found in new training runs eg. 0720)
 - **2026-07-20** -- Run hyperparameter sweep on scratch model 
-- **2026-07-20** -- Launched manual code cleaning (order - see roadmap)
+- **2026-07-20** -- [RECLAIM] Begin manual code cleaning plan (*Codename: Operation Reclamation (lol)*) (list - see roadmap)
 - **2026-07-17** -- Preparation for hyperparameter sweep on scratch model
 - **2026-07-17** -- Dataset data storage restructure
-- **2026-07-17** -- `eval_recovery.py`[`rescore.py`]: renamed 
 - **2026-07-17** -- `eval_generative.py`[new]: generative eval on the held-out split (2,111 frameworks — real natives, leakage-safe, injection reused so nothing drifts)
 - **2026-07-17** -- `cdrseqgen/eval/generation.py`[new]: generative eval metrics: diversity, novelty, pseudo-perplexity, per-position entropy
-- **2026-07-17** -- `train.py`: opt-in post-training generative eval (`"run_generative_eval": true`); off by default, all 48 configs parse unchanged
-- **2026-07-17** -- `test/*.json`: demoted to a `predict.py` qualitative showcase — real eval now comes from the held-out split
-- **2026-07-16** -- `predict.py`: added sampling modes
+- **2026-07-17** -- `train.py`: opt-in post-training generative eval (`"run_generative_eval": true`)
 - **2026-07-16** -- `sampling.py`[new]: decoders (greedy / independent / iterative Mask-Predict) + pseudo-perplexity scoring
 - **2026-07-16** -- `metrics.py`[new]: diversity / novelty / per-position entropy 
 - **2026-07-16** -- Repo restructure
-- **2026-07-16** -- Updated roadmap (checklists)
 - **2026-07-15** -- Polished README (half-manually), updated roadmap (pending manual edit)
+<!-- MANUAL PROTECTION ZONE ENDS -->
 
 ---
 
@@ -427,17 +429,18 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - [ ] Multi-seed the key H3 configs (error bars on the ±0.01 model/context deltas)
 - [ ] Lock the Phase-2 objective + primary metric with advisor
 
+<!-- MANUAL PROTECTION ZONE BEGINS -->
 - [ ] Project flowchart
  - [ ] Code structure overhaul
-- Manual code cleaning
+- **Operation Reclamation** -- Manual code cleaning: Comprehend and rewrite the project content in my own terms - previous work handled by AI resulted in the project almost becoming a "black box" for the developer himself 
  - [ ] `train.py` 
  - [ ] `models.py` 
  - [ ] `custom.py` 
  - [ ] `dataset.py` 
- - [ ] `metrics.py`
- - [ ] `sampling.py`
- - [ ] `generation.py`
- - [ ] `gen_eval.py`
+ - [x] `metrics.py`
+ - [x] `sampling.py`
+ - [x] `generation.py`
+ - [x] `gen_eval.py`
  - [ ] `predict.py`
  - [ ] `run.sh`
  - [ ] hyperparameter tuning script (`sweep_scratch.sh`)
@@ -452,15 +455,16 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
   - [x] 3,984 paired Ab with resolved antigen
   - [ ] Remaining ~10k+ structures without antigen
 - Other sources
-  - [ ] SAbDab (full) / Thera-SAbDab
+  - [ ] SAbDab / Thera-SAbDab
 
 **Preprocessing**
 - [x] Bio-Object JSON schema (14 IMGT regions)
 - [x] Partner-chain context (light ↔ heavy)
 - [x] Antigen context (SAbDab2)
-- [x] Clustered split — homology-leak-safe (OAS)
-- [ ] Structure / coordinate parsing (for Phase 2)
+- [x] Clustered split (OAS) -- homology-leak-safe 
+- [ ] Structure / coordinate parsing 
 - [ ] Unpaired-OAS preprocessor (`preprocess_oas_unpaired.py`)
+<!-- MANUAL PROTECTION ZONE ENDS -->
 
 **Training / methods**
 - Sequence-only
@@ -480,7 +484,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 
 **Evaluation**
 - [x] Sequence recovery (AAR) — whole-span
-- [x] Anchor-excluded core recovery (+ [`eval_recovery.py`](eval_recovery.py))
+- [x] Anchor-excluded core recovery (`compute_metrics` in `train.py`; standalone re-scorer `eval_recovery.py` archived in `old/`)
 - [x] Pseudo-perplexity — masked-LM PLL over the loop ([`sampling.py`](cdrseqgen/eval/sampling.py))
 - [x] Diversity & novelty — pairwise Hamming, unique fraction, per-position entropy, novelty-vs-native ([`metrics.py`](cdrseqgen/eval/metrics.py))
 - [ ] Novelty vs. *training set* (nearest-neighbour CDR3 identity — needs the train CDR3 index)

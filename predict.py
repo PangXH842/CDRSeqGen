@@ -1,30 +1,24 @@
-"""Batch CDR-loop generation + generative evaluation.
+"""Inference/showcase tool - Design CDR loops for antibody frameworks supplied.
 
-Given an antibody framework with its CDR loop cut out (pt1 / gap / pt2), fill the gap and score
-the result. Historically this only did argmax ("what single loop does the model most expect?"),
-which measures *recovery* — and recovery rewards reproducing the native loop, the opposite of what
-antibody *design* wants. This script now samples a library of candidates per framework and reports
-the generative metrics that judge design quality: diversity, novelty vs. the native, and (native-
-free) pseudo-perplexity. See sampling.py for the decoders/scoring and metrics.py for the stats.
+Give predict.py a framework with its CDR loop cut out — pt1 (sequence before the loop), pt2 (after),
+and a gap length — and it fills the gap: samples a library of candidate loops and prints them, each
+with recovery-vs-native (when you provide the native) and pseudo-perplexity, plus quick per-framework
+diversity/novelty stats. The frameworks come from YOU: one case on the CLI (--pt1/--pt2/
+--target_length) or a JSON of curated cases (--test_file).
 
-Decoding modes (--decoding):
-  greedy       argmax per position — one deterministic loop (the original behaviour; the default,
-               so existing commands reproduce exactly). num_samples is ignored.
-  independent  sample each position from its warped marginal — fast (one forward pass), positions
-               independent.
-  iterative    confidence-ordered Mask-Predict — conditions each residue on the ones already
-               committed, so intra-loop dependencies (which dominate CDR-H3) are respected.
+Decoding (--decoding): independent (per-position, one forward pass) or iterative (Mask-Predict, each
+residue conditioned on those already committed — coherent, dominates on CDR-H3). --temperature 0
+makes either deterministic (greedy). Warp with --temperature / --top_k / --top_p. Everything runs
+through the backbone registry, so the same path drives the scratch transformer, ESM-2, or any
+protein-BERT with no model-family branching.
 
-Everything runs through the backbone registry + TokenizerAdapter, so the same code path samples the
-from-scratch transformer, ESM-2, or any protein-BERT with no model-family branching.
+Usage examples:
+    # design 20 coherent H3 loops for one framework
+    python predict.py --model_path ./results/latest --pt1 EVQL...YYCAR --pt2 WGQGT... --target_length 17
 
-Examples:
-    # Reproduce the old argmax report
-    python predict.py --model_type scratch --model_path ./results/latest --test_file test/test_h3.json
-
-    # Sample 50 diverse H3 designs per framework with nucleus sampling + iterative decoding
-    python predict.py --model_type scratch --model_path ./results/latest --test_file test/test_h3.json \
-        --decoding iterative --num_samples 50 --temperature 1.0 --top_p 0.9
+    # a curated batch with nucleus sampling
+    python predict.py --model_path ./results/latest --test_file test/test_h3.json \
+        --decoding iterative --num_samples 50 --top_p 0.9
 """
 import argparse
 import json
@@ -33,12 +27,28 @@ import torch
 
 from cdrseqgen.models.models import resolve
 from cdrseqgen.eval.sampling import (
-    decode_greedy,
     sample_independent,
     sample_iterative,
     pseudo_log_likelihood,
 )
-from cdrseqgen.eval.metrics import get_aar, summarize
+from cdrseqgen.eval.metrics import amino_acid_recovery, calculate
+
+
+def model_trained_for(model_path):
+    """The CDR loop this checkpoint was trained to design, from run_meta.json (train.py writes it).
+
+    predict.py takes pt1/pt2 for *any* loop, so there is no config to cross-check against — but
+    surfacing what the model was trained for still flags the "designing H3 with an L2 model" mistake.
+    Returns None for hub models or older runs that have no run_meta.json.
+    """
+    path = os.path.join(model_path, "run_meta.json")
+    if os.path.isfile(path):
+        try:
+            with open(path) as f:
+                return json.load(f).get("target_region")
+        except (OSError, json.JSONDecodeError):
+            return None
+    return None
 
 
 def build_masked_input(tokenizer, pt1, pt2, target_length):
@@ -74,18 +84,18 @@ def decode_case(model, tokenizer, device, args, generator, case):
     input_ids, mask_positions = build_masked_input(tokenizer, pt1, pt2, target_length)
     banned = tokenizer.special_ids
 
-    # --- decode ---
-    if args.decoding == "greedy":
-        sampled_ids = decode_greedy(model, input_ids, mask_positions, banned, device)
-    elif args.decoding == "independent":
+    # --- decode ---  (greedy == temperature 0; see sampling.py)
+    if args.decoding == "independent":
         sampled_ids = sample_independent(
-            model, input_ids, mask_positions, banned, args.num_samples,
-            args.temperature, args.top_k, args.top_p, device, generator,
+            model, input_ids, mask_positions, banned, device=device,
+            num_samples=args.num_samples, temperature=args.temperature,
+            top_k=args.top_k, top_p=args.top_p, generator=generator,
         )
     else:  # iterative
         sampled_ids = sample_iterative(
-            model, input_ids, mask_positions, banned, args.num_samples,
-            args.temperature, args.top_k, args.top_p, device, tokenizer.mask_id, generator,
+            model, input_ids, mask_positions, banned, tokenizer.mask_id, device=device,
+            num_samples=args.num_samples, temperature=args.temperature,
+            top_k=args.top_k, top_p=args.top_p, generator=generator,
         )
 
     # --- decode ids -> strings + per-sample scores ---
@@ -94,7 +104,7 @@ def decode_case(model, tokenizer, device, args, generator, case):
         seq = tokenizer.decode(ids).upper().strip()
         entry = {"seq": seq}
         if native:
-            entry["recovery"] = get_aar(seq, native)
+            entry["recovery"] = amino_acid_recovery(seq, native)
         if not args.skip_perplexity:
             _, ppl = pseudo_log_likelihood(
                 model, input_ids, mask_positions, ids, banned, tokenizer.mask_id, device
@@ -104,7 +114,7 @@ def decode_case(model, tokenizer, device, args, generator, case):
 
     # --- aggregate generative metrics over the sample set ---
     seqs = [s["seq"] for s in samples]
-    metrics = summarize(seqs, native)
+    metrics = calculate(seqs, native)
     if not args.skip_perplexity and samples:
         ppls = [s["pseudo_perplexity"] for s in samples]
         metrics["pseudo_perplexity_mean"] = sum(ppls) / len(ppls)
@@ -180,6 +190,10 @@ def main(args):
     model.to(device)
     model.eval()
 
+    trained_for = model_trained_for(args.model_path)
+    if trained_for:
+        print(f"🧬 This model was trained to design CDR '{trained_for}' loops.")
+
     # Reproducible sampling: one seeded generator on the model's device drives every draw.
     torch.manual_seed(args.seed)
     generator = torch.Generator(device=device)
@@ -212,7 +226,8 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Universal CDR-loop sampler + generative evaluation")
+    parser = argparse.ArgumentParser(
+        description="Design CDR loops for frameworks you provide (qualitative tool; use gen_eval.py for benchmarks)")
     parser.add_argument("--model_path", type=str, required=True, help="Path to your trained model folder")
     parser.add_argument("--model_type", type=str, default="scratch",
                         help="Backbone: 'scratch', an ESM-2 id, a protein-BERT id, or any HF masked-LM hub path")
@@ -227,9 +242,11 @@ if __name__ == "__main__":
     parser.add_argument("--target_seq", type=str, default=None, help="Optional ground-truth loop")
 
     # Sampling controls
-    parser.add_argument("--decoding", choices=["greedy", "independent", "iterative"], default="greedy",
-                        help="greedy=argmax (default, reproduces old behaviour); independent/iterative sample")
-    parser.add_argument("--num_samples", type=int, default=20, help="Samples per case (ignored for greedy)")
+    parser.add_argument("--decoding", choices=["independent", "iterative"], default="iterative",
+                        help="independent (per-position, 1 pass) or iterative (Mask-Predict, coherent). "
+                             "--temperature 0 makes either deterministic (greedy).")
+    parser.add_argument("--num_samples", type=int, default=20,
+                        help="Candidate loops to sample per framework (collapses to 1 when --temperature 0)")
     parser.add_argument("--temperature", type=float, default=1.0, help="Softmax temperature (>1 flatter, <1 sharper)")
     parser.add_argument("--top_k", type=int, default=0, help="Keep only the top-k logits (0 = disabled)")
     parser.add_argument("--top_p", type=float, default=1.0, help="Nucleus sampling cumulative-prob cutoff (1.0 = disabled)")

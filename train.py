@@ -21,7 +21,7 @@ from transformers import (
 
 from cdrseqgen.data.dataset import AntibodyInfillingDataset, collate_fn
 from cdrseqgen.models.models import resolve
-from cdrseqgen.eval.linegraph_plotter import plot_linegraph, plot_metric_breakdown
+from cdrseqgen.utils.linegraph_plotter import plot_linegraph, plot_metric_breakdown
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 LOG_FILENAME = "train.log"
@@ -91,6 +91,7 @@ RESULTS_ROOT_ENV = "CDRSEQGEN_RESULTS_ROOT"
 RUN_SUFFIX_ENV = "CDRSEQGEN_RUN_SUFFIX"
 DEFAULT_RESULTS_ROOT = "./results"
 LATEST_LINK = "latest"
+RUN_META_FILENAME = "run_meta.json"
 
 
 def unique_run_dir(root: str, run_name: str) -> str:
@@ -146,6 +147,27 @@ def update_latest_link(run_dir: str) -> None:
         os.symlink(target, link_path)
     except OSError as e:
         logger.warning(f"⚠️ Could not update {link_path}: {e}")
+
+
+def write_run_meta(output_dir: str, model_args, data_args) -> dict:
+    """Persist the data/model provenance so a checkpoint is self-describing.
+
+    target_region (which CDR loop the model was trained to fill) otherwise lives ONLY in the config
+    and the run-dir name. Saving it into the run dir lets gen_eval.py report what the model was
+    actually trained for — and warn if it's later evaluated with a config targeting a different loop,
+    which would silently mask the wrong CDR and produce confident, meaningless numbers.
+    """
+    meta = {
+        "target_region": data_args.target_region,
+        "model_type": model_args.model_type,
+        "include_partner_chain": bool(data_args.include_partner_chain),
+        "include_antigen": bool(data_args.include_antigen),
+        "data_path": data_args.data_path,
+        "max_len": data_args.max_len,
+    }
+    with open(os.path.join(output_dir, RUN_META_FILENAME), "w") as f:
+        json.dump(meta, f, indent=2)
+    return meta
 
 
 def dataset_tag(data_path: str) -> str:
@@ -301,6 +323,7 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
     os.makedirs(training_args.output_dir, exist_ok=True)
     log_path = attach_file_logging(training_args.output_dir)
     update_latest_link(training_args.output_dir)
+    write_run_meta(training_args.output_dir, model_args, data_args)
     logger.info(f"📁 Workspace initialized at: {training_args.output_dir}")
     logger.info(f"📝 Logging this run to: {log_path}")
 
