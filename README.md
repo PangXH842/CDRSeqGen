@@ -386,9 +386,8 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ### Changelog
 <!-- Latest updates can be added here before protection zone -->
 - **2026-07-24** -- `run_meta.json` provenance: `train.py` records the CDR loop (+ model/context) each run was trained for; `gen_eval.py` warns on config↔model mismatch, `predict.py` displays it
-- **2026-07-24** -- `predict.py`: reframed as the design/inference tool — default decoding now `iterative` (greedy is `--temperature 0`); `gen_eval.py` is the benchmark
-- **2026-07-24** -- `sampling.py`/`generation.py`/`predict.py`: keyword-only sampler signatures (`device` kw-only) + all call sites pass optional args by keyword → reorder-safe
 <!-- MANUAL PROTECTION ZONE BEGINS -->
+- **2026-07-24** -- [RECLAIM] `linegraph_plotter.py`: enables multi-run + multi-metric breakdown all in one function
 - **2026-07-24** -- [RECLAIM] Reclaimed: `metrics.py`, `sampling.py`, `generate.py`, `gen_eval.py`
 - **2026-07-24** -- `linegraph_plotter.py`: moved to new `utils/` folder
 - **2026-07-24** -- `sampling.py`: handled greedy algo for both independent and iterative decoders
@@ -400,11 +399,9 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **2026-07-20** -- Fixed issue with anchor excluded AAR for short CDRs
 - **2026-07-20** -- Edited results directory naming (`[timestamp]/[configs]/` (timestamp at time of `run.sh` round start))
 - **2026-07-20** -- Enabled line graph plotting for whole + core (no anchor) AARs for each run
-- **2026-07-20** -- `train.py`: now generates `train.log` (pending verification, file not found in new training runs eg. 0720)
 - **2026-07-20** -- Run hyperparameter sweep on scratch model 
 - **2026-07-20** -- [RECLAIM] Begin manual code cleaning plan (*Codename: Operation Reclamation (lol)*) (list - see roadmap)
-- **2026-07-17** -- Preparation for hyperparameter sweep on scratch model
-- **2026-07-17** -- Dataset data storage restructure
+- **2026-07-17** -- Data restructure, preparation for hyperparameter sweep on scratch model
 - **2026-07-17** -- `eval_generative.py`[new]: generative eval on the held-out split (2,111 frameworks — real natives, leakage-safe, injection reused so nothing drifts)
 - **2026-07-17** -- `cdrseqgen/eval/generation.py`[new]: generative eval metrics: diversity, novelty, pseudo-perplexity, per-position entropy
 - **2026-07-17** -- `train.py`: opt-in post-training generative eval (`"run_generative_eval": true`)
@@ -441,6 +438,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
  - [x] `sampling.py`
  - [x] `generation.py`
  - [x] `gen_eval.py`
+ - [x] `linegraph_plotter.py`
  - [ ] `predict.py`
  - [ ] `run.sh`
  - [ ] hyperparameter tuning script (`sweep_scratch.sh`)

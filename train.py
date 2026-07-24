@@ -21,7 +21,7 @@ from transformers import (
 
 from cdrseqgen.data.dataset import AntibodyInfillingDataset, collate_fn
 from cdrseqgen.models.models import resolve
-from cdrseqgen.utils.linegraph_plotter import plot_linegraph, plot_metric_breakdown
+from cdrseqgen.utils.linegraph_plotter import plot_epoch_curves
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 LOG_FILENAME = "train.log"
@@ -420,25 +420,29 @@ def plot_training_curves(output_dir):
     combined whole-vs-core-vs-anchor chart that makes the anchor gap visible at a glance (on H3 the
     spread is ~0.46 / ~0.32 / ~0.90).
     """
-    current_run_dict = {"Current Run": output_dir}
-
-    # One PNG per metric: <metric>_curve.png
+    # One PNG per metric: <metric>_curve.png — this run's single metric (one line each).
     for metric, title in [
         ("eval_loss", "Evaluation Loss"),
         ("eval_accuracy", "Sequence Recovery — whole-span (anchor-inflated)"),
         ("eval_core_accuracy", "Sequence Recovery — CORE (anchor-excluded)"),
     ]:
-        plot_linegraph(runs_dict=current_run_dict, metric=metric, title=title, save_dir=output_dir)
+        plot_epoch_curves(
+            [(output_dir, metric, "Current Run")],
+            title=title,
+            ylabel=metric.replace("_", " ").title(),
+            save_dir=output_dir,
+            filename=f"{metric}_curve",
+        )
 
     # Combined view: all three recovery metrics on one chart, so the anchor gap is one glance.
-    plot_metric_breakdown(
-        output_dir,
-        metrics=[
-            ("eval_accuracy", "whole-span (anchor-inflated)"),
-            ("eval_core_accuracy", "core (anchor-excluded)"),
-            ("eval_anchor_accuracy", "anchor only"),
+    plot_epoch_curves(
+        [
+            (output_dir, "eval_accuracy", "whole-span (anchor-inflated)"),
+            (output_dir, "eval_core_accuracy", "core (anchor-excluded)"),
+            (output_dir, "eval_anchor_accuracy", "anchor only"),
         ],
         title="Recovery: whole-span vs core vs anchor",
+        ylabel="Recovery",
         save_dir=output_dir,
         filename="recovery_breakdown",
     )
