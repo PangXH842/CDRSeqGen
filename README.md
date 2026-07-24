@@ -48,7 +48,7 @@ CDRSeqGen/
 ├── dataset/data/               # THE DATA — gitignored, ~4.4GB (raw + processed OAS/SAbDab2).
 │                               #   Deliberately outside the package; configs' data_path points here.
 ├── results/                    # Ignored in git. Always results/<batch>/<run>/ (two levels);
-│                               #   results/latest -> newest run dir.
+│                               #   results/latest -> newest batch dir.
 ├── test/                       # Small curated frameworks — qualitative showcase for predict.py ONLY
 │                               #   (real evaluation uses the held-out split via gen_eval.py)
 │   ├── test_h1.json
@@ -126,7 +126,8 @@ CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_scratch.json
 
 **Every run lives at `results/<batch>/<run>/` — always two levels.** A `run.sh` round shares one batch
 folder; a standalone `train.py` gets a batch folder of its own, so `results/` never collects loose run
-dirs. **`results/latest`** is a symlink to the most recent *run*:
+dirs. **`results/latest`** is a symlink to the most recent *batch*, so `results/latest/<config>/`
+addresses any run in that round:
 
 ```text
 results/
@@ -138,7 +139,7 @@ results/
 ├── sweeps/scratch_20260720_193030/     ← a sweep: grid point in the name
 │   ├── h3_OAS_scratch_lr1e-4_ep1_wu0.0/
 │   └── h3_OAS_scratch_lr1e-3_ep1_wu0.0/
-└── latest -> 20260720_193002/h3_OAS_scratch
+└── latest -> 20260720_193002/          ← newest batch; predict.py uses latest/<config>
 ```
 
 The run folder is named from the **resolved arguments**, not the config filename — `h3_scratch.json
@@ -225,14 +226,15 @@ which CDR the checkpoint was trained for (read from `run_meta.json`). Samples + 
 
 ```bash
 # design coherent loops for a batch of curated frameworks (default: iterative sampling)
-python predict.py --model_path ./results/latest --test_file test/test_h3.json
+# results/latest is the newest batch — name the config under it (here: h3_OAS_scratch)
+python predict.py --model_path ./results/latest/h3_OAS_scratch --test_file test/test_h3.json
 
 # more candidates + nucleus sampling
-python predict.py --model_path ./results/latest --test_file test/test_h3.json \
+python predict.py --model_path ./results/latest/h3_OAS_scratch --test_file test/test_h3.json \
     --decoding iterative --num_samples 50 --top_p 0.9
 
 # a single framework straight from the CLI
-python predict.py --model_path ./results/latest --pt1 EVQL...YYCAR --pt2 WGQGT... --target_length 17
+python predict.py --model_path ./results/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... --target_length 17
 ```
 
 `--decoding`: `independent` (per-position sampling, 1 forward pass) · `iterative` (confidence-ordered
@@ -387,6 +389,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 <!-- Latest updates can be added here before protection zone -->
 - **2026-07-24** -- `run_meta.json` provenance: `train.py` records the CDR loop (+ model/context) each run was trained for; `gen_eval.py` warns on config↔model mismatch, `predict.py` displays it
 <!-- MANUAL PROTECTION ZONE BEGINS -->
+- **2026-07-24** -- fixed `results/latest/` symlink to latest batch (to verify further)
 - **2026-07-24** -- [RECLAIM] `linegraph_plotter.py`: enables multi-run + multi-metric breakdown all in one function
 - **2026-07-24** -- [RECLAIM] Reclaimed: `metrics.py`, `sampling.py`, `generate.py`, `gen_eval.py`
 - **2026-07-24** -- `linegraph_plotter.py`: moved to new `utils/` folder
@@ -430,18 +433,19 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - [ ] Project flowchart
  - [ ] Code structure overhaul
 - **Operation Reclamation** -- Manual code cleaning: Comprehend and rewrite the project content in my own terms - previous work handled by AI resulted in the project almost becoming a "black box" for the developer himself 
- - [ ] `train.py` 
- - [ ] `models.py` 
- - [ ] `custom.py` 
- - [ ] `dataset.py` 
  - [x] `metrics.py`
  - [x] `sampling.py`
  - [x] `generation.py`
  - [x] `gen_eval.py`
- - [x] `linegraph_plotter.py`
  - [ ] `predict.py`
+ - [x] `linegraph_plotter.py`
+ - [ ] `custom.py` 
+ - [ ] `models.py` 
+ - [ ] `dataset.py` 
+ - [ ] preprocessing scripts
  - [ ] `run.sh`
  - [ ] hyperparameter tuning script (`sweep_scratch.sh`)
+ - [ ] `train.py` (to be split into smaller scripts?)
  - [ ] README
 
 **Datasets**

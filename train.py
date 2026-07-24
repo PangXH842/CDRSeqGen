@@ -126,15 +126,21 @@ def results_root() -> str:
 
 
 def update_latest_link(run_dir: str) -> None:
-    """Point results/latest at the newest run directory.
+    """Point results/latest at the newest *batch* directory (the parent of this run's folder).
 
-    Kept as a *run* pointer (not a batch pointer) so the documented shortcut works verbatim:
-        python predict.py --model_type scratch --model_path ./results/latest ...
+    A run.sh round trains many configs into one results/<batch-timestamp>/ folder; latest tracks that
+    whole round, so results/latest/<config>/ addresses any run in it — e.g. results/latest/h3_OAS_esm2/.
+    Point predict.py at a specific config: --model_path ./results/latest/<config>.
     The link is relative, so moving/renaming the results tree doesn't break it.
 
     Refuses to touch results/latest if it is a real directory rather than a symlink — that would
     mean deleting real results, which is never worth a convenience shortcut.
     """
+    batch_dir = os.path.dirname(os.path.abspath(run_dir))
+    # Never self-link results/latest -> results (would happen only if a run dir sat directly in
+    # results/ with no batch folder; results_root() always interposes one, so this is a guard).
+    if batch_dir == os.path.abspath(DEFAULT_RESULTS_ROOT):
+        return
     link_path = os.path.join(DEFAULT_RESULTS_ROOT, LATEST_LINK)
     try:
         os.makedirs(DEFAULT_RESULTS_ROOT, exist_ok=True)
@@ -143,7 +149,7 @@ def update_latest_link(run_dir: str) -> None:
         elif os.path.exists(link_path):
             logger.warning(f"⚠️ {link_path} exists and is not a symlink — leaving it alone.")
             return
-        target = os.path.relpath(os.path.abspath(run_dir), os.path.abspath(DEFAULT_RESULTS_ROOT))
+        target = os.path.relpath(batch_dir, os.path.abspath(DEFAULT_RESULTS_ROOT))
         os.symlink(target, link_path)
     except OSError as e:
         logger.warning(f"⚠️ Could not update {link_path}: {e}")

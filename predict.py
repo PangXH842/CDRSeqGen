@@ -12,12 +12,12 @@ makes either deterministic (greedy). Warp with --temperature / --top_k / --top_p
 through the backbone registry, so the same path drives the scratch transformer, ESM-2, or any
 protein-BERT with no model-family branching.
 
-Usage examples:
+Usage examples (results/latest is the newest *batch* — name the config you want under it):
     # design 20 coherent H3 loops for one framework
-    python predict.py --model_path ./results/latest --pt1 EVQL...YYCAR --pt2 WGQGT... --target_length 17
+    python predict.py --model_path ./results/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... --target_length 17
 
     # a curated batch with nucleus sampling
-    python predict.py --model_path ./results/latest --test_file test/test_h3.json \
+    python predict.py --model_path ./results/latest/h3_OAS_scratch --test_file test/test_h3.json \
         --decoding iterative --num_samples 50 --top_p 0.9
 """
 import argparse
