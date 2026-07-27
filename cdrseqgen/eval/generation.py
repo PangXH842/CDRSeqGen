@@ -1,22 +1,25 @@
-"""Core script for retrieving generative evaluation metrics from a trained model. 
-Primarily used in `train.py` for post-training-batch evaluation (no judge) and 
-`gen_eval.py` for direct window used to evaluate existing trained models.
+"""Core script for retrieving generative evaluation metrics from a trained model.
 
-  * run_generative_eval -- master function, loads eval dataset, select data indices, 
-                            load model checkpoints and sample, calculate and print eval metrics
+Two callers: `train.py` runs it post-training on the run it just finished (no judge by default),
+and `gen_eval.py` is the standalone entrypoint for re-evaluating an existing checkpoint (where the
+judge is worth setting up).
 
-  * select_indices      -- randomly select CDRs from eval dataset, 
-                            stratify by CDR lengths if option selected
-  * _decode             -- select sampling method, generate sample CDRs using loaded model
+  * run_generative_eval -- master function: load eval dataset, select indices, sample from the
+                           model, score, then log the summary and write the JSON
+  * select_indices      -- randomly select CDRs from eval dataset,
+                           stratify by CDR lengths if option selected
   * build_judge         -- optional, set specified third-party model to judge perplexity
-  * log_report          -- emit the summary table through the logger (one record)
-  * format_report       -- build that table as a string, without emitting it
+  * masked_view         -- one dataset item -> (input_ids, mask_positions, native_ids)
+  * bucket_of           -- map a loop length to its short/medium/long bucket
+  * aggregate           -- (mean, stdev) of one metric across the sampled records
+  * format_report       -- build the summary table as a string, without emitting it
+  * log_report          -- emit that table through the logger, as one record
 
-Imports: 
+Imports:
   * metrics.calculate               -- retrieve dict of sequence-based metrics for generated samples
   * sampling.sample_independent     -- sampling method: independent per masked position
   * sampling.sample_iterative       -- sampling method: iterative from most-confident position
-  * sampling.pseudo_log_likelihood  -- calculate pll and pseudo-perplexity of filled loop 
+  * sampling.pseudo_log_likelihood  -- calculate pll and pseudo-perplexity of filled loop
 """
 import os
 import json
@@ -93,16 +96,16 @@ def _decode(model, tokenizer, device, generator, input_ids, mask_positions,
             decoding, num_samples, temperature, top_k, top_p):
     # Note: temperature=0 -> greedy algo, details refer to sampling.py
     if decoding == "independent":
-        return sample_independent(model, input_ids, mask_positions, banned_ids=tokenizer.special_ids, 
+        return sample_independent(model, input_ids, mask_positions, banned_ids=tokenizer.special_ids,
                                   device=device, num_samples=num_samples, temperature=temperature,
                                   top_k=top_k, top_p=top_p, generator=generator)
     elif decoding == "iterative":
-        return sample_iterative(model, input_ids, mask_positions, banned_ids=tokenizer.special_ids, 
+        return sample_iterative(model, input_ids, mask_positions, banned_ids=tokenizer.special_ids,
                                 mask_id=tokenizer.mask_id, device=device,
                                 num_samples=num_samples, temperature=temperature,
                                 top_k=top_k, top_p=top_p, generator=generator)
     else: # default to iterative for now
-        return sample_iterative(model, input_ids, mask_positions, banned_ids=tokenizer.special_ids, 
+        return sample_iterative(model, input_ids, mask_positions, banned_ids=tokenizer.special_ids,
                                 mask_id=tokenizer.mask_id, device=device,
                                 num_samples=num_samples, temperature=temperature,
                                 top_k=top_k, top_p=top_p, generator=generator)
@@ -119,7 +122,7 @@ def aggregate(records, key):
 def build_judge(model_type, weights_path=None, *, data_path, max_len, target_region,
                 include_partner_chain=False, include_antigen=False, device=None):
     """Load an INDEPENDENT reference LM plus a parallel dataset in its own vocabulary.
-    
+
     Returns (judge_model, judge_tokenizer, judge_dataset).
     """
     from cdrseqgen.models.registry import resolve  # local: avoids a heavy import at module load
@@ -180,8 +183,8 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
                         temperature=1.0, top_k=0, top_p=1.0,
                         num_examples=200, stratify=False, seed=42,
                         skip_perplexity=False,
-                        judge_model=None, judge_tokenizer=None, 
-                        judge_dataset=None, judge_name=None, 
+                        judge_model=None, judge_tokenizer=None,
+                        judge_dataset=None, judge_name=None,
                         output_path=None, meta=None, title=""):
     """Sample + score candidate loops for a subsample of the eval split, returns the payload dict"""
     # Set model to eval mode

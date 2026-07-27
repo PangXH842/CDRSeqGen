@@ -69,8 +69,8 @@ def attach_file_logging(output_dir: str) -> str:
     return log_path
 
 DATASET_TAGS = [
-    ("sabdab2", "SD2"),  
-    ("oas",     "OAS"),  
+    ("sabdab2", "SD2"),
+    ("oas",     "OAS"),
 ]
 UNKNOWN_DATASET_TAG = "DS"
 
@@ -316,7 +316,7 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
             argv += sys.argv[2:]
             model_args, data_args, gen_args, training_args = parser.parse_args_into_dataclasses(args=argv)
         else:
-            # Case: follow JSON config 
+            # Case: follow JSON config
             model_args, data_args, gen_args, training_args = parser.parse_json_file(json_file=config_path)
     else:
         # Case: parse CLI args directly
@@ -391,7 +391,7 @@ def get_datasets(model_args, data_args, training_args, backbone) -> Tuple[torch.
 
     train_ds = torch.utils.data.Subset(full_dataset, train_idx)
     eval_ds = torch.utils.data.Subset(full_dataset, val_idx)
-    
+
     logger.info(f"📊 Data loaded: {len(train_ds)} train, {len(eval_ds)} eval.")
     return train_ds, eval_ds, tokenizer
 
@@ -399,15 +399,15 @@ def get_datasets(model_args, data_args, training_args, backbone) -> Tuple[torch.
 def save_training_csv(trainer, output_dir):
     """Extracts eval metrics, and saves them to a CSV."""
     history = trainer.state.log_history
-    
+
     # Filter only the logs that contain evaluation metrics
     eval_logs = [log for log in history if 'eval_loss' in log]
-    
+
     if not eval_logs:
         logger.warning("No evaluation logs found to plot.")
         return
-    
-    # Deduplicate Epochs to prevent post-training evaluation artifacts 
+
+    # Deduplicate Epochs to prevent post-training evaluation artifacts
     seen_epochs = set()
     unique_eval_logs = []
     for log in eval_logs:
@@ -495,7 +495,7 @@ def run_training_pipeline(trainer: Trainer, training_args: TrainingArguments):
         metrics = trainer.evaluate()
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
-        
+
     save_training_csv(trainer, training_args.output_dir)
     plot_training_curves(training_args.output_dir)
 
@@ -611,22 +611,22 @@ def post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_ar
 
         logger.info("🎲 Running post-training generative evaluation...")
         run_generative_eval(
-            trainer.model, 
-            tokenizer, 
+            trainer.model,
+            tokenizer,
             eval_dataset,
             device=training_args.device,
-            decoding=gen_args.gen_decoding, 
+            decoding=gen_args.gen_decoding,
             num_samples=gen_args.gen_num_samples,
-            temperature=gen_args.gen_temperature, 
-            top_k=gen_args.gen_top_k, 
+            temperature=gen_args.gen_temperature,
+            top_k=gen_args.gen_top_k,
             top_p=gen_args.gen_top_p,
-            num_examples=gen_args.gen_num_examples, 
+            num_examples=gen_args.gen_num_examples,
             stratify=gen_args.gen_stratify,
-            seed=gen_args.gen_seed, 
+            seed=gen_args.gen_seed,
             skip_perplexity=gen_args.gen_skip_perplexity,
-            judge_model=judge_model, 
+            judge_model=judge_model,
             judge_tokenizer=judge_tokenizer,
-            judge_dataset=judge_dataset, 
+            judge_dataset=judge_dataset,
             judge_name=gen_args.gen_judge,
             output_path=os.path.join(training_args.output_dir, "generation_eval.json"),
             title=f"{os.path.basename(training_args.output_dir)}   target={data_args.target_region}",

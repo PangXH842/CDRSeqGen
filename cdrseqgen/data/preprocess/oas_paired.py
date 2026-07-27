@@ -7,7 +7,7 @@ Data:
   * Paired-chain context    -- yes
   * Antigen context         -- no
 
-Key Functions: 
+Key Functions:
   * build_entries        -- master function: load CSV, filter rows, parse numbering, assemble entries
   * add_split_field      -- attach the per-entry 'split' field (cluster / random / none)
   * cluster_by_cdr3      -- greedy CD-HIT-style clustering of heavy CDR3s into clonal families

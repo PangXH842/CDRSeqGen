@@ -2,7 +2,7 @@
 
 Entities:
   * REGIONS         -- the 7 IMGT region names, in order
-  * CDRS            -- the 3 CDR keys 
+  * CDRS            -- the 3 CDR keys
   * valid_regions   -- reject a chain with a malformed region or an empty CDR
   * build_chain     -- assemble one chain's entry block (regions + full_aa + imgt_numbering)
   * add_io_args     -- the --input_file / --output_file / --limit CLI trio

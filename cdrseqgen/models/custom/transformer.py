@@ -6,12 +6,12 @@
   * build_model             -- master function: validates args, returns model object
 
 Note:
-  * Positions are learned and absolute, so the dataset appends antigen context after the target 
+  * Positions are learned and absolute, so the dataset appends antigen context after the target
     so the loop keeps a stable index
   * Logs via the root logger, configured by corresponding entrypoint (train.py, predict.py,
     or gen_eval.py by way of train.py)
-  * CustomAntibodyModel.from_pretrained() returns RANDOMLY INITIALIZED weights with no missing-key 
-    warning. Must instead use _load_custom_pretrained from registry.py, which loads the state dict 
+  * CustomAntibodyModel.from_pretrained() returns RANDOMLY INITIALIZED weights with no missing-key
+    warning. Must instead use _load_custom_pretrained from registry.py, which loads the state dict
     explicitly with strict=True
   * All four architecture knobs (hidden, layer, head, ffn) come from the config (ModelArguments),
     so an architecture sweep can move any of them without editing this file. Model dispatch lives
@@ -55,12 +55,12 @@ class CustomAntibodyConfig(PretrainedConfig):
 
 class CustomAntibodyModel(PreTrainedModel):
     config_class = CustomAntibodyConfig
-    
+
     def __init__(self, config):
         super().__init__(config)
         self.embedding = nn.Embedding(config.vocab_size, config.hidden_size)
         self.pos_embedding = nn.Parameter(torch.zeros(1, config.max_position_embeddings, config.hidden_size))
-        
+
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=config.hidden_size,
             nhead=config.num_attention_heads,
@@ -72,7 +72,7 @@ class CustomAntibodyModel(PreTrainedModel):
 
         # Tells Hugging Face to finalize the model setup (including the missing 'all_tied_weights_keys')
         self.post_init()
-    
+
     # Hugging Face requires custom models to define how they should be initialized
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
@@ -90,14 +90,14 @@ class CustomAntibodyModel(PreTrainedModel):
         # src_key_padding_mask wants the opposite convention (True = ignore this position).
         src_key_padding_mask = (attention_mask == 0) if attention_mask is not None else None
         x = self.transformer(x, src_key_padding_mask=src_key_padding_mask)
-        
+
         logits = self.lm_head(x)
-        
+
         loss = None
         if labels is not None:
             loss_fct = nn.CrossEntropyLoss() # ignore_index=-100 is default
             loss = loss_fct(logits.view(-1, self.config.vocab_size), labels.view(-1))
-            
+
         return {"loss": loss, "logits": logits}
 
 

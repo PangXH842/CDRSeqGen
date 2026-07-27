@@ -1,5 +1,9 @@
 """Registry for model backbones (currently for PLMs only)
 
+  * Backbone -- one model family's record: match predicate, encoding conventions, three loaders
+  * register -- append a Backbone to REGISTRY (order matters, see below)
+  * resolve  -- model_type string -> the first Backbone whose predicate matches
+
 Current backbones:
   * scratch      -- the in-house transformer, custom/transformer.py
   * esm2         -- Meta ESM-2; the only relative/rotary-position backbone
@@ -186,7 +190,7 @@ def _load_automodel(name_or_path):
 
 register(Backbone(
     id="hf_encoder",
-    matches=lambda mt: "/" in mt or mt.startswith("."), 
+    matches=lambda mt: "/" in mt or mt.startswith("."),
     position_type="absolute",
     uses_special_tokens=True,
     load_tokenizer=_hf_tokenizer,

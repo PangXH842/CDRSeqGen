@@ -37,6 +37,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 
+from cdrseqgen.data.dataset import assemble_masked_input
 from cdrseqgen.models.registry import resolve
 from cdrseqgen.eval.sampling import (
     sample_independent,
@@ -64,25 +65,16 @@ def model_trained_for(model_path):
 
 
 def build_masked_input(tokenizer, pt1, pt2, target_length):
-    """Assemble the masked input exactly as AntibodyInfillingDataset does (minus the label track).
+    """Assemble the masked input for one framework, minus the label track.
 
     Returns (input_ids, mask_positions): the token-id list fed to the model, and the indices of the
-    masked target positions within it. The [cls] … [end] wrapping and the leading offset both come
-    from the TokenizerAdapter, so this is identical across backbones.
+    masked target positions within it. The layout itself comes from dataset.assemble_masked_input —
+    the SAME function the training examples are built with, so inference can't drift from training.
     """
-    pt1_ids = tokenizer.encode(pt1)
-    pt2_ids = tokenizer.encode(pt2)
-    mask_ids = [tokenizer.mask_id] * target_length
-
-    if tokenizer.uses_special_tokens:
-        input_ids = [tokenizer.cls_id] + pt1_ids + mask_ids + pt2_ids + [tokenizer.end_id]
-        start = 1 + len(pt1_ids)  # 1 for the leading cls token
-    else:
-        input_ids = pt1_ids + mask_ids + pt2_ids
-        start = len(pt1_ids)
-
-    mask_positions = list(range(start, start + target_length))
-    return input_ids, mask_positions
+    input_ids, start = assemble_masked_input(
+        tokenizer, tokenizer.encode(pt1), tokenizer.encode(pt2), target_length
+    )
+    return input_ids, list(range(start, start + target_length))
 
 
 def decode_case(model, tokenizer, device, args, generator, case):

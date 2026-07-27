@@ -34,8 +34,8 @@ def _ban(logits, banned_ids):
 
 def warp_logits(logits, temperature=1.0, top_k=0, top_p=1.0):
     """Apply temperature, then top-k, then top-p to softmax logits
-    
-    Cases: 
+
+    Cases:
       * temperature = 0: greedy, should not use this function
       * top_k = 0: disabled, all logits kept, ~ top_k = inf
       * top_p = 1.0: all low probability tail tokens kept
@@ -84,7 +84,7 @@ def sample_independent(model, input_ids, mask_positions, banned_ids, *, device,
 @torch.no_grad()
 def sample_iterative(model, input_ids, mask_positions, banned_ids, mask_id, *, device,
                      num_samples=1, temperature=1.0, top_k=0, top_p=1.0, generator=None):
-    """Confidence-ordered iterative sampling, update after every next most-confident 
+    """Confidence-ordered iterative sampling, update after every next most-confident
     masked position is filled
     """
     L = len(mask_positions)

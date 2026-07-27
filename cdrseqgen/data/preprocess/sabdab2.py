@@ -7,7 +7,7 @@ Data:
   * Paired-chain context    -- yes
   * Antigen context         -- yes
 
-Key Functions: 
+Key Functions:
   * build_entries       -- master function: load CSV, filter rows, split regions, assemble entries
   * split_imgt_regions  -- parsed per-residue numbering -> the seven IMGT region strings
   * is_protein_antigen  -- keep protein/peptide antigens, drop sugar/hapten/ion-only entries

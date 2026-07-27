@@ -1,7 +1,7 @@
-"""Generative evaluation of a finished checkpoint, on the held-out eval split. 
+"""Generative evaluation of a finished checkpoint, on the held-out eval split.
 
-Entrypoint used to evaluate trained model checkpoints, especially CDR generation capabilities. 
-Recommended to set up judge to measure perplexity since its not automatically done in train.py. 
+Entrypoint used to evaluate trained model checkpoints, especially CDR generation capabilities.
+Recommended to set up judge to measure perplexity since its not automatically done in train.py.
 
 Usage example:
     python eval_generative.py --config configs/h3_esm2.json \
@@ -74,7 +74,7 @@ def main():
 
     parser = HfArgumentParser((ModelArguments, DataArguments, GenerationArguments, TrainingArguments))
     model_args, data_args, _gen_args, training_args = parser.parse_json_file(json_file=os.path.abspath(args.config))
-    training_args.output_dir = args.model_dir  
+    training_args.output_dir = args.model_dir
     training_args.report_to = []
     training_args.eval_strategy = "no"
 

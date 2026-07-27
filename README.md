@@ -1,12 +1,14 @@
+<!-- MANUAL PROTECTION ZONE BEGINS -->
 # CDRSeqGen: Modular Antibody Infilling Framework
 
-**Date Updated:** 2026-07-24  
-**Status:** Operation Reclamation - finished with the eval scripts (`metrics.py`, `sampling.py`, `generation.py`)
+**Date Updated:** 2026-07-27  
+**Status:** Operation Reclamation - finished with eval, datasets, and models sections
 
 ## Project Overview
 CDRSeqGen is a computational immunology framework designed to predict antibody loop sequences given the surrounding framework context. 
 
 Current implemented features include: 
+<!-- MANUAL PROTECTION ZONE ENDS -->
 - **Data Preprocessing**: standardize data into Bio-Object JSON format (IMGT), current datasets: OAS (21106 paired sequences) and SAbDab2 (3984 paired + antigen structures)
 - **Addressing Data Leakage**: clustered train/test split for OAS to prevent clonal near-duplicate leakage
 - **Task-Agnostic Masking**: masking training method for all 6 CDR loops individually by target selection

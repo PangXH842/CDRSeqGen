@@ -2,6 +2,7 @@
 
   * AntibodyTokenizer        -- custom 25-token vocab (20 amino acids + 5 special)
   * TokenizerAdapter         -- uniform tokenizer interface (custom, HF)
+  * assemble_masked_input    -- the [cls] pt1 [mask x L] pt2 [end] layout, shared with predict.py
   * AntibodyInfillingDataset -- one entry -> (input_ids, labels, target_len) with one CDR masked
   * collate_fn               -- pad a list of items into a batch (+ attention mask)
 
@@ -29,7 +30,7 @@ class AntibodyTokenizer:
     def __init__(self):
         self.vocab = [
             "<pad>", "<unk>", "<cls>", "<sep>", "<mask>",
-            "A", "C", "D", "E", "F", "G", "H", "I", "K", "L", 
+            "A", "C", "D", "E", "F", "G", "H", "I", "K", "L",
             "M", "N", "P", "Q", "R", "S", "T", "V", "W", "Y"
         ]
         self.tok_to_id = {tok: i for i, tok in enumerate(self.vocab)}
@@ -86,7 +87,7 @@ class TokenizerAdapter:
         Cases:
           Wrap tokens (auto-detected; end_id doubles as chain_sep_id)
           * ESM/RoBERTa: cls_id = <cls>; end_id = <eos>
-          * BERT-style:  cls_id = <cls>; end_id = <sep>   
+          * BERT-style:  cls_id = <cls>; end_id = <sep>
           Residue spacing (NOT detected — caller passes space_residues)
           * ESM/RoBERTa: "MVEQ"
           * BERT-style:  "M E V Q"; bare "MVEQ" -> a single <unk>
@@ -110,6 +111,25 @@ class TokenizerAdapter:
             uses_special_tokens=uses_special_tokens,
             position_type=position_type,
         )
+
+def assemble_masked_input(tokenizer, pt1_ids, pt2_ids, n_masked):
+    """Lay out one masked-infilling input: [cls] pt1 [mask x n_masked] pt2 [end].
+
+    Returns (input_ids, mask_start_idx). The wrap tokens are dropped for tokenizers that don't use
+    them (the scratch model), which also shifts mask_start_idx by one.
+
+    Shared deliberately: AntibodyInfillingDataset.__getitem__ builds TRAINING examples with this,
+    and predict.py's build_masked_input builds INFERENCE inputs with it. The two must agree exactly
+    — designing against a different layout than the model trained on is silently wrong, not a crash
+    — and predict.py works from raw pt1/pt2 strings rather than dataset entries, so nothing else
+    forces them to stay in step. One function is that guarantee.
+    """
+    mask_ids = [tokenizer.mask_id] * n_masked
+    if tokenizer.uses_special_tokens:
+        input_ids = [tokenizer.cls_id] + pt1_ids + mask_ids + pt2_ids + [tokenizer.end_id]
+        return input_ids, 1 + len(pt1_ids)   # 1 for the leading cls token
+    return pt1_ids + mask_ids + pt2_ids, len(pt1_ids)
+
 
 class AntibodyInfillingDataset(Dataset):
     """One processed entry -> a masked-infilling example for the chosen CDR loop.
@@ -174,7 +194,7 @@ class AntibodyInfillingDataset(Dataset):
         pt1_seq, target_seq, pt2_seq = self._split_regions(item[target_chain_key], region)
 
         # 2. Tokenize target-chain parts (adapter.encode never adds special tokens)
-        t = self.tokenizer  
+        t = self.tokenizer
         pt1_ids = t.encode(pt1_seq)
         pt2_ids = t.encode(pt2_seq)
         target_ids = t.encode(target_seq)
@@ -215,13 +235,7 @@ class AntibodyInfillingDataset(Dataset):
                 pt2_ids = pt2_ids[:max_pt2_len]
 
         # 3. Construct Final Input and Find Mask Start
-        mask_ids = [t.mask_id] * len(target_ids)
-        if t.uses_special_tokens:
-            input_ids = [t.cls_id] + pt1_ids + mask_ids + pt2_ids + [t.end_id]
-            mask_start_idx = 1 + len(pt1_ids)  # 1 for the leading cls token
-        else:
-            input_ids = pt1_ids + mask_ids + pt2_ids
-            mask_start_idx = len(pt1_ids)
+        input_ids, mask_start_idx = assemble_masked_input(t, pt1_ids, pt2_ids, len(target_ids))
 
         # 5. Create Labels (The "Safe" Way)
         labels = [-100] * len(input_ids)
@@ -268,7 +282,7 @@ if __name__ == "__main__":
     # Test the dataset. The dataset expects a TokenizerAdapter, not a raw tokenizer.
     import functools
     adapter = TokenizerAdapter.from_custom(AntibodyTokenizer())
-    dataset = AntibodyInfillingDataset("processed_oas_data.json", adapter)
+    dataset = AntibodyInfillingDataset("dataset/data/processed/processed_oas_data.json", adapter)
     collate = functools.partial(collate_fn, pad_token_id=adapter.pad_id)
     dataloader = DataLoader(dataset, batch_size=4, collate_fn=collate)
 

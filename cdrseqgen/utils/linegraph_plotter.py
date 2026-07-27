@@ -1,3 +1,21 @@
+"""Training-curve plotting: epoch_metrics.csv -> PNG.
+
+  * plot_epoch_curves -- draw any number of epoch-vs-value lines on one chart
+  * slugify           -- filename-safe version of a title
+
+One function covers both comparison modes, because every line is the same triple
+(run_dir, column, legend_label):
+  * one metric across many runs   -- [(run_a, metric, "A"), (run_b, metric, "B"), ...]
+  * many metrics from one run     -- [(run, "eval_accuracy", "whole"), (run, "eval_core_accuracy",
+                                      "core"), ...]  <- the whole/core/anchor breakdown
+
+Called two ways: train.py auto-plots every run's curves at the end of training, and this file is
+also a CLI for ad-hoc cross-run charts (python -m cdrseqgen.utils.linegraph_plotter --help).
+
+Note:
+  * A missing CSV or column is reported and skipped rather than aborting the chart, so one bad
+    path in a multi-run comparison doesn't lose the other lines.
+"""
 import os
 import re
 import argparse

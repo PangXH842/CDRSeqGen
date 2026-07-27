@@ -1,6 +1,6 @@
 """Pure sequence-level generative metrics for sampled CDR loops.
 
-  * amino_acid_recovery     -- calculate sequence recovery between `pred` and `native` seqs, 
+  * amino_acid_recovery     -- calculate sequence recovery between `pred` and `native` seqs,
                                 for each individual sample
   * mean_pairwise_diversity -- calculate mean Hamming distance between each pair of samples
   * unique_fraction         -- fraction of distinct sequences among all samples given
@@ -20,7 +20,7 @@ def amino_acid_recovery(pred, native):
     native = native.upper().strip()
     if not native:
         return None
-    
+
     overlap = min(len(pred), len(native))
     correct = sum(1 for i in range(overlap) if pred[i] == native[i])
     return correct / len(native)
@@ -31,7 +31,7 @@ def _hamming_fraction(a, b):
     longest = max(len(a), len(b))
     if longest == 0:
         return 0.0
-    
+
     overlap = min(len(a), len(b))
     diff = sum(1 for i in range(overlap) if a[i] != b[i]) + (longest - overlap)
     return diff / longest
@@ -41,7 +41,7 @@ def mean_pairwise_diversity(samples):
     """Mean normalised Hamming distance over all unordered pairs (0 = identical, 1 = all differ)"""
     if len(samples) < 2:
         return 0.0
-    
+
     dists = [_hamming_fraction(a, b) for a, b in combinations(samples, 2)]
     return sum(dists) / len(dists)
 
@@ -58,7 +58,7 @@ def per_position_entropy(samples):
     length = len(samples[0])
     if length == 0 or any(len(s) != length for s in samples):
         return None
-    
+
     total = 0.0
     for i in range(length):
         counts = Counter(s[i] for s in samples)
