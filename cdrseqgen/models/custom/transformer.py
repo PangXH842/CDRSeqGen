@@ -1,8 +1,36 @@
+"""Custom model -- build-from-scratch Transformers, bidirectional, encoder-only for masked LM training
+
+  * CustomAntibodyConfig    -- PretrainedConfig subclass: the architecture spec HF saves and reloads
+  * CustomAntibodyModel     -- architecture + forward; returns a {"loss", "logits"} DICT, which is
+                               why sampling.py's _logits_of accepts a dict as well as an object
+  * build_model             -- master function: validates args, returns model object
+
+Note:
+  * Positions are learned and absolute, so the dataset appends antigen context after the target 
+    so the loop keeps a stable index
+  * Logs via the root logger, configured by corresponding entrypoint (train.py, predict.py,
+    or gen_eval.py by way of train.py)
+  * CustomAntibodyModel.from_pretrained() returns RANDOMLY INITIALIZED weights with no missing-key 
+    warning. Must instead use _load_custom_pretrained from registry.py, which loads the state dict 
+    explicitly with strict=True
+  * All four architecture knobs (hidden, layer, head, ffn) come from the config (ModelArguments),
+    so an architecture sweep can move any of them without editing this file. Model dispatch lives
+    in registry.py; this is just the scratch builder.
+  * max_position_embeddings is sized from max_len (never below the 512 default) so a longer max_len
+    can't overflow the position-embedding table — the model has one learned vector per slot.
+  * intermediate_size=None means 4 x hidden_size, the standard transformer FFN (feed-forward
+    network) ratio. Until 2026-07-27 it was pinned at 512 while hidden_size was a free parameter,
+    so widening the model silently shrank the ratio (256 -> 2x, 512 -> 1x) and an "architecture
+    sweep" would have confounded width with FFN ratio. Pass a number only to break it on purpose.
+"""
+
+import logging
+
 import torch
 import torch.nn as nn
 from transformers import PreTrainedModel, PretrainedConfig
 
-# --- Custom Transformer from Scratch ---
+logger = logging.getLogger(__name__)
 
 class CustomAntibodyConfig(PretrainedConfig):
     model_type = "custom_antibody_transformer"
@@ -23,6 +51,7 @@ class CustomAntibodyConfig(PretrainedConfig):
         self.num_attention_heads = num_attention_heads
         self.intermediate_size = intermediate_size
         self.max_position_embeddings = max_position_embeddings
+
 
 class CustomAntibodyModel(PreTrainedModel):
     config_class = CustomAntibodyConfig
@@ -71,20 +100,27 @@ class CustomAntibodyModel(PreTrainedModel):
             
         return {"loss": loss, "logits": logits}
 
-# --- THE FACTORY FUNCTION ---
 
-def build_scratch_model(vocab_size=25, hidden_size=128, num_layers=4, max_len=512):
-    """Build a fresh custom-from-scratch transformer.
+def build_model(vocab_size=25, hidden_size=128, num_layers=4, num_attention_heads=8,
+                intermediate_size=None, max_len=512):
+    """Build a fresh custom-from-scratch transformer"""
+    if intermediate_size is None:
+        intermediate_size = 4 * hidden_size
+    if hidden_size % num_attention_heads != 0:
+        raise ValueError(
+            f"hidden_size={hidden_size} must be divisible by num_attention_heads="
+            f"{num_attention_heads} (nn.MultiheadAttention splits the width across heads)."
+        )
 
-    hidden_size/num_layers come straight from the config (ModelArguments); max_position_embeddings
-    is sized from max_len (never below the 512 default) so a longer max_len can't overflow the
-    position-embedding table. Model dispatch lives in backbones.py; this is just the scratch builder.
-    """
-    print("🚀 Initializing Custom Transformer from scratch...")
+    logger.info(f"🚀 Initializing Custom Transformer from scratch "
+                f"(hidden={hidden_size}, layers={num_layers}, heads={num_attention_heads}, "
+                f"ffn={intermediate_size})")
     config = CustomAntibodyConfig(
         vocab_size=vocab_size,
         hidden_size=hidden_size,
         num_hidden_layers=num_layers,
+        num_attention_heads=num_attention_heads,
+        intermediate_size=intermediate_size,
         max_position_embeddings=max(max_len, 512),
     )
     return CustomAntibodyModel(config)

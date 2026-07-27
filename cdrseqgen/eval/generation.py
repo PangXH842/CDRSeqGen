@@ -9,7 +9,8 @@ Primarily used in `train.py` for post-training-batch evaluation (no judge) and
                             stratify by CDR lengths if option selected
   * _decode             -- select sampling method, generate sample CDRs using loaded model
   * build_judge         -- optional, set specified third-party model to judge perplexity
-  * print_report        -- print results to terminal and output file if given
+  * log_report          -- emit the summary table through the logger (one record)
+  * format_report       -- build that table as a string, without emitting it
 
 Imports: 
   * metrics.calculate               -- retrieve dict of sequence-based metrics for generated samples
@@ -19,6 +20,7 @@ Imports:
 """
 import os
 import json
+import logging
 import random
 import statistics
 from collections import defaultdict
@@ -32,6 +34,8 @@ from cdrseqgen.eval.sampling import (
     sample_iterative,
     pseudo_log_likelihood,
 )
+
+logger = logging.getLogger(__name__)
 
 # CDR-H3 difficulty scales with length, so every summary is broken out by loop length rather than
 # hiding short/long behaviour behind one mean.
@@ -118,7 +122,7 @@ def build_judge(model_type, weights_path=None, *, data_path, max_len, target_reg
     
     Returns (judge_model, judge_tokenizer, judge_dataset).
     """
-    from cdrseqgen.models.models import resolve  # local: avoids a heavy import at module load
+    from cdrseqgen.models.registry import resolve  # local: avoids a heavy import at module load
 
     judge_backbone = resolve(model_type)
     judge_tokenizer = judge_backbone.build_tokenizer(model_type)
@@ -137,30 +141,38 @@ def build_judge(model_type, weights_path=None, *, data_path, max_len, target_reg
     return judge_model, judge_tokenizer, judge_dataset
 
 
-def print_report(records, title="", judge_name=None):
-    """Console summary: overall, then per H3-length bucket"""
+def format_report(records, title="", judge_name=None):
+    """Build the summary block as one string: overall, then per H3-length bucket"""
+    lines = []
+
     def block(label, subset):
         if not subset:
             return
-        print(f"\n  {label}  (n={len(subset)})")
+        lines.append(f"\n  {label}  (n={len(subset)})")
         for key, pretty in SUMMARY_KEYS:
             mean, sd = aggregate(subset, key)
             if mean != mean:  # nan -> metric not collected
                 continue
-            print(f"    {pretty:12s} {mean:8.3f}  ± {sd:.3f}")
+            lines.append(f"    {pretty:12s} {mean:8.3f}  ± {sd:.3f}")
 
-    print("\n" + "=" * 72)
+    lines.append("\n" + "=" * 72)
     if title:
-        print(f"📄 {title}")
+        lines.append(f"📄 {title}")
     if judge_name:
-        print(f"   judge = {judge_name}  (cross-model-comparable perplexity)")
+        lines.append(f"   judge = {judge_name}  (cross-model-comparable perplexity)")
     else:
-        print("   self-ppl only — NOT comparable across models; use a judge for that")
-    print("=" * 72)
+        lines.append("   self-ppl only — NOT comparable across models; use a judge for that")
+    lines.append("=" * 72)
     block("OVERALL", records)
     for name, _, _ in LENGTH_BUCKETS:
         block(f"length={name}", [r for r in records if bucket_of(r["target_len"]) == name])
-    print("=" * 72)
+    lines.append("=" * 72)
+    return "\n".join(lines)
+
+
+def log_report(records, title="", judge_name=None):
+    """Emit the summary through the logger, as one single record"""
+    logger.info(format_report(records, title=title, judge_name=judge_name))
 
 
 def run_generative_eval(model, tokenizer, eval_dataset, *, device,
@@ -241,7 +253,7 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
             "metrics": metrics,
         })
 
-    print_report(records, title=title, judge_name=judge_name)
+    log_report(records, title=title, judge_name=judge_name)
 
     payload = dict(meta or {})
     payload.update({
@@ -260,8 +272,8 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
         try:
             with open(output_path, "w") as f:
                 json.dump(payload, f, indent=2)
-            print(f"\n💾 Saved {len(records)} framework records to: {output_path}")
+            logger.info(f"💾 Saved {len(records)} framework records to: {output_path}")
         except OSError as e:
-            print(f"\n⚠️  Could not write results to {output_path}: {e}")
+            logger.warning(f"⚠️  Could not write results to {output_path}: {e}")
 
     return payload

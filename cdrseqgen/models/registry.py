@@ -1,8 +1,10 @@
-"""Backbone registry — the single place to teach CDRSeqGen a new model.
+"""Registry for model backbones (currently for PLMs only)
 
-Adding a protein language model (AbLang, ProtBert, AntiBERTy, ESM-C, ...) is one `register(...)`
-call here. Nothing else in the codebase branches on model family: `train.py`, `predict.py`, and
-`dataset.py` all go through `resolve(model_type)` and the `TokenizerAdapter` it hands back.
+Current backbones:
+  * scratch      -- the in-house transformer, custom/transformer.py
+  * esm2         -- Meta ESM-2; the only relative/rotary-position backbone
+  * protein_bert -- IgBert / ProtBert / AntiBERTy; needs whitespace-separated residues
+  * hf_encoder   -- generic AutoModelForMaskedLM fallback: any other hub id or local dir
 
 Each backbone declares two conventions that the encoding depends on, so they are explicit rather
 than guessed from the tokenizer:
@@ -18,14 +20,24 @@ backbones before the generic Hugging Face fallback.
 Append one register(Backbone(...)) below (BEFORE the hf_encoder fallback if you need custom
 conventions). Point load_tokenizer at its tokenizer, load_training_model/load_pretrained_model
 at its HF model class, and set position_type correctly (absolute unless it uses rotary/relative
-positions). If the generic hf_encoder fallback already fits it (any AutoModelForMaskedLM +
-AutoTokenizer, absolute positions), you don't even need a new entry — it will just work.
+positions). Unless the generic hf_encoder fallback already fits it (any AutoModelForMaskedLM +
+AutoTokenizer, absolute positions).
+
+Note:
+  * <model_cls>.from_pretrained(path) silently returns a *randomly initialized* model with
+    the current transformers version — it builds the config but never loads the checkpoint weights
+    (verified: lm_head norm came back at the std-0.02 init value, not the trained value), with no
+    missing/unexpected-key warning. This broke both predict.py and any re-evaluation of scratch
+    checkpoints. Load the state dict explicitly instead; keys match the freshly built model
+    exactly, so strict=True is a hard correctness guard rather than a formality.
 """
+import logging
 from dataclasses import dataclass
 from typing import Callable
 
 from cdrseqgen.data.dataset import AntibodyTokenizer, TokenizerAdapter
-from cdrseqgen.models.custom import build_scratch_model
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -37,6 +49,7 @@ class Backbone:
     load_tokenizer: Callable[[str, str, bool], TokenizerAdapter]  # (model_type, pos_type, wrap)
     load_training_model: Callable[..., object]                    # fresh model for training
     load_pretrained_model: Callable[[str], object]               # saved checkpoint for inference
+    fallback: bool = False
 
     def build_tokenizer(self, model_type) -> TokenizerAdapter:
         return self.load_tokenizer(model_type, self.position_type, self.uses_special_tokens)
@@ -57,32 +70,70 @@ def resolve(model_type: str) -> Backbone:
             return backbone
     raise ValueError(
         f"No backbone registered for model_type={model_type!r}. "
-        f"Registered backbones: {[b.id for b in REGISTRY]}. Add one in backbones.py."
+        f"Registered backbones: {[b.id for b in REGISTRY]}. Add one in registry.py."
     )
 
 
-# --- scratch: the in-house from-scratch transformer -------------------------------------------
+# --- lazy loader helpers (imports kept local so the module is cheap to import) ----------------
+def _load_custom_pretrained(path, model_cls, config_cls):
+    import os
+    from safetensors.torch import load_file
+    config = config_cls.from_pretrained(path)
+    model = model_cls(config)
+    state_dict = load_file(os.path.join(path, "model.safetensors"))
+    model.load_state_dict(state_dict, strict=True)
+    model.eval()
+    return model
+
+# --- custom from-scratch transformer -------------------------------------------
+def _scratch():
+    from cdrseqgen.models.custom import transformer
+    return transformer
+
+
+def _build_scratch(mt, vocab_size=25, hidden_size=128, num_layers=4,
+                   num_attention_heads=8, intermediate_size=None, max_len=512, **_ignored):
+    return _scratch().build_model(
+        vocab_size=vocab_size,
+        hidden_size=hidden_size,
+        num_layers=num_layers,
+        num_attention_heads=num_attention_heads,
+        intermediate_size=intermediate_size,
+        max_len=max_len,
+    )
+
+
+def _load_scratch_pretrained(path):
+    t = _scratch()
+    return _load_custom_pretrained(path, t.CustomAntibodyModel, t.CustomAntibodyConfig)
+
+
 register(Backbone(
     id="scratch",
     matches=lambda mt: mt == "scratch",
     position_type="absolute",
     uses_special_tokens=False,
     load_tokenizer=lambda mt, pos, wrap: TokenizerAdapter.from_custom(AntibodyTokenizer(), position_type=pos),
-    load_training_model=lambda mt, vocab_size=25, hidden_size=128, num_layers=4, max_len=512:
-        build_scratch_model(vocab_size, hidden_size, num_layers, max_len),
-    load_pretrained_model=lambda path: _load_custom_pretrained(path),
+    load_training_model=_build_scratch,
+    load_pretrained_model=_load_scratch_pretrained,
 ))
 
 
-# --- ESM-2: Meta's rotary-position protein LM -------------------------------------------------
+# --- ESM-2 -------------------------------------------------
 def _esm_tokenizer(mt, pos, wrap):
     from transformers import EsmTokenizer
     return TokenizerAdapter.from_hf(EsmTokenizer.from_pretrained(mt), position_type=pos, uses_special_tokens=wrap)
 
 
+def _load_esm(name_or_path):
+    from transformers import EsmForMaskedLM
+    logger.info(f"🧬 Loading ESM-2 model: {name_or_path}")
+    return EsmForMaskedLM.from_pretrained(name_or_path)
+
+
 register(Backbone(
     id="esm2",
-    matches=lambda mt: "esm2" in mt,
+    matches=lambda mt: "esm2" in mt.lower(),   # .lower() to match protein_bert's convention
     position_type="relative",   # rotary embeddings -> target's absolute index doesn't matter
     uses_special_tokens=True,
     load_tokenizer=_esm_tokenizer,
@@ -92,18 +143,7 @@ register(Backbone(
 
 
 # --- antibody / protein BERT-style masked-LMs (IgBert, ProtBert, AntiBERTy, ...) --------------
-# BERT-family models trained on protein/antibody sequences. Two differences from the generic
-# fallback below force a dedicated entry: (1) their tokenizers expect whitespace-separated
-# residues ("M E V Q"), handled via space_residues=True; (2) they have ABSOLUTE positions, so
-# antigen context is appended after the target (same as the scratch model). IgBert (Exscientia,
-# trained on OAS *paired* repertoires) is the antibody-specific option and the reason this exists;
-# ProtBert (Rostlab) is the general-protein baseline. Registered ABOVE hf_encoder because these
-# hub ids also contain "/" and would otherwise be grabbed by the fallback WITHOUT residue spacing.
 def _bert_tokenizer(mt, pos, wrap):
-    # AutoTokenizer insists on building a *fast* tokenizer for these protein-BERT repos (ProtBert,
-    # IgBert) and fails in current transformers even with sentencepiece installed; the concrete
-    # slow BertTokenizer loads the WordPiece vocab.txt fine. Try Auto first (covers models that do
-    # ship a fast tokenizer), then fall back to the slow BERT class.
     from transformers import AutoTokenizer, BertTokenizer
     try:
         hf_tok = AutoTokenizer.from_pretrained(mt, use_fast=False)
@@ -113,12 +153,8 @@ def _bert_tokenizer(mt, pos, wrap):
 
 
 def _load_bert_model(name_or_path):
-    # Some protein-BERT repos (e.g. Rostlab/prot_bert) ship a config.json with NO model_type key,
-    # so AutoModelForMaskedLM/AutoConfig can't resolve them ("Unrecognized model") even though the
-    # architecture is plainly BertForMaskedLM. Try Auto first (works for IgBert etc.), then fall
-    # back to the concrete BertForMaskedLM class.
     from transformers import AutoModelForMaskedLM, BertForMaskedLM
-    print(f"🧬 Loading protein-BERT masked-LM: {name_or_path}")
+    logger.info(f"🧬 Loading protein-BERT masked-LM: {name_or_path}")
     try:
         return AutoModelForMaskedLM.from_pretrained(name_or_path)
     except (ValueError, KeyError):
@@ -137,51 +173,42 @@ register(Backbone(
 
 
 # --- generic Hugging Face encoder fallback (AbLang2, ESM-C, ...) -------------------------------
-# Any hub path or local dir that isn't scratch/ESM-2/BERT. Assumes an AutoModelForMaskedLM with an
-# AutoTokenizer and ABSOLUTE positions (the common case for BERT/RoBERTa-style protein LMs). A PLM
-# that needs different handling (e.g. relative positions) should get its own entry ABOVE this one.
 def _hf_tokenizer(mt, pos, wrap):
     from transformers import AutoTokenizer
     return TokenizerAdapter.from_hf(AutoTokenizer.from_pretrained(mt), position_type=pos, uses_special_tokens=wrap)
 
 
+def _load_automodel(name_or_path):
+    from transformers import AutoModelForMaskedLM
+    logger.info(f"🧬 Loading Hugging Face masked-LM: {name_or_path}")
+    return AutoModelForMaskedLM.from_pretrained(name_or_path)
+
+
 register(Backbone(
     id="hf_encoder",
-    matches=lambda mt: "/" in mt or mt.startswith("."),  # looks like a hub path or local dir
+    matches=lambda mt: "/" in mt or mt.startswith("."), 
     position_type="absolute",
     uses_special_tokens=True,
     load_tokenizer=_hf_tokenizer,
     load_training_model=lambda mt, **kw: _load_automodel(mt),
     load_pretrained_model=lambda path: _load_automodel(path),
+    fallback=True,
 ))
 
 
-# --- lazy loader helpers (imports kept local so the module is cheap to import) ----------------
-def _load_custom_pretrained(path):
-    # NOTE: CustomAntibodyModel.from_pretrained(path) silently returns a *randomly initialized*
-    # model with the current transformers version — it builds the config but never loads the
-    # checkpoint weights (verified: lm_head norm came back at the std-0.02 init value, not the
-    # trained value), with no missing/unexpected-key warning. This broke both predict.py and any
-    # re-evaluation of scratch checkpoints. Load the state dict explicitly instead; keys match the
-    # freshly built model exactly, so strict loading is a hard correctness guard.
-    import os
-    from safetensors.torch import load_file
-    from cdrseqgen.models.custom import CustomAntibodyModel, CustomAntibodyConfig
-    config = CustomAntibodyConfig.from_pretrained(path)
-    model = CustomAntibodyModel(config)
-    state_dict = load_file(os.path.join(path, "model.safetensors"))
-    model.load_state_dict(state_dict, strict=True)
-    model.eval()
-    return model
+# Assert fallback model (or else quietly resolves to hf_encoder)
+_fallbacks = [i for i, b in enumerate(REGISTRY) if b.fallback]
+assert _fallbacks == [len(REGISTRY) - 1], (
+    f"the generic fallback must be the LAST registered backbone; "
+    f"got fallbacks at {_fallbacks} of {[b.id for b in REGISTRY]}"
+)
 
 
-def _load_esm(name_or_path):
-    from transformers import EsmForMaskedLM
-    print(f"🧬 Loading ESM-2 model: {name_or_path}")
-    return EsmForMaskedLM.from_pretrained(name_or_path)
-
-
-def _load_automodel(name_or_path):
-    from transformers import AutoModelForMaskedLM
-    print(f"🧬 Loading Hugging Face masked-LM: {name_or_path}")
-    return AutoModelForMaskedLM.from_pretrained(name_or_path)
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    print(f"{len(REGISTRY)} backbones registered, fallback last: {[b.id for b in REGISTRY]}\n")
+    for mt in ["scratch", "facebook/esm2_t12_35M_UR50D", "Exscientia/IgBert",
+               "Rostlab/prot_bert", "ablang/ablang2"]:
+        print(f"  {mt:32s} -> {resolve(mt).id}")
+    _scratch()  # raises here if the custom/ import path is wrong
+    print("\n✅ dispatch + lazy imports OK")

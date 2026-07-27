@@ -38,8 +38,9 @@ CDRSeqGen/
 │   │       ├── download_oas_paired.sh  # Fetch OAS paired repertoires → dataset/data/raw/
 │   │       └── download_sabdab2.sh     # Fetch SAbDab2 splits → dataset/data/raw/ (CWD-independent)
 │   ├── models/
-│   │   ├── models.py           # PLM model registry (resolve)
-│   │   └── custom.py           # Custom transformer (scratch) definition
+│   │   ├── registry.py         # Backbone registry — resolve(model_type) -> Backbone
+│   │   └── custom/             # In-house architectures (vs. loaded PLMs)
+│   │       └── transformer.py  # From-scratch encoder — model_type "scratch"
 │   ├── eval/
 │   │   ├── sampling.py         # Decoders (independent / iterative Mask-Predict; temperature 0 = greedy) + pseudo-perplexity
 │   │   ├── metrics.py          # Pure sequence stats: recovery, diversity, novelty, per-position entropy
@@ -179,7 +180,7 @@ flagging runs that overfit after their peak or are still improving at the last e
 LRS="1e-4 3e-4 1e-3" EPOCHS="10 20" WARMUPS="0.0 0.06" ./scripts/sweep_scratch.sh 4
 ```
 > **⚠️ Don't sweep `hidden_size` yet.** `num_attention_heads` (8) and `intermediate_size` (512) are hardcoded in
-> [`custom.py`](cdrseqgen/models/custom.py) and never passed by `build_scratch_model`, so `intermediate_size` does
+> [`custom/transformer.py`](cdrseqgen/models/custom/transformer.py) and never passed by `build_scratch_model`, so `intermediate_size` does
 > **not** follow `hidden_size` — the FFN ratio silently drifts (4× at 128, 2× at 256) and `hidden_size` must stay a
 > multiple of 8. Plumb those through before sweeping architecture.
 >
@@ -334,7 +335,7 @@ Phase 1 (the sequence sweep) is a **leakage-safe benchmark** for CDR infilling. 
 The `AntibodyInfillingDataset` separates sequences into `pt1` (left context), `mask` (target gap), and `pt2` (right context). The `target_region` string alone chooses the loop — `h1/h2/h3` mask a heavy CDR, `l1/l2/l3` mask the *light* chain's CDR (legacy `cdr*`/`lcdr*` spellings still parse). Switching target requires changing zero core tokenization logic. Labels are strictly length-enforced to prevent cross-entropy dimension mismatches.
 
 ### 2. Pluggable Backbones (the extensibility core)
-The model registry [`models.py`](cdrseqgen/models/models.py) holds one `Backbone` entry per model family; `train.py`, `predict.py`, and `dataset.py` never branch on model type — they all go through `resolve(model_type)`, which returns the matching backbone and a uniform `TokenizerAdapter`. The same pipeline trains the from-scratch transformer, fine-tunes ESM-2, or fine-tunes any Hugging Face masked-LM just by changing the `"model_type"` string.
+The model registry [`registry.py`](cdrseqgen/models/registry.py) holds one `Backbone` entry per model family; `train.py`, `predict.py`, and `dataset.py` never branch on model type — they all go through `resolve(model_type)`, which returns the matching backbone and a uniform `TokenizerAdapter`. The same pipeline trains the from-scratch transformer, fine-tunes ESM-2, or fine-tunes any Hugging Face masked-LM just by changing the `"model_type"` string.
 
 Each backbone declares two conventions **explicitly** instead of letting them be guessed from the tokenizer (the previous code overloaded a single `is_esm` boolean to mean three different things, which silently mishandled non-ESM models):
 - **`position_type`** (`"absolute"` | `"relative"`) — controls where antigen context is injected (see §4). Absolute-position models (the scratch transformer, BERT-style protein LMs) need it appended after the target; relative/rotary models (ESM-2) can take it prepended.
@@ -356,7 +357,7 @@ Antigen sequences (up to ~2,300 residues for large multi-chain complexes) made t
 
 ### 6. Extensibility Principles
 The recurring rule: **a new capability is added in one place, and the rest of the pipeline stays oblivious.** Four "add-one-line" seams:
-- **New model** → one `Backbone` entry in [`models.py`](cdrseqgen/models/models.py) (§2) — `train.py`/`predict.py`/`dataset.py` never learn about it.
+- **New model** → one `Backbone` entry in [`registry.py`](cdrseqgen/models/registry.py) (§2) — `train.py`/`predict.py`/`dataset.py` never learn about it.
 - **New target loop** → change the `target_region` string (§1); masking logic is untouched.
 - **New context** → one boolean flag (`include_partner_chain`, `include_antigen`), resolved symmetrically (§3–4).
 - **New dataset source** → one `(substring, tag)` pair in `train.py`'s `DATASET_TAGS` registry (`oas → OAS`, `sabdab2 → SD2`), so every run's output-dir name states its source explicitly instead of leaving it silently implied; an unrecognised path is tagged `DS` **with a logged warning** rather than left blank.
@@ -373,9 +374,9 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **The judge shares the eval distribution.** IgBert was trained on OAS paired repertoires — the same distribution as the OAS eval split it judges. It's applied identically to every model, so the *comparison* is fair, but absolute perplexities are OAS-flavoured; an off-distribution judge would be a stronger check.
 - **Generative sweep is H3/OAS only.** The matrix covered CDR-H3 on OAS (150 held-out frameworks × 4 models). L-chain loops, SAbDab2, and the antigen configs have not been swept generatively.
 - **Sampler is marginal-based, not learned-joint.** The `iterative` (Mask-Predict) decoder approximates the loop joint by conditioning on committed residues, but the model is still a masked-LM trained on independent-position recovery — true joint/generative *training* (autoregressive or diffusion) is Phase-2 territory.
-- **Hyperparameters were never tuned.** All 48 configs pin one LR per family (scratch `1e-4`, pretrained `5e-5`) and exactly `num_train_epochs: 10`, with no warmup / weight-decay / scheduler set (HF defaults throughout). The curves show 10 is wrong for **both**, in opposite directions: `h3_esm2` peaks at **epoch 4** (core 0.3209) then decays to 0.3063 by 10 — six wasted epochs, rescued only by `load_best_model_at_end` — while `h3_scratch` is still creeping at 10 (~0.001 loss/epoch). *Mitigating evidence for Finding #1:* the two reach ~0.32 core from **opposite directions** (ESM-2 from above in 1–4 epochs, scratch from below over 10), which argues the ceiling is real rather than a shared-settings artifact. Sweep with [`scripts/sweep_scratch.sh`](scripts/sweep_scratch.sh).
-- **Checkpoint selection uses the metric we say is misleading.** Every config sets `"metric_for_best_model": "accuracy"` — *whole-span*, the anchor-inflated one (Findings §3). It happens to pick the same epoch as core on `h3_esm2` (both peak at 4), but that's luck. `"eval_core_accuracy"` is a one-line fix per config.
-- **Scratch architecture isn't tunable.** `hidden_size`/`num_layers` reach the model, but `num_attention_heads` (8) and `intermediate_size` (512) are hardcoded in [`custom.py`](cdrseqgen/models/custom.py) and never forwarded by `build_scratch_model` — so `intermediate_size` doesn't track `hidden_size` and the FFN ratio drifts silently if you change it.
+- **Hyperparameters were never tuned.** *(Partly addressed 2026-07-27: opt-in early stopping is now available — set `"early_stopping_patience": N` in a config to stop once `metric_for_best_model` plateaus. Off by default, so nothing changes unless you ask for it. The epoch counts below are still un-right-sized.)* All 48 configs pin one LR per family (scratch `1e-4`, pretrained `5e-5`) and exactly `num_train_epochs: 10`, with no warmup / weight-decay / scheduler set (HF defaults throughout). The curves show 10 is wrong for **both**, in opposite directions: `h3_esm2` peaks at **epoch 4** (core 0.3209) then decays to 0.3063 by 10 — six wasted epochs, rescued only by `load_best_model_at_end` — while `h3_scratch` is still creeping at 10 (~0.001 loss/epoch). *Mitigating evidence for Finding #1:* the two reach ~0.32 core from **opposite directions** (ESM-2 from above in 1–4 epochs, scratch from below over 10), which argues the ceiling is real rather than a shared-settings artifact. Sweep with [`scripts/sweep_scratch.sh`](scripts/sweep_scratch.sh).
+- ~~**Checkpoint selection uses the metric we say is misleading.**~~ **Fixed 2026-07-27.** 44 of 48 configs now set `"metric_for_best_model": "core_accuracy"` (HF resolves it to `eval_core_accuracy`). The four `l2_*` configs deliberately stay on whole-span `accuracy`: L2 core is computed over ~1.4% of eval rows, so selecting checkpoints on it would be selecting on noise — the same exception documented under "How to read the numbers". Runs before this date selected on whole-span and aren't checkpoint-comparable to later ones.
+- ~~**Scratch architecture isn't tunable.**~~ **Fixed 2026-07-27.** `num_attention_heads` and `intermediate_size` are now `ModelArguments` fields forwarded by `build_model` ([`custom/transformer.py`](cdrseqgen/models/custom/transformer.py)). `intermediate_size` defaults to `None` = **4 × hidden_size**, so the FFN ratio tracks width instead of silently drifting (at the old fixed 512, widening to 256 quietly halved the ratio and would have confounded any architecture sweep). Defaults reproduce the old geometry exactly (128 → 512), and a `hidden_size % num_attention_heads` check now fails loudly instead of deep inside `nn.MultiheadAttention`.
 - **Single-seed runs.** Small differences (e.g. light chain hurts scratch ~0.01, neutral for ESM-2) need multiple seeds + error bars before they can be claimed.
 - **Structure not yet available.** SAbDab2 preprocessing parses *sequences* only; the Phase-2 structure objective needs a coordinate-parsing step (or predicted structures via IgFold/ABlooper).
 
@@ -401,6 +402,8 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ### Changelog
 <!-- Latest updates can be added here before protection zone -->
 <!-- MANUAL PROTECTION ZONE BEGINS -->
+- **2026-07-27** -- [RECLAIM] Restructured `models/` directory (`custom/transformer.py`[`custom.py`]: rename; `registry.py`[`models.py`]: rename)
+- **2026-07-27** -- Fixed print/logging issues in `models.py`, `generation.py`
 - **2026-07-27** -- `data/preprocess/common.py`[new]: common scaffolding for csv -> json data preprocessing scripts
 - **2026-07-27** -- moved and renamed preprocessing scripts to `data/preprocess/`, removed separate dataset README file
 - **2026-07-27** -- [RECLAIM] Reclaimed: `dataset.py`, data preprocessing scripts
@@ -411,9 +414,6 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **2026-07-24** -- `linegraph_plotter.py`: moved to new `utils/` folder
 - **2026-07-24** -- `sampling.py`: handled greedy algo for both independent and iterative decoders
 - **2026-07-21** -- `eval_recovery.py`: temporarily discarded (now in `old/`)
-- **2026-07-21** -- `gen_eval.py`[`eval_generative.py`]: rename
-- **2026-07-21** -- `custom.py`[`model.py`]: rename
-- **2026-07-21** -- `models.py`[`backbones.py`]: rename
 - **2026-07-21** -- `train.py`: Gen eval after per training run
 - **2026-07-20** -- Fixed issue with anchor excluded AAR for short CDRs
 - **2026-07-20** -- Edited results directory naming (`[timestamp]/[configs]/` (timestamp at time of `run.sh` round start))
@@ -447,7 +447,11 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 - [ ] Project flowchart
- - [ ] Code structure overhaul
+ - [ ] Data section
+ - [ ] Models section
+ - [ ] Eval section
+ - [ ] Train section
+ - [ ] Interface section
 - **Operation Reclamation** -- Manual code cleaning: Comprehend and rewrite the project content in my own terms - previous work handled by AI resulted in the project almost becoming a "black box" for the developer himself 
  - [x] `metrics.py`
  - [x] `sampling.py`
@@ -455,8 +459,8 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
  - [x] `gen_eval.py`
  - [ ] `predict.py`
  - [x] `linegraph_plotter.py`
- - [ ] `custom.py` 
- - [ ] `models.py` 
+ - [x] `custom/transformer.py` 
+ - [x] `registry.py` 
  - [x] `dataset.py` 
  - [x] preprocessing scripts
  - [ ] `run.sh`

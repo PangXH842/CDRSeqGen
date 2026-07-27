@@ -12,7 +12,7 @@
     "num_train_epochs": 10,
     "eval_strategy": "epoch",
     "save_strategy": "epoch",
-    "metric_for_best_model": "accuracy",
+    "metric_for_best_model": "core_accuracy",
     "greater_is_better": true,
     "load_best_model_at_end": true,
     "save_total_limit": 2,

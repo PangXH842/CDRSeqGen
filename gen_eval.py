@@ -17,7 +17,7 @@ import torch
 from transformers import HfArgumentParser, TrainingArguments
 
 from train import ModelArguments, DataArguments, GenerationArguments, get_datasets, RUN_META_FILENAME
-from cdrseqgen.models.models import resolve
+from cdrseqgen.models.registry import resolve
 from cdrseqgen.eval.generation import run_generative_eval, build_judge
 
 

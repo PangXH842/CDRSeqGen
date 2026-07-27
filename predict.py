@@ -22,10 +22,22 @@ Usage examples (results/latest is the newest *batch* — name the config you wan
 """
 import argparse
 import json
+import logging
 import os
+import sys
 import torch
 
-from cdrseqgen.models.models import resolve
+# Entrypoints configure logging; library modules just getLogger(__name__). Without this, the
+# backbone-loading messages in registry.py (logger.info) would be dropped entirely here — the root
+# logger defaults to WARNING with no handler, so INFO goes nowhere. train.py and gen_eval.py get
+# this from train.py's own basicConfig; predict.py imports neither, so it needs its own.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+
+from cdrseqgen.models.registry import resolve
 from cdrseqgen.eval.sampling import (
     sample_independent,
     sample_iterative,

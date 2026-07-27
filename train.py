@@ -20,7 +20,7 @@ from transformers import (
 )
 
 from cdrseqgen.data.dataset import AntibodyInfillingDataset, collate_fn
-from cdrseqgen.models.models import resolve
+from cdrseqgen.models.registry import resolve
 from cdrseqgen.utils.linegraph_plotter import plot_epoch_curves
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
@@ -203,6 +203,31 @@ class ModelArguments:
         default=4,
         metadata={"help": "Number of transformer layers for the scratch model."}
     )
+    num_attention_heads: int = field(
+        default=8,
+        metadata={"help": "Attention heads for the scratch model. Must divide hidden_size."}
+    )
+    intermediate_size: int = field(
+        default=None,
+        metadata={"help": "FFN width for the scratch model. Default None = 4 x hidden_size, so the "
+                          "ratio tracks width automatically during an architecture sweep; set an "
+                          "explicit value only to break that ratio deliberately."}
+    )
+    # Early stopping is OFF by default so existing configs behave exactly as before. It only becomes
+    # useful because every config already sets load_best_model_at_end + eval_strategy=epoch: the
+    # trainer is already keeping the best checkpoint, this just stops paying for epochs after it.
+    # Right-sizing matters per family — ESM-2 peaks around epoch 4 and then decays on H3, while the
+    # scratch model is still improving at 10 (see README "Current Issues").
+    early_stopping_patience: int = field(
+        default=0,
+        metadata={"help": "Stop after this many evals with no improvement in metric_for_best_model. "
+                          "0 (default) disables early stopping and trains the full num_train_epochs."}
+    )
+    early_stopping_threshold: float = field(
+        default=0.0,
+        metadata={"help": "Minimum change that counts as an improvement for early stopping."}
+    )
+
 
 @dataclass
 class DataArguments:
@@ -629,8 +654,23 @@ def main():
         vocab_size=tokenizer.vocab_size,
         hidden_size=model_args.hidden_size,
         num_layers=model_args.num_layers,
+        num_attention_heads=model_args.num_attention_heads,
+        intermediate_size=model_args.intermediate_size,
         max_len=data_args.max_len,
     )
+
+    callbacks = []
+    if model_args.early_stopping_patience and model_args.early_stopping_patience > 0:
+        # EarlyStoppingCallback watches metric_for_best_model, so it inherits whatever the config
+        # selects checkpoints on (core_accuracy everywhere except the l2_* configs, where core is
+        # computed over ~1.4% of eval rows and would be noise to stop on).
+        from transformers import EarlyStoppingCallback
+        callbacks.append(EarlyStoppingCallback(
+            early_stopping_patience=model_args.early_stopping_patience,
+            early_stopping_threshold=model_args.early_stopping_threshold,
+        ))
+        logger.info(f"⏱️  Early stopping ON: patience={model_args.early_stopping_patience} evals on "
+                    f"'{training_args.metric_for_best_model}' (threshold {model_args.early_stopping_threshold}).")
 
     trainer = Trainer(
         model=model,
@@ -639,6 +679,7 @@ def main():
         eval_dataset=eval_dataset,
         data_collator=functools.partial(collate_fn, pad_token_id=tokenizer.pad_id),
         compute_metrics=compute_metrics,
+        callbacks=callbacks,
     )
 
     run_training_pipeline(trainer, training_args)
