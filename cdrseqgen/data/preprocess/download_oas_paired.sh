@@ -6,12 +6,12 @@
 # `cd`. Without it, running this from the repo root scattered .csv.gz files across <repo>/.
 # No `set -e` on purpose: one dead URL should not abort the remaining downloads.
 #
-# Usage:  bash cdrseqgen/data/bulk_download_human_paired.sh
+# Usage:  bash cdrseqgen/data/preprocess/download_oas_paired.sh
 #   then: gunzip the .csv.gz you want, and point --input_file at it
-#         (python -m cdrseqgen.data.preprocess_oas_paired --input_file dataset/data/raw/<file>.csv)
+#         (python -m cdrseqgen.data.preprocess.oas_paired --input_file dataset/data/raw/<file>.csv)
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)" || exit 1
-DEST="$ROOT/dataset/data/raw"
+DEST="$ROOT/dataset/data/raw/oas/"
 mkdir -p "$DEST" || exit 1
 cd "$DEST" || exit 1
 echo "⬇️  Downloading OAS paired repertoires into: $DEST"

@@ -2,7 +2,8 @@
 Primarily used in `train.py` for post-training-batch evaluation (no judge) and 
 `gen_eval.py` for direct window used to evaluate existing trained models.
 
-  * run_generative_eval -- master function, loads eval dataset, 
+  * run_generative_eval -- master function, loads eval dataset, select data indices, 
+                            load model checkpoints and sample, calculate and print eval metrics
 
   * select_indices      -- randomly select CDRs from eval dataset, 
                             stratify by CDR lengths if option selected
@@ -15,9 +16,6 @@ Imports:
   * sampling.sample_independent     -- sampling method: independent per masked position
   * sampling.sample_iterative       -- sampling method: iterative from most-confident position
   * sampling.pseudo_log_likelihood  -- calculate pll and pseudo-perplexity of filled loop 
-
-Notes:
-  * tba
 """
 import os
 import json

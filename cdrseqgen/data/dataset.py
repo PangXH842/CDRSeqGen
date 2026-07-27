@@ -1,8 +1,31 @@
+"""Dataset class script, preprocessed jsons -> torch tensors for training (MLM infilling).
+
+  * AntibodyTokenizer        -- custom 25-token vocab (20 amino acids + 5 special)
+  * TokenizerAdapter         -- uniform tokenizer interface (custom, HF)
+  * AntibodyInfillingDataset -- one entry -> (input_ids, labels, target_len) with one CDR masked
+  * collate_fn               -- pad a list of items into a batch (+ attention mask)
+
+Input schema:
+    heavy / light            -- {fwr1..fwr4, cdr1..cdr3, full_aa, imgt_numbering}
+    antigen (SAbDab2 only)   -- {full_aa, chains, type}
+    split (optional)         -- "train"/"test", honored by get_datasets() in train.py
+
+Notes:
+  * Layout is: [cls] pt1 [mask x L] pt2 [end], where pt1/pt2 are the framework flanks either side of
+    the target loop; the wrap tokens are dropped for the scratch tokenizer (uses_special_tokens).
+  * Loss is scored on the loop alone: labels are -100 everywhere except the masked span.
+  * The mask span is exactly as long as the native loop, so the model is TOLD the target length and
+    never has to predict it -- recovery numbers should be read with that in mind.
+  * Where partner-chain / antigen context is injected depends on the backbone's position_type, not
+    its model family -- see TokenizerAdapter and __getitem__.
+"""
 import torch
 from torch.utils.data import Dataset, DataLoader
 import json
 
 class AntibodyTokenizer:
+    """Token vocab for scratch model: 20 amino acids + 5 special tokens"""
+
     def __init__(self):
         self.vocab = [
             "<pad>", "<unk>", "<cls>", "<sep>", "<mask>",
@@ -15,27 +38,16 @@ class AntibodyTokenizer:
         self.mask_id = self.tok_to_id["<mask>"]
 
     def encode(self, seq):
+        """Residue string -> list of ids; any non-canonical residue becomes <unk>"""
         return [self.tok_to_id.get(aa, self.tok_to_id["<unk>"]) for aa in seq]
 
     def decode(self, ids):
+        """List of ids -> residue string; ids outside the vocab render as '?'"""
         return "".join([self.id_to_tok.get(i, "?") for i in ids])
 
 
 class TokenizerAdapter:
-    """Uniform tokenizer interface so the Dataset never branches on model family.
-
-    Wraps either the custom AntibodyTokenizer or any Hugging Face tokenizer and exposes a
-    single contract: `encode` (never adds special tokens), `decode`, the id of every token
-    kind the pipeline needs, plus two backbone conventions the encoding depends on:
-
-      * uses_special_tokens -- wrap the assembled input as [cls] ... [end] (True for HF
-        encoder LMs; False for the raw scratch tokenizer).
-      * position_type -- "absolute" or "relative". Controls where variable-length antigen
-        context is injected (see AntibodyInfillingDataset.__getitem__): absolute-position
-        models (scratch, most BERT-style protein LMs) get it appended after the target so the
-        target's absolute position stays stable; relative/rotary models (ESM-2) get it
-        prepended. These come from the backbone registry, not guessed from the tokenizer.
-    """
+    """Uniform tokenizer interface for custom and hf sources"""
 
     def __init__(self, *, encode, decode, vocab_size, pad_id, mask_id, cls_id, end_id,
                  chain_sep_id, special_ids, uses_special_tokens, position_type):
@@ -53,7 +65,6 @@ class TokenizerAdapter:
 
     @classmethod
     def from_custom(cls, tok, position_type="absolute"):
-        """Wrap the in-house AntibodyTokenizer (scratch model): no special-token wrapping."""
         return cls(
             encode=tok.encode,
             decode=tok.decode,
@@ -70,18 +81,18 @@ class TokenizerAdapter:
 
     @classmethod
     def from_hf(cls, tok, position_type, uses_special_tokens=True, space_residues=False):
-        """Wrap any Hugging Face tokenizer (ESM-2, and BERT/RoBERTa-style PLMs).
+        """Wrap any Hugging Face tokenizer (ESM-2, and BERT/RoBERTa-style PLMs)
 
-        Handles the ESM-vs-BERT separator difference generically: the trailing/chain
-        separator is <eos> when the tokenizer has one (ESM/RoBERTa) and <sep> otherwise
-        (BERT-style, where eos_token_id is None).
-
-        space_residues bridges the other family difference: BERT-style protein tokenizers
-        (ProtBert, IgBert) expect whitespace-separated residues ("M E V Q") and would otherwise
-        collapse a bare "MEVQ" to a single <unk>; ESM's per-character vocab needs no spacing.
+        Cases:
+          Wrap tokens (auto-detected; end_id doubles as chain_sep_id)
+          * ESM/RoBERTa: cls_id = <cls>; end_id = <eos>
+          * BERT-style:  cls_id = <cls>; end_id = <sep>   
+          Residue spacing (NOT detected — caller passes space_residues)
+          * ESM/RoBERTa: "MVEQ"
+          * BERT-style:  "M E V Q"; bare "MVEQ" -> a single <unk>
         """
-        end_id = tok.eos_token_id if tok.eos_token_id is not None else tok.sep_token_id
         cls_id = tok.cls_token_id if tok.cls_token_id is not None else tok.bos_token_id
+        end_id = tok.eos_token_id if tok.eos_token_id is not None else tok.sep_token_id
 
         def _encode(seq):
             return tok.encode(" ".join(seq) if space_residues else seq, add_special_tokens=False)
@@ -101,6 +112,22 @@ class TokenizerAdapter:
         )
 
 class AntibodyInfillingDataset(Dataset):
+    """One processed entry -> a masked-infilling example for the chosen CDR loop.
+
+    Masks `target_region` on the chain that carries it and keeps the rest of that chain as context,
+    optionally adding the paired partner chain and/or the antigen. Context assembly, length capping
+    and label construction all happen in __getitem__.
+
+    Args:
+      json_path             -- processed JSON from preprocessing scripts
+      tokenizer             -- TokenizerAdapter (NOT bare AntibodyTokenizer / HF tokenizer)
+      max_len               -- hard cap on the assembled sequence; context is truncated to fit
+      target_region         -- loop to mask: h1/h2/h3 (heavy) or l1/l2/l3 (light)
+                                (also supported: cdr1/2/3, lcdr1/2/3 (old runs))
+      include_partner_chain -- prepend the paired chain (light for a heavy target, heavy for light)
+      include_antigen       -- add antigen context if available
+    """
+
     def __init__(self, json_path, tokenizer, max_len=256, target_region="h3",
                  include_partner_chain=False, include_antigen=False):
         with open(json_path, 'r') as f:
@@ -116,19 +143,14 @@ class AntibodyInfillingDataset(Dataset):
 
     @staticmethod
     def _resolve_target(target_region):
-        """Map a target_region string to (chain, cdr-key).
-
-        Unified form: h1/h2/h3 (heavy) and l1/l2/l3 (light). The legacy cdr1/2/3 and lcdr1/2/3
-        spellings are still accepted so older configs/checkpoints reproduce. Returns e.g.
-        "h3" -> ("heavy", "cdr3"),  "l1" -> ("light", "cdr1").
-        """
+        """Map a target_region string to (chain, cdr-key), e.g. "h3" -> ("heavy", "cdr3")"""
         tr = target_region.lower()
         chain = "light" if tr.startswith("l") else "heavy"   # covers l1/l2/l3 and lcdr1/2/3
         return chain, "cdr" + tr[-1]                          # last char is the CDR number
 
     @staticmethod
     def _split_regions(chain, region):
-        """Split a chain dict into (pt1, target, pt2) around the requested cdr region."""
+        """Split a chain dict into (pt1, target, pt2) around the requested cdr region"""
         if region == "cdr1":
             return chain['fwr1'], chain['cdr1'], chain['fwr2'] + chain['cdr2'] + chain['fwr3'] + chain['cdr3'] + chain['fwr4']
         elif region == "cdr2":
@@ -137,26 +159,27 @@ class AntibodyInfillingDataset(Dataset):
             return chain['fwr1'] + chain['cdr1'] + chain['fwr2'] + chain['cdr2'] + chain['fwr3'], chain['cdr3'], chain['fwr4']
 
     def __getitem__(self, idx):
+        """Assemble one example: mask the target loop, inject context, cap length, build labels.
+
+        Returns {input_ids, labels, target_len}. `labels` carries the native residues at the masked
+        positions and -100 everywhere else, so the loss is scored on the loop alone; `target_len`
+        is the loop length, which the length-bucketed eval reports group by.
+        """
         item = self.data[idx]
 
-        # 1. Resolve which chain carries the target and which is the (optional) partner context.
-        #    Heavy targets (h1/h2/h3) keep the light chain as partner; light targets (l1/l2/l3)
-        #    mask the light chain and keep the heavy chain as partner — the mirror image.
+        # 1. Resolve which chain carries the target and which is the (optional) partner context
         target_chain_key, region = self._resolve_target(self.target_region)
         partner_key = "heavy" if target_chain_key == "light" else "light"
 
         pt1_seq, target_seq, pt2_seq = self._split_regions(item[target_chain_key], region)
 
         # 2. Tokenize target-chain parts (adapter.encode never adds special tokens)
-        t = self.tokenizer  # a TokenizerAdapter; see class docstring
+        t = self.tokenizer  
         pt1_ids = t.encode(pt1_seq)
         pt2_ids = t.encode(pt2_seq)
         target_ids = t.encode(target_seq)
 
         # --- PARTNER CHAIN INJECTION ---
-        # Prepend the paired partner chain (light for a heavy target, heavy for a light target) to
-        # pt1. Its length variance is small enough that this doesn't destabilise the target's
-        # position even for absolute-position models.
         if self.include_partner_chain and item.get(partner_key) and item[partner_key].get('full_aa'):
             partner_ids = t.encode(item[partner_key]['full_aa'])
             pt1_ids = partner_ids + [t.chain_sep_id] + pt1_ids
@@ -172,7 +195,7 @@ class AntibodyInfillingDataset(Dataset):
             antigen_ids = t.encode(item['antigen']['full_aa'])
             if t.position_type == "relative":
                 pt1_ids = antigen_ids + [t.chain_sep_id] + pt1_ids
-            else:
+            else: # absolute
                 pt2_ids = pt2_ids + [t.chain_sep_id] + antigen_ids
 
         # --- LENGTH CAPPING ---
@@ -217,7 +240,7 @@ def collate_fn(batch, pad_token_id=0):
     """
     Takes a list of items and pads them to the same length so they fit in a Tensor.
 
-    pad_token_id defaults to 0, which is correct for AntibodyTokenizer's <pad> id, but
+    [NOTE] pad_token_id defaults to 0, which is correct for AntibodyTokenizer's <pad> id, but
     NOT for ESM-2's tokenizer (whose <pad> id is 1, while 0 is <cls>) — callers using an
     ESM-2 tokenizer must pass its real pad_token_id explicitly (see train.py/predict.py).
     """

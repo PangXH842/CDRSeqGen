@@ -6,11 +6,11 @@
 # `mkdir -p raw/sabdab2`, relative to CWD: run as documented from the repo root, that silently
 # dumped the download into <repo>/raw/sabdab2/, where no config or preprocessor looks.)
 #
-# Usage:  bash cdrseqgen/data/download_sabdab2.sh
+# Usage:  bash cdrseqgen/data/preprocess/download_sabdab2.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-DEST="$ROOT/dataset/data/raw/sabdab2"
+DEST="$ROOT/dataset/data/raw/sabdab2/"
 
 mkdir -p "$DEST"
 echo "⬇️  Downloading SAbDab2 splits into: $DEST"
@@ -18,4 +18,4 @@ wget -O "$DEST/splits.tar.gz" https://zenodo.org/records/20083995/files/splits.t
 tar -xzf "$DEST/splits.tar.gz" -C "$DEST"
 
 echo "✅ Done. Next:"
-echo "     python -m cdrseqgen.data.preprocess_sabdab2"
+echo "     python -m cdrseqgen.data.preprocess.sabdab2"

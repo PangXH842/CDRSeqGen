@@ -31,11 +31,12 @@ CDRSeqGen/
 ├── cdrseqgen/                  # Library package — grouped by concern (entrypoints stay at root)
 │   ├── data/                   # ALL data code (the data itself lives in dataset/data/)
 │   │   ├── dataset.py          # Runtime: processed JSON → tensors (tokenizers, Dataset, collator)
-│   │   ├── preprocess_oas_paired.py   # Offline: raw → processed JSON
-│   │   ├── preprocess_sabdab2.py      # Offline: raw → processed JSON
-│   │   ├── download_sabdab2.sh        # Fetch SAbDab2 splits → dataset/data/raw/ (CWD-independent)
-│   │   ├── bulk_download_human_paired.sh  # Fetch OAS paired repertoires → dataset/data/raw/
-│   │   └── README.md           # Data subsystem docs (sources, splits, leakage analysis)
+│   │   └── preprocess/         # Offline: raw → processed JSON (run once per dataset)
+│   │       ├── oas_paired.py       # OAS paired repertoires + the leakage-safe clustered split
+│   │       ├── sabdab2.py          # SAbDab2 structures (adds antigen; split ships with the data)
+│   │       ├── common.py           # Shared by both: validation, chain assembly, funnel, IO
+│   │       ├── download_oas_paired.sh  # Fetch OAS paired repertoires → dataset/data/raw/
+│   │       └── download_sabdab2.sh     # Fetch SAbDab2 splits → dataset/data/raw/ (CWD-independent)
 │   ├── models/
 │   │   ├── models.py           # PLM model registry (resolve)
 │   │   └── custom.py           # Custom transformer (scratch) definition
@@ -89,14 +90,14 @@ Convert datasets into a custom "Bio-Object" JSON format, extracting the regions 
 
 **OAS**: currently only including 21106 paired sequences from 1287169_1_Paired_All.csv, pending future scale-ups
 ```bash
-python -m cdrseqgen.data.preprocess_oas_paired \
+python -m cdrseqgen.data.preprocess.oas_paired \
     --input_file dataset/data/raw/1287169_1_Paired_All.csv \
     --output_file dataset/data/processed/processed_oas_data.json
 ```
 
 **SAbDab2**: currently including 3984 structures - paired with resolved antigen, remaining >10k structures without antigen pending future inclusion
 ```bash
-python -m cdrseqgen.data.preprocess_sabdab2 \
+python -m cdrseqgen.data.preprocess.sabdab2 \
     --input_file dataset/data/raw/sabdab2/splits_final/abag_split.csv \
     --output_file dataset/data/processed/processed_sabdab2_data.json
 ```
@@ -321,7 +322,7 @@ Phase 1 (the sequence sweep) is a **leakage-safe benchmark** for CDR infilling. 
 
 |Δ| ≤ 0.03, sign inconsistent. Not a truncation artifact (60% of examples keep the full antigen at `max_len=512`). Partner-chain context is likewise net-neutral-to-negative (overhead for the small model). **Interpretation:** binding information is geometric, not linear-sequence — so the next lever is structure / cross-attention, not more sequence context.
 
-**5. The homology leak was real but immaterial.** OAS's original random split leaked clonal near-duplicates (3.6% of the test set share a CDR3 cluster with train). The clustered-split fix removed it (→0%), and re-running confirmed the H3 core moved by **≤0.004** — the conclusions above are robust to it. (Now the default; see [`preprocess_oas_paired.py`](cdrseqgen/data/preprocess_oas_paired.py).)
+**5. The homology leak was real but immaterial.** OAS's original random split leaked clonal near-duplicates (3.6% of the test set share a CDR3 cluster with train). The clustered-split fix removed it (→0%), and re-running confirmed the H3 core moved by **≤0.004** — the conclusions above are robust to it. (Now the default; see [`preprocess/oas_paired.py`](cdrseqgen/data/preprocess/oas_paired.py).)
 
 > **Bottom line:** sequence-only CDR infilling saturates at ~0.32 H3 core regardless of model, context, or dataset quality — which is exactly what motivates the shift to a **structure objective** (see Roadmap).
 
@@ -381,14 +382,29 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ### How to read the numbers 
 - **Report core, not whole-span** — whole-span is anchor-inflated on H3 (Findings §3).
 - **…except for L2, where core is meaningless.** `ANCHOR_TRIM=2` trims 2 residues from each end, so a loop needs length > 4 to contribute *any* core token — but **98.8% of light-chain CDR2 loops are 3 residues** (20,847/21,106). L2 core is therefore computed over ~**30 of 2,111** eval examples (1.4%), and its values are noise: the 07-17 batch shows L2 core of `1.0000` for scratch and `0.5957` for scratch+HC, while the *valid* whole-span numbers are `0.9921` vs `0.9590`. **Report whole-span for L2**; H1/H2/H3/L1/L3 are unaffected (2110-2111/2111 eval entries contribute core). This is now **self-detecting**: every run records **`eval_core_coverage`** (fraction of eval rows with any core residue) in `epoch_metrics.csv`, and `train.py` warns once when it drops below 50%. A coverage well under 1.0 means the core number is noise.
+- **Every recovery number is conditioned on the native loop length — the model is *told* it, never predicts it.** `dataset.py` inserts exactly `len(native)` mask tokens, so the length is given away by the input's shape. This is the standard fixed-length-redesign protocol (RAbD, DiffAb, MEAN all do it) and is *required* for position-wise AAR to be well-defined at all — but it is not free information, and how much it's worth varies enormously by loop:
+
+  | loop | distinct lengths | mode freq | free info from knowing L |
+  |------|------------------|-----------|--------------------------|
+  | H3   | 34               | 9.9%      | **4.05 bits**            |
+  | L3   | 14               | 43.4%     | 2.13 bits                |
+  | L1   | 6                | 54.3%     | 2.01 bits                |
+  | H2   | 6                | 62.0%     | 1.24 bits                |
+  | H1   | 4                | 83.8%     | 0.73 bits                |
+  | L2   | 3                | 98.8%     | **0.10 bits**            |
+
+  On H3 that's ~4 bits handed over per example — roughly 10% of the loop's total information content (a 15-mer at the measured ~2.45 bits/position ≈ 37 bits). On L2 it's nothing: guess 3 and you're right 98.8% of the time. So **H3 recovery is the number most flattered by this**, and cross-loop comparisons of AAR are partly comparing how much length information each loop gave away. It also means the models cannot currently be used for length-free *design* — see Roadmap.
 - **Read best-epoch, not last-epoch** — ESM-2 overfits on SAbDab2/H3; `load_best_model_at_end` saves the peak, but the last CSV row can sit well below it.
 - **Never plot OAS and SAbDab2 on shared axes** — different test sets; the `_OAS`/`_SD2` run tags enforce it, and per-dataset charts live in `results/pngs/*_{oas,sd2}_*.png`.
 - **`epoch_metrics.csv` and `*_results.json` measure different models — they're *supposed* to disagree.** The CSV is the per-epoch **trajectory** (the model as it stood at each epoch); `eval_results.json`/`all_results.json` come from the post-training `trainer.evaluate()`, which with `load_best_model_at_end` runs on the **best** checkpoint while still being stamped with the final epoch number. On `h3_esm2` the CSV's epoch-10 row reads core **0.3063** (the actual last model) while `eval_results.json` reads **0.3209** (the epoch-4 best model). `save_training_csv` de-duplicates on epoch and **keeps the first** occurrence precisely so the curve keeps the real last-epoch point — keeping the last would silently redraw the best model at x=10 and erase the overfitting decay entirely.
 
 ### Changelog
 <!-- Latest updates can be added here before protection zone -->
-- **2026-07-24** -- `run_meta.json` provenance: `train.py` records the CDR loop (+ model/context) each run was trained for; `gen_eval.py` warns on config↔model mismatch, `predict.py` displays it
 <!-- MANUAL PROTECTION ZONE BEGINS -->
+- **2026-07-27** -- `data/preprocess/common.py`[new]: common scaffolding for csv -> json data preprocessing scripts
+- **2026-07-27** -- moved and renamed preprocessing scripts to `data/preprocess/`, removed separate dataset README file
+- **2026-07-27** -- [RECLAIM] Reclaimed: `dataset.py`, data preprocessing scripts
+- **2026-07-24** -- `run_meta.json` provenance: `train.py` records the CDR loop (+ model/context) each run was trained for
 - **2026-07-24** -- fixed `results/latest/` symlink to latest batch (to verify further)
 - **2026-07-24** -- [RECLAIM] `linegraph_plotter.py`: enables multi-run + multi-metric breakdown all in one function
 - **2026-07-24** -- [RECLAIM] Reclaimed: `metrics.py`, `sampling.py`, `generate.py`, `gen_eval.py`
@@ -441,8 +457,8 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
  - [x] `linegraph_plotter.py`
  - [ ] `custom.py` 
  - [ ] `models.py` 
- - [ ] `dataset.py` 
- - [ ] preprocessing scripts
+ - [x] `dataset.py` 
+ - [x] preprocessing scripts
  - [ ] `run.sh`
  - [ ] hyperparameter tuning script (`sweep_scratch.sh`)
  - [ ] `train.py` (to be split into smaller scripts?)
