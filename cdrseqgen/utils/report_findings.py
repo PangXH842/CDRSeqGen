@@ -19,7 +19,7 @@ Notes:
   * L2 is reported on WHOLE-SPAN, every other loop on core. ANCHOR_TRIM=2 leaves L2 (98.8% of its
     loops are 3 residues) with core over ~1.4% of eval rows, which is noise — see the README.
   * Reads only artifacts a finished run already writes (epoch_metrics.csv, generation_eval.json,
-    run_meta.json) plus the processed dataset JSONs. Nothing is recomputed on a GPU.
+    run_config.json) plus the processed dataset JSONs. Nothing is recomputed on a GPU.
   * The decoding table is the one thing that needs an extra step: two gen_eval.py runs differing
     only in --decoding, passed via --decoding-json. Skipped when absent.
 """
@@ -83,11 +83,11 @@ def _load(path):
 
 
 def data_path_for(runs, ds):
-    """Prefer the data_path a run recorded in run_meta.json; fall back to the standard location"""
+    """Prefer the data_path a run recorded in run_config.json; fall back to the standard location"""
     for (_, d, _, _), run_dir in runs.items():
         if d != ds:
             continue
-        meta = os.path.join(run_dir, "run_meta.json")
+        meta = os.path.join(run_dir, "run_config.json")
         if os.path.exists(meta):
             p = _load(meta).get("data_path")
             if p and os.path.exists(p):

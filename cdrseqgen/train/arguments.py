@@ -14,7 +14,7 @@ Notes:
   * The run folder is named from the RESOLVED arguments, not the config filename — `h3_scratch.json
     --target_region l3` produces an `l3_OAS_HC_scratch` folder, so an override can't be misfiled.
   * setup_args is where a run becomes a directory on disk: it names the run, creates it, attaches
-    the file log, updates results/latest, and writes run_meta.json. Everything after it can assume
+    the file log, updates results/latest, and writes run_config.json. Everything after it can assume
     training_args.output_dir exists.
 """
 import os
@@ -33,7 +33,7 @@ from cdrseqgen.train.workspace import (
     results_root,
     unique_run_dir,
     update_latest_link,
-    write_run_meta,
+    write_run_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -206,7 +206,7 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
     os.makedirs(training_args.output_dir, exist_ok=True)
     log_path = attach_file_logging(training_args.output_dir)
     update_latest_link(training_args.output_dir)
-    write_run_meta(training_args.output_dir, model_args, data_args)
+    write_run_config(training_args.output_dir, model_args, data_args)
     logger.info(f"📁 Workspace initialized at: {training_args.output_dir}")
     logger.info(f"📝 Logging this run to: {log_path}")
 

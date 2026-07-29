@@ -18,7 +18,7 @@ from transformers import HfArgumentParser, TrainingArguments
 
 from cdrseqgen.train.arguments import ModelArguments, DataArguments, GenerationArguments
 from cdrseqgen.train.pipeline import get_datasets
-from cdrseqgen.train.workspace import RUN_META_FILENAME, configure_logging
+from cdrseqgen.train.workspace import run_config_FILENAME, configure_logging
 
 # Entrypoints configure their own logging. This used to arrive for free by importing train.py, which
 # ran basicConfig at import — an accident that broke the moment train.py was split.
@@ -27,9 +27,9 @@ from cdrseqgen.models.registry import resolve
 from cdrseqgen.eval.generation import run_generative_eval, build_judge
 
 
-def read_run_meta(model_dir):
-    """Load the run_meta.json a training run wrote, or None (older runs won't have it)."""
-    path = os.path.join(model_dir, RUN_META_FILENAME)
+def read_run_config(model_dir):
+    """Load the run_config.json a training run wrote, or None (older runs won't have it)."""
+    path = os.path.join(model_dir, run_config_FILENAME)
     if os.path.exists(path):
         with open(path) as f:
             return json.load(f)
@@ -40,13 +40,13 @@ def check_target_region(model_dir, config_target):
     """Report the CDR loop the checkpoint was trained for, and warn if the config disagrees.
 
     The eval runs on config_target (the dataset is built from --config). If the checkpoint's own
-    run_meta says it was trained for a DIFFERENT loop, we're masking the wrong CDR — the numbers
+    run_config says it was trained for a DIFFERENT loop, we're masking the wrong CDR — the numbers
     would be confident and meaningless — so warn loudly. Returns the model's trained loop (or None).
     """
-    meta = read_run_meta(model_dir)
+    meta = read_run_config(model_dir)
     trained_for = meta.get("target_region") if meta else None
     if trained_for is None:
-        print(f"ℹ️  No {RUN_META_FILENAME} in {model_dir} (older run) — can't verify the model's trained loop.")
+        print(f"ℹ️  No {run_config_FILENAME} in {model_dir} (older run) — can't verify the model's trained loop.")
     elif trained_for != config_target:
         print(f"⚠️  LOOP MISMATCH: model was trained for '{trained_for}', but --config targets "
               f"'{config_target}'. Evaluating on the WRONG CDR — metrics will be meaningless.")
@@ -123,7 +123,7 @@ def main():
             "config": args.config,
             "model_dir": args.model_dir,
             "target_region": data_args.target_region,        # loop this eval ran on (from --config)
-            "model_trained_for": trained_for,                # loop the checkpoint was trained for (run_meta)
+            "model_trained_for": trained_for,                # loop the checkpoint was trained for (run_config)
             "include_partner_chain": bool(data_args.include_partner_chain),
             "include_antigen": bool(data_args.include_antigen),
         },

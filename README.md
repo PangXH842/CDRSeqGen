@@ -45,7 +45,7 @@ CDRSeqGen/
 │   │       └── transformer.py  # From-scratch encoder — model_type "scratch"
 │   ├── train/                  # What train.py is assembled from (train.py itself is just main())
 │   │   ├── arguments.py        # Model/Data/Generation dataclasses + setup_args
-│   │   ├── workspace.py        # Logging, train.log, run dirs, results/latest, run_meta.json
+│   │   ├── workspace.py        # Logging, train.log, run dirs, results/latest, run_config.json
 │   │   ├── pipeline.py         # get_datasets, train/eval driver, post-training generative eval
 │   │   └── reporting.py        # epoch_metrics.csv + the four curve PNGs
 │   ├── eval/
@@ -246,7 +246,7 @@ multi-run comparison doesn't lose the other lines. Charts default to `results/pn
 Give it a framework with its CDR loop cut out (`pt1` / gap / `pt2`) and it fills the gap: samples a
 library of candidate loops (default **iterative**) and prints them, each with recovery-vs-native (when
 you provide the native) and pseudo-perplexity, plus per-framework diversity/novelty. It also reports
-which CDR the checkpoint was trained for (read from `run_meta.json`). Samples + metrics are written to
+which CDR the checkpoint was trained for (read from `run_config.json`). Samples + metrics are written to
 `<model_path>/generation_results.json`.
 
 > **This is a showcase, not an evaluation.** `test/*.json` holds only a handful of curated frameworks
@@ -261,7 +261,7 @@ which CDR the checkpoint was trained for (read from `run_meta.json`). Samples + 
 >
 > Pass it with `--partner_chain` / `--antigen` (or per-case `partner_chain` / `antigen` keys in a
 > `--test_file`), and set `--max_len` to the training config's value (512 for the SAbDab2 antigen runs).
-> `predict.py` reads `run_meta.json`, prints what the checkpoint expects, and **warns** when a case
+> `predict.py` reads `run_config.json`, prints what the checkpoint expects, and **warns** when a case
 > supplies none. Injection goes through the same `inject_context` / `assemble_masked_input` that build
 > the training examples, so which side the antigen lands on — and which side gets truncated — follows
 > the backbone's `position_type` automatically instead of being hand-encoded in the test file.
@@ -372,7 +372,7 @@ context × {OAS, SAbDab2}, 10 epochs each), read at **best epoch**, core metric 
 > python -m cdrseqgen.utils.report_findings --only regimes,loops   # or a subset
 > ```
 > It reads only what a finished run already writes (`epoch_metrics.csv`, `generation_eval.json`,
-> `run_meta.json`) plus the processed dataset JSONs, and prints markdown ready to paste. The one
+> `run_config.json`) plus the processed dataset JSONs, and prints markdown ready to paste. The one
 > exception is the decoding table (Step 4), which needs two `gen_eval.py` runs differing only in
 > `--decoding`, passed via `--decoding-json` (the pair used above is kept alongside that run as
 > `generation_eval_decoding_{iterative,independent}.json`).
@@ -516,7 +516,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 
 ### Changelog
 <!-- Latest updates can be added here before protection zone -->
-- **2026-07-29** -- `predict.py`: added `--partner_chain` / `--antigen` / `--max_len`, routed through the same `inject_context` the dataset uses; reads `run_meta.json` and warns when a checkpoint's expected context is missing 
+- **2026-07-29** -- `predict.py`: added `--partner_chain` / `--antigen` / `--max_len`, routed through the same `inject_context` the dataset uses; reads `run_config.json` and warns when a checkpoint's expected context is missing 
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 - **2026-07-29** -- Split `train.py` into `cdrseqgen/train/{arguments,workspace,pipeline,reporting}.py`
 - **2026-07-29** -- `train.py`: fixed `train.log`, records per epoch (used to only have "Starting Training.../Starting Evaluation...") (pending verification)
@@ -527,7 +527,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **2026-07-27** -- `data/preprocess/common.py`[new]: common scaffolding for csv -> json data preprocessing scripts
 - **2026-07-27** -- moved and renamed preprocessing scripts to `data/preprocess/`, removed separate dataset README file
 - **2026-07-27** -- [RECLAIM] Reclaimed: `dataset.py`, data preprocessing scripts
-- **2026-07-24** -- `run_meta.json` provenance: `train.py` records the CDR loop (+ model/context) each run was trained for
+- **2026-07-24** -- `run_config.json` provenance: `train.py` records the CDR loop (+ model/context) each run was trained for
 - **2026-07-24** -- fixed `results/latest/` symlink to latest batch (to verify further)
 - **2026-07-24** -- [RECLAIM] `linegraph_plotter.py`: enables multi-run + multi-metric breakdown all in one function
 - **2026-07-24** -- [RECLAIM] Reclaimed: `metrics.py`, `sampling.py`, `generate.py`, `gen_eval.py`

@@ -1,7 +1,7 @@
 """Training subsystem — what the root train.py entrypoint is assembled from.
 
   * arguments.py -- the three config dataclasses + setup_args (parse, name the run, make its dir)
-  * workspace.py -- logging setup, train.log, run directories, results/latest, run_meta.json
+  * workspace.py -- logging setup, train.log, run directories, results/latest, run_config.json
   * pipeline.py  -- get_datasets, the train/eval driver, post-training generative eval
   * reporting.py -- epoch_metrics.csv and the four curve PNGs
 

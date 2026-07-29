@@ -8,7 +8,7 @@ Usage:
   dataset uses target_region to decide where to CUT, but the model only ever sees
   `[cls] pt1 [mask x L] pt2 [end]` and infers the loop from the framework. Which loop you design is
   fixed by WHICH checkpoint you load (h3_OAS_scratch vs l2_OAS_scratch are different models), so
-  --model_path is effectively that argument; run_meta.json is read to report it back to you.
+  --model_path is effectively that argument; run_config.json is read to report it back to you.
 
 Args:
   * --model_path    -- path to trained model
@@ -71,13 +71,13 @@ from cdrseqgen.eval.metrics import amino_acid_recovery, calculate
 logger = logging.getLogger(__name__)
 
 
-def read_run_meta(model_path):
-    """What this checkpoint was trained on, from run_meta.json (train.py writes it).
+def read_run_config(model_path):
+    """What this checkpoint was trained on, from run_config.json (train.py writes it).
 
-    Returns the dict, or {} for hub models / older runs that have no run_meta.json. Used both to
+    Returns the dict, or {} for hub models / older runs that have no run_config.json. Used both to
     report the trained loop and to check the context the checkpoint expects — see warn_on_mismatch.
     """
-    path = os.path.join(model_path, "run_meta.json")
+    path = os.path.join(model_path, "run_config.json")
     if os.path.isfile(path):
         try:
             with open(path) as f:
@@ -96,7 +96,7 @@ def warn_on_mismatch(meta, cases):
     is supplied as trained, 0.260 without it. That is the whole reason this check exists.
     """
     if not meta:
-        logger.info("ℹ️  No run_meta.json — can't verify this checkpoint's expected context.")
+        logger.info("ℹ️  No run_config.json — can't verify this checkpoint's expected context.")
         return
     for flag, key, name in [("include_partner_chain", "partner_chain", "partner chain"),
                             ("include_antigen", "antigen", "antigen")]:
@@ -253,7 +253,7 @@ def main(args):
 
     # The loop being designed is fixed by WHICH checkpoint is loaded — nothing in the tensor names a
     # loop or a chain, so there is no runtime argument for it. Report what this one was trained for.
-    meta = read_run_meta(args.model_path)
+    meta = read_run_config(args.model_path)
     if meta.get("target_region"):
         ctx = [n for f, n in [("include_partner_chain", "partner chain"),
                               ("include_antigen", "antigen")] if meta.get(f)]
@@ -310,7 +310,7 @@ if __name__ == "__main__":
     parser.add_argument("--target_seq", type=str, default=None, help="Optional ground-truth loop")
     # Context the checkpoint may have been TRAINED with. A model trained with these and run without
     # them does not fail — it silently degrades (measured 0.986 -> 0.260 on an _LC H1 model), so
-    # warn_on_mismatch() checks run_meta.json and says so. Per-case keys in --test_file win over these.
+    # warn_on_mismatch() checks run_config.json and says so. Per-case keys in --test_file win over these.
     parser.add_argument("--partner_chain", type=str, default=None,
                         help="Paired partner chain (light for an h* target, heavy for l*). "
                              "Required by any checkpoint trained with include_partner_chain.")

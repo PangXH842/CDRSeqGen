@@ -6,7 +6,7 @@
   * results_root        -- the batch directory this run's folder is created inside
   * unique_run_dir      -- <batch>/<run_name>, suffixed _2, _3 ... rather than overwriting
   * update_latest_link  -- point results/latest at the newest batch
-  * write_run_meta      -- persist data/model provenance so a checkpoint is self-describing
+  * write_run_config      -- persist data/model provenance so a checkpoint is self-describing
   * dataset_tag         -- data path -> short dataset tag (OAS / SD2)
 
 Notes:
@@ -45,7 +45,7 @@ RESULTS_ROOT_ENV = "CDRSEQGEN_RESULTS_ROOT"
 RUN_SUFFIX_ENV = "CDRSEQGEN_RUN_SUFFIX"
 DEFAULT_RESULTS_ROOT = "./results"
 LATEST_LINK = "latest"
-RUN_META_FILENAME = "run_meta.json"
+run_config_FILENAME = "run_config.json"
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +174,7 @@ def update_latest_link(run_dir: str) -> None:
         logger.warning(f"⚠️ Could not update {link_path}: {e}")
 
 
-def write_run_meta(output_dir: str, model_args, data_args) -> dict:
+def write_run_config(output_dir: str, model_args, data_args) -> dict:
     """Persist the data/model provenance so a checkpoint is self-describing.
 
     target_region (which CDR loop the model was trained to fill) otherwise lives ONLY in the config
@@ -191,7 +191,7 @@ def write_run_meta(output_dir: str, model_args, data_args) -> dict:
         "data_path": data_args.data_path,
         "max_len": data_args.max_len,
     }
-    with open(os.path.join(output_dir, RUN_META_FILENAME), "w") as f:
+    with open(os.path.join(output_dir, run_config_FILENAME), "w") as f:
         json.dump(meta, f, indent=2)
     return meta
 
