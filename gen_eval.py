@@ -16,7 +16,13 @@ import argparse
 import torch
 from transformers import HfArgumentParser, TrainingArguments
 
-from train import ModelArguments, DataArguments, GenerationArguments, get_datasets, RUN_META_FILENAME
+from cdrseqgen.train.arguments import ModelArguments, DataArguments, GenerationArguments
+from cdrseqgen.train.pipeline import get_datasets
+from cdrseqgen.train.workspace import RUN_META_FILENAME, configure_logging
+
+# Entrypoints configure their own logging. This used to arrive for free by importing train.py, which
+# ran basicConfig at import — an accident that broke the moment train.py was split.
+configure_logging()
 from cdrseqgen.models.registry import resolve
 from cdrseqgen.eval.generation import run_generative_eval, build_judge
 

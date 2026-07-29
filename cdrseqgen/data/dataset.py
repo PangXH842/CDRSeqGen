@@ -112,6 +112,54 @@ class TokenizerAdapter:
             position_type=position_type,
         )
 
+def inject_context(tokenizer, pt1_ids, pt2_ids, n_target, *,
+                   partner_seq=None, antigen_seq=None, max_len=256):
+    """Add partner-chain / antigen context around the target, then cap to max_len.
+
+    Returns the (pt1_ids, pt2_ids) to hand to assemble_masked_input. `partner_seq`/`antigen_seq` are
+    raw residue strings (None = that context is off).
+
+    Shared deliberately, for the same reason as assemble_masked_input: AntibodyInfillingDataset
+    builds TRAINING inputs with this and predict.py builds INFERENCE inputs with it. A checkpoint
+    trained with context but fed without it does not crash — it silently degrades (measured: an
+    `_LC` H1 model drops 0.986 -> 0.260 recovery when the light chain is missing), so the two paths
+    must construct context identically or inference is quietly wrong.
+
+    Placement rules, both keyed on the backbone's position_type rather than the model family:
+      * partner chain -> always PREPENDED to pt1. Its length varies little (light chains ~96-118
+        residues), so it doesn't destabilise the target's absolute index.
+      * antigen -> PREPENDED to pt1 for relative/rotary models (ESM-2), where the target's absolute
+        index is irrelevant; APPENDED to pt2 for absolute-position models (scratch, BERT-style), so
+        the target keeps a stable index. Antigens run to ~2,300 residues, so prepending one ahead of
+        an absolute-position model shifts the target unpredictably per example and it fails to learn
+        (empirically: a flat accuracy curve).
+      * capping trims whichever side carries the antigen, from its far end, so the most distal
+        context is dropped first and the residues adjacent to the loop always survive.
+    """
+    t = tokenizer
+    if partner_seq:
+        pt1_ids = t.encode(partner_seq) + [t.chain_sep_id] + pt1_ids
+
+    if antigen_seq:
+        antigen_ids = t.encode(antigen_seq)
+        if t.position_type == "relative":
+            pt1_ids = antigen_ids + [t.chain_sep_id] + pt1_ids
+        else:  # absolute
+            pt2_ids = pt2_ids + [t.chain_sep_id] + antigen_ids
+
+    special_budget = 2 if t.uses_special_tokens else 0  # leading + trailing wrap tokens
+    if t.position_type == "relative":
+        max_pt1_len = max(0, max_len - special_budget - n_target - len(pt2_ids))
+        if len(pt1_ids) > max_pt1_len:
+            pt1_ids = pt1_ids[len(pt1_ids) - max_pt1_len:]
+    else:
+        max_pt2_len = max(0, max_len - special_budget - len(pt1_ids) - n_target)
+        if len(pt2_ids) > max_pt2_len:
+            pt2_ids = pt2_ids[:max_pt2_len]
+
+    return pt1_ids, pt2_ids
+
+
 def assemble_masked_input(tokenizer, pt1_ids, pt2_ids, n_masked):
     """Lay out one masked-infilling input: [cls] pt1 [mask x n_masked] pt2 [end].
 
@@ -199,40 +247,15 @@ class AntibodyInfillingDataset(Dataset):
         pt2_ids = t.encode(pt2_seq)
         target_ids = t.encode(target_seq)
 
-        # --- PARTNER CHAIN INJECTION ---
-        if self.include_partner_chain and item.get(partner_key) and item[partner_key].get('full_aa'):
-            partner_ids = t.encode(item[partner_key]['full_aa'])
-            pt1_ids = partner_ids + [t.chain_sep_id] + pt1_ids
-
-        # --- ANTIGEN INJECTION ---
-        # Placement depends on the backbone's position_type (NOT the model family):
-        #   relative (ESM-2 rotary)  -> prepend to pt1; the target's absolute index is irrelevant.
-        #   absolute (scratch, BERT) -> append to pt2, keeping the target at a stable absolute
-        #     position. Antigens vary enormously in length (up to ~2000+ residues), so prepending
-        #     one ahead of an absolute-position model shifts the target unpredictably per example
-        #     and the model fails to learn (empirically observed as a flat accuracy curve).
-        if self.include_antigen and item.get('antigen') and item['antigen'].get('full_aa'):
-            antigen_ids = t.encode(item['antigen']['full_aa'])
-            if t.position_type == "relative":
-                pt1_ids = antigen_ids + [t.chain_sep_id] + pt1_ids
-            else: # absolute
-                pt2_ids = pt2_ids + [t.chain_sep_id] + antigen_ids
-
-        # --- LENGTH CAPPING ---
-        # Cap whichever side carries the variable-length antigen context, always keeping the
-        # target-chain residues immediately adjacent to the masked target and dropping the most
-        # distal antigen context first.
-        special_budget = 2 if t.uses_special_tokens else 0  # leading + trailing wrap tokens
-        if t.position_type == "relative":
-            # Antigen/light prepended to pt1; truncate its far (left) end.
-            max_pt1_len = max(0, self.max_len - special_budget - len(target_ids) - len(pt2_ids))
-            if len(pt1_ids) > max_pt1_len:
-                pt1_ids = pt1_ids[len(pt1_ids) - max_pt1_len:]
-        else:
-            # Antigen appended to pt2; truncate its far (right) end.
-            max_pt2_len = max(0, self.max_len - special_budget - len(pt1_ids) - len(target_ids))
-            if len(pt2_ids) > max_pt2_len:
-                pt2_ids = pt2_ids[:max_pt2_len]
+        # --- CONTEXT INJECTION + LENGTH CAPPING --- (shared with predict.py; see inject_context)
+        partner = item.get(partner_key) or {}
+        antigen = item.get('antigen') or {}
+        pt1_ids, pt2_ids = inject_context(
+            t, pt1_ids, pt2_ids, len(target_ids),
+            partner_seq=partner.get('full_aa') if self.include_partner_chain else None,
+            antigen_seq=antigen.get('full_aa') if self.include_antigen else None,
+            max_len=self.max_len,
+        )
 
         # 3. Construct Final Input and Find Mask Start
         input_ids, mask_start_idx = assemble_masked_input(t, pt1_ids, pt2_ids, len(target_ids))

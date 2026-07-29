@@ -1,7 +1,7 @@
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 # CDRSeqGen: Modular Antibody Infilling Framework
 
-**Date Updated:** 2026-07-27  
+**Date Updated:** 2026-07-29 
 **Status:** Operation Reclamation - finished with eval, datasets, and models sections
 
 ## Project Overview
@@ -17,7 +17,7 @@ Current implemented features include:
 - **Antigen Context**: optional inclusion of antigen sequence context for SAbDab2 dataset
 - **Generative Sampling**: independent / iterative (Mask-Predict) decoding with temperature (`0` = greedy), top-k, top-p — samples a *library* of candidate loops instead of one argmax guess
 - **Evaluation Metrics**: *recovery-side* — Sequence Recovery Rate (Per-Residue Accuracy), anchor-excluded core accuracy, anchor accuracy. *Design-side* — diversity, novelty, per-position entropy, pseudo-perplexity, plus judge-scored perplexity for cross-model comparison
-- **Logging & Visualization**: TensorBoard logging, csv metric extraction, multi-line graph plotter 
+- **Logging & Visualization**: per-run `train.log` (the whole run's record, including the generative-eval table and any uncaught traceback), TensorBoard logging, csv metric extraction, multi-line graph plotter
 - **Extensible Architecture**: modular design for easy addition of new PLMs, datasets, and evaluation metrics
 
 ---
@@ -43,12 +43,19 @@ CDRSeqGen/
 │   │   ├── registry.py         # Backbone registry — resolve(model_type) -> Backbone
 │   │   └── custom/             # In-house architectures (vs. loaded PLMs)
 │   │       └── transformer.py  # From-scratch encoder — model_type "scratch"
+│   ├── train/                  # What train.py is assembled from (train.py itself is just main())
+│   │   ├── arguments.py        # Model/Data/Generation dataclasses + setup_args
+│   │   ├── workspace.py        # Logging, train.log, run dirs, results/latest, run_meta.json
+│   │   ├── pipeline.py         # get_datasets, train/eval driver, post-training generative eval
+│   │   └── reporting.py        # epoch_metrics.csv + the four curve PNGs
 │   ├── eval/
 │   │   ├── sampling.py         # Decoders (independent / iterative Mask-Predict; temperature 0 = greedy) + pseudo-perplexity
-│   │   ├── metrics.py          # Pure sequence stats: recovery, diversity, novelty, per-position entropy
+│   │   ├── metrics.py          # Design-side stats: diversity, novelty, per-position entropy
+│   │   ├── recovery.py         # Recovery-side: compute_metrics, anchor/core split, core coverage
 │   │   └── generation.py       # Shared generative-eval core (used by BOTH train.py and gen_eval.py)
 │   └── utils/
-│       └── linegraph_plotter.py  # Training-curve plotting utility
+│       ├── linegraph_plotter.py  # Training-curve plotting utility
+│       └── report_findings.py    # Regenerates the README Findings tables from a batch
 ├── dataset/data/               # THE DATA — gitignored, ~4.4GB (raw + processed OAS/SAbDab2).
 │                               #   Deliberately outside the package; configs' data_path points here.
 ├── results/                    # Ignored in git. Always results/<batch>/<run>/ (two levels);
@@ -59,7 +66,7 @@ CDRSeqGen/
 │   ├── test_h3.json
 │   ├── test_h3_lc.json
 │   └── test_h3_ag.json
-├── train.py                    # Entrypoint — training  (python train.py configs/x.json)
+├── train.py                    # Entrypoint — training; main() only, parts in cdrseqgen/train/
 ├── predict.py                  # Entrypoint — sampling on curated frameworks (qualitative showcase)
 ├── gen_eval.py                 # Entrypoint — GENERATIVE metrics on a finished run (+ --judge)
 ├── scripts/
@@ -181,13 +188,19 @@ flagging runs that overfit after their peak or are still improving at the last e
 ./scripts/sweep_scratch.sh <gpu>                                     # default: 3 LRs × 2 epoch budgets
 LRS="1e-4 3e-4 1e-3" EPOCHS="10 20" WARMUPS="0.0 0.06" ./scripts/sweep_scratch.sh 4
 ```
-> **⚠️ Don't sweep `hidden_size` yet.** `num_attention_heads` (8) and `intermediate_size` (512) are hardcoded in
-> [`custom/transformer.py`](cdrseqgen/models/custom/transformer.py) and never passed by `build_scratch_model`, so `intermediate_size` does
-> **not** follow `hidden_size` — the FFN ratio silently drifts (4× at 128, 2× at 256) and `hidden_size` must stay a
-> multiple of 8. Plumb those through before sweeping architecture.
+> **Architecture is now sweepable** *(since 2026-07-27)*. `num_attention_heads` and `intermediate_size` are
+> `ModelArguments` fields forwarded by `build_model` ([`custom/transformer.py`](cdrseqgen/models/custom/transformer.py)).
+> Leave `intermediate_size` unset and it resolves to **4 × `hidden_size`**, so the FFN ratio follows width instead of
+> silently drifting (at the old hardcoded 512, widening to 256 halved the ratio and would have confounded width with
+> FFN ratio in any architecture sweep). `hidden_size` must stay divisible by `num_attention_heads` — now a loud
+> `ValueError` rather than a failure deep inside `nn.MultiheadAttention`.
 >
 > Also note HF's default scheduler is **linear decay over the total budget**, so `num_train_epochs` reshapes the whole
 > LR trajectory — `10` vs `20` compares two schedules, not one schedule at two lengths.
+>
+> **Early stopping** is available but off by default: set `"early_stopping_patience": N` (and optionally
+> `"early_stopping_threshold"`) to stop once `metric_for_best_model` plateaus. Useful because the two families
+> misfit `num_train_epochs: 10` in opposite directions — see Open problems.
 
 ### Step 3: Result Visualization & Comparison
 All three recovery metrics are recorded **every epoch** (`compute_metrics` → `epoch_metrics.csv`:
@@ -204,15 +217,28 @@ Use the **breakdown** chart to see the anchor gap, and the **individual** charts
 breakdown's y-axis spans ~0.3–0.9, which compresses within-line movement (ESM-2's core decay from
 0.321 → 0.306 is legible on `eval_core_accuracy_curve.png`, barely visible on the breakdown).
 
-Compare runs on one chart with `--metric` (any column in `epoch_metrics.csv`; defaults to core):
+One function draws both comparison shapes, because every line is the same triple `(run_dir, column, label)`.
+Each `--run` takes `LABEL FOLDER [METRIC]`; omit `METRIC` and it falls back to the global `--metric`
+(default `eval_core_accuracy`):
 
 ```bash
+# same metric across runs — metric named once
 python -m cdrseqgen.utils.linegraph_plotter \
-  --run "H3 Scratch" "./results/20260717_174605_h3_OAS_scratch" \
-  --run "H3 ESM-2"  "./results/20260717_182339_h3_OAS_esm2_t12_35M_UR50D" \
   --metric eval_core_accuracy \
+  --run "H3 Scratch" "results/20260724_211745/h3_OAS_scratch" \
+  --run "H3 ESM-2"   "results/20260724_211745/h3_OAS_esm2_t12_35M_UR50D" \
   --title "H3 Core Recovery: Scratch vs ESM-2"
+
+# breakdown of ONE run — per-run metric, several columns on one chart
+python -m cdrseqgen.utils.linegraph_plotter \
+  --run whole  "results/latest/h3_OAS_scratch" eval_accuracy \
+  --run core   "results/latest/h3_OAS_scratch" eval_core_accuracy \
+  --run anchor "results/latest/h3_OAS_scratch" eval_anchor_accuracy \
+  --ylabel Recovery --title "H3 whole vs core vs anchor"
 ```
+
+A missing CSV or column is reported and skipped rather than aborting the chart, so one bad path in a
+multi-run comparison doesn't lose the other lines. Charts default to `results/pngs/`.
 
 <!-- > **⚠️ Never mix datasets on one chart.** OAS (`_OAS`) and SAbDab2 (`_SD2`) runs are evaluated on *different test sets*, so their accuracies are not comparable on shared axes — plot one graph per dataset (e.g. `cdr3_oas` with the 4 OAS runs, `cdr3_sd2` with the 4 SAbDab2 runs). The `results/comparisons/*_oas_*.png` / `*_sd2_*.png` pairs follow this convention. -->
 
@@ -224,9 +250,25 @@ which CDR the checkpoint was trained for (read from `run_meta.json`). Samples + 
 `<model_path>/generation_results.json`.
 
 > **This is a showcase, not an evaluation.** `test/*.json` holds only a handful of curated frameworks
-> (mostly without natives), and the `_lc`/`_ag` variants hand-encode the context-injection rules — so they
-> drift silently whenever `dataset.py` changes. For numbers you can report, use **Step 5**, which draws
-> real held-out frameworks straight from the eval split (built by the dataset, so they can't drift).
+> (mostly without natives). For numbers you can report, use **Step 5**, which draws real held-out
+> frameworks straight from the eval split.
+
+> **⚠️ Match the checkpoint's context, or the model silently underperforms.** A checkpoint trained with
+> partner-chain or antigen context does not *fail* on a bare framework — the input is merely
+> out-of-distribution, so it quietly produces bad loops. Measured on `h1_OAS_LC_scratch`, 60 held-out
+> frameworks, greedy: **0.9858** recovery with the light chain supplied as trained, **0.2599** without.
+> In the latest batch **24 of 36 checkpoints** need context.
+>
+> Pass it with `--partner_chain` / `--antigen` (or per-case `partner_chain` / `antigen` keys in a
+> `--test_file`), and set `--max_len` to the training config's value (512 for the SAbDab2 antigen runs).
+> `predict.py` reads `run_meta.json`, prints what the checkpoint expects, and **warns** when a case
+> supplies none. Injection goes through the same `inject_context` / `assemble_masked_input` that build
+> the training examples, so which side the antigen lands on — and which side gets truncated — follows
+> the backbone's `position_type` automatically instead of being hand-encoded in the test file.
+>
+> There is **no `--target_loop` argument**: nothing in the tensor names a loop or a chain (the dataset
+> uses `target_region` only to decide where to *cut*), so the loop is fixed by which checkpoint you
+> load — `--model_path` is effectively that argument.
 
 ```bash
 # design coherent loops for a batch of curated frameworks (default: iterative sampling)
@@ -242,9 +284,25 @@ python predict.py --model_path ./results/latest/h3_OAS_scratch --pt1 EVQL...YYCA
 ```
 
 `--decoding`: `independent` (per-position sampling, 1 forward pass) · `iterative` (confidence-ordered
-Mask-Predict — conditions each residue on those already committed, so intra-H3 dependencies are
-respected). **`--temperature 0` makes either deterministic (greedy)** and returns a single loop. Warp
-with `--temperature` / `--top_k` / `--top_p`; `--skip_perplexity` drops the compute-heavy scoring.
+Mask-Predict — conditions each residue on those already committed). **`--temperature 0` makes either
+deterministic (greedy)** and returns a single loop. Warp with `--temperature` / `--top_k` / `--top_p`;
+`--skip_perplexity` drops the compute-heavy scoring.
+
+> **⚠️ The two decoders are currently equivalent — use `independent` for sweeps.** Measured 2026-07-28
+> on `h3_OAS_esm2`, 150 stratified frameworks, 20 samples, `top_p 0.9`, seed 42, IgBert judge:
+>
+> | metric | iterative | independent | Δ |
+> |---|---|---|---|
+> | recovery | 0.4057 | 0.4072 | +0.0015 |
+> | diversity | 0.5731 | 0.5703 | −0.0028 |
+> | entropy (bits) | 1.8414 | 1.8242 | −0.0171 |
+> | judge-ppl | 7.1434 | 7.2259 | +0.0825 |
+>
+> Every difference is within noise, while iterative costs **~15×** the forward passes (one per masked
+> position; mean H3 length 15.1). Mask-Predict only helps when the loop joint differs from the product
+> of per-position marginals — getting identical numbers says this masked-LM has learned near-independent
+> marginals for H3. That is a limit of the **training objective**, not of the sampler, and it is direct
+> evidence for the "marginal-based, not learned-joint" open problem below.
 
 ### Step 5: Generative Evaluation on the Held-Out Split (`gen_eval.py`)
 The reportable version of Step 4. Reconstructs the **exact training-time eval split** from the config
@@ -305,9 +363,43 @@ checkpoints you already trained, or re-sweeping temperature / top-p / judge with
 
 Phase 1 (the sequence sweep) is a **leakage-safe benchmark** for CDR infilling. What it establishes:
 
-**1. Model choice doesn't matter on OAS.** A 128-dim from-scratch transformer matches ESM-2 *and* antibody-specific IgBert on the H3 anchor-excluded core (0.31–0.32, clustered split); every model clusters within ~0.02. → the OAS ceiling is **data/task-bound, not model-bound.** Pretraining only pays off in the *small-data* regime — on the ~5× smaller SAbDab2, scratch→ESM-2 lifts H3 0.21→0.32 (though ESM-2 overfits there — read best-epoch).
+*Numbers below are from the complete 36-run batch `results/20260724_211745` (6 loops × {scratch, ESM-2} ×
+context × {OAS, SAbDab2}, 10 epochs each), read at **best epoch**, core metric unless stated.*
 
-**2. CDR-H3 is the only hard loop.** Anchor-excluded core recovery: H1/H2/L1/L2/L3 all ~0.90+, **H3 ~0.32**. Matches the biology — heavy CDR3 gets D-gene + junctional diversity; the rest is comparatively templated. The entire design difficulty concentrates in one loop.
+> **Every table here is generated, not hand-written** — regenerate them all after any new batch with:
+> ```bash
+> python -m cdrseqgen.utils.report_findings --batch results/20260724_211745
+> python -m cdrseqgen.utils.report_findings --only regimes,loops   # or a subset
+> ```
+> It reads only what a finished run already writes (`epoch_metrics.csv`, `generation_eval.json`,
+> `run_meta.json`) plus the processed dataset JSONs, and prints markdown ready to paste. The one
+> exception is the decoding table (Step 4), which needs two `gen_eval.py` runs differing only in
+> `--decoding`, passed via `--decoding-json` (the pair used above is kept alongside that run as
+> `generation_eval_decoding_{iterative,independent}.json`).
+
+**1. "Model choice doesn't matter" is only true in two of three regimes.** On OAS H3 a 128-dim from-scratch transformer matches ESM-2 (0.3148 vs 0.3209 core). But that generalises badly — whether pretraining pays depends entirely on how much of the test set is *memorisable* from train (see §6):
+
+| regime | example | test CDRs unseen in train | scratch → ESM-2 |
+|---|---|---|---|
+| memorisable | OAS H1 | 1.6% | 0.9928 → 0.9935 (**+0.001**) |
+| learnable, not memorisable | SD2 H1 | 57.5% | 0.4349 → **0.6657** (+0.231) |
+| " | SD2 H2 | 79.6% | 0.3277 → **0.6096** (+0.282) |
+| neither (information ceiling) | OAS H3 | 100% | 0.3148 → 0.3209 (+0.006) |
+
+Pretraining buys ~nothing when the answer can be looked up, **+0.23–0.28** when the task needs genuine generalisation, and ~nothing again at the H3 ceiling. The original claim was drawn from regimes 1 and 3 only.
+
+**2. CDR-H3 is the only hard loop — but the other five are easier than they look.** Best-epoch recovery on OAS (core; L2 whole-span, see "How to read the numbers"):
+
+| | scratch | +ctx | ESM-2 | +ctx |
+|---|---|---|---|---|
+| H1 | 0.9928 | 0.9825 | 0.9935 | 0.9934 |
+| H2 | 0.9897 | 0.9617 | 0.9899 | 0.9903 |
+| **H3** | **0.3148** | 0.3063 | **0.3209** | **0.3240** |
+| L1 | 0.9928 | 0.9651 | 0.9938 | 0.9937 |
+| L2 | 0.9921 | 0.9590 | 0.9932 | 0.9926 |
+| L3 | 0.9252 | 0.8466 | 0.9274 | 0.9268 |
+
+The biology is right — heavy CDR3 gets D-gene + junctional diversity, the rest is germline-templated — but the ~0.99s are **not** evidence the model generalises; under the current split they are largely retrieval (§6). Only H3 is measured on entirely unseen loops.
 
 **3. The standard metric misleads (anchor inflation).** Whole-span `eval_accuracy` (~0.46 on H3) is dominated by the 2-3 V/J-gene-determined anchor residues at each loop end (~0.90 recovery, any model); the hypervariable middle actually being "designed" is ~0.32. The gap is **H3-specific** (H1/H2/L core ≈ whole-span). Measured via `core_accuracy`/`anchor_accuracy` (`compute_metrics` in `train.py`); the position-resolved breakdown below is from the standalone re-scorer `eval_recovery.py` (archived in `old/`). Illustrative (`h3_esm2`):
 
@@ -319,15 +411,35 @@ Phase 1 (the sequence sweep) is a **leakage-safe benchmark** for CDR infilling. 
 
 | CDR | scratch lc-only → +ag | ESM-2 lc-only → +ag |
 |---|---|---|
-| H1 | 0.485 → 0.456 | 0.716 → 0.718 |
-| H2 | 0.370 → 0.365 | 0.599 → 0.595 |
-| H3 | 0.205 → 0.212 | 0.320 → 0.324 |
+| H1 | 0.4349 → 0.4036 | 0.6657 → 0.6664 |
+| H2 | 0.3277 → 0.3111 | 0.6096 → 0.5900 |
+| H3 | 0.1337 → 0.1362 | 0.2214 → 0.2128 |
 
-|Δ| ≤ 0.03, sign inconsistent. Not a truncation artifact (60% of examples keep the full antigen at `max_len=512`). Partner-chain context is likewise net-neutral-to-negative (overhead for the small model). **Interpretation:** binding information is geometric, not linear-sequence — so the next lever is structure / cross-attention, not more sequence context.
+|Δ| ≤ 0.031, sign inconsistent, 5 of 6 comparisons negative. Not a truncation artifact (84% of complexes keep the full antigen at `max_len=512`). Partner-chain context is worse than neutral for the small model — it hurts scratch on **all six** loops (−0.009 to −0.079, largest on L3) while leaving ESM-2 unmoved (−0.001 to +0.003), which reads as capacity dilution rather than a signal. **Interpretation:** binding information is geometric, not linear-sequence — so the next lever is structure / cross-attention, not more sequence context.
 
-**5. The homology leak was real but immaterial.** OAS's original random split leaked clonal near-duplicates (3.6% of the test set share a CDR3 cluster with train). The clustered-split fix removed it (→0%), and re-running confirmed the H3 core moved by **≤0.004** — the conclusions above are robust to it. (Now the default; see [`preprocess/oas_paired.py`](cdrseqgen/data/preprocess/oas_paired.py).)
+**5. The homology leak was real but immaterial *for H3*.** OAS's original random split leaked clonal near-duplicates (76 of 2,111 test entries, 3.6%, share a CDR3 cluster with train). The clustered-split fix removed it (→0%), and re-running confirmed the H3 core moved by **≤0.004**. (Now the default; see [`preprocess/oas_paired.py`](cdrseqgen/data/preprocess/oas_paired.py).) The important qualifier is *for H3* — the split clusters on heavy CDR3 only, so it controls nothing for the other five loops (§6).
 
-> **Bottom line:** sequence-only CDR infilling saturates at ~0.32 H3 core regardless of model, context, or dataset quality — which is exactly what motivates the shift to a **structure objective** (see Roadmap).
+**6. The clustered split controls H3 and nothing else — so the ~0.99s are retrieval.** `cluster_by_cdr3` groups on heavy CDR3, and whole clusters are held out. Two antibodies with identical H1/H2 land on opposite sides freely as long as their CDR3s differ:
+
+| | unique H1 strings | test entries with an **unseen** H1 | test entries with an unseen H2 | recovery |
+|---|---|---|---|---|
+| OAS | 439 / 21,106 (2.1%) | 33 / 2,111 (**1.6%**) | 42 / 2,111 (2.0%) | ~0.99 |
+| SAbDab2 | 895 / 3,984 (22.5%) | 431 / 750 (**57.5%**) | 597 / 750 (79.6%) | 0.33–0.43 |
+
+98% of OAS test H1s appear verbatim in training, so H1/H2/L1/L2/L3 under this split are near-lookup tasks — which is why every model scores ~0.99 and why context and pretraining make no difference there. **SAbDab2 is not underperforming; it is the only place the non-H3 loops are honestly measured.** H3 is unaffected (100% of test H3s are unseen by construction). Fixing this needs a per-loop split — cluster on whichever CDR is the target — which is a contained change to `add_split_field`.
+
+**7. Recovery and design quality disagree — high AAR can mean a perfect copier.** From the post-training generative eval (150 held-out frameworks, 20 samples each, IgBert judge):
+
+| | recovery | diversity | entropy (bits) | judge-ppl |
+|---|---|---|---|---|
+| H1 scratch | 0.991 | **0.002** | **0.006** | 1.05 |
+| H1 ESM-2 | 0.960 | 0.010 | 0.024 | 1.56 |
+| H3 scratch | 0.322 | 0.407 | 1.229 | 12.42 |
+| H3 ESM-2 | **0.406** | 0.573 | 1.841 | **7.14** |
+
+H1 scores 0.99 AAR while emitting essentially **one** sequence with total certainty (perplexity ≈ 1.0) — a perfect copier and a useless designer. And on H3 the two metrics rank the models differently: recovery calls scratch and ESM-2 near-equal, the independent judge puts ESM-2 **1.7× ahead**. Recovery alone is insufficient to choose a model, which is the practical argument for a design-aligned objective.
+
+> **Bottom line:** sequence-only CDR-H3 infilling saturates at ~0.32 core / ~0.46 whole-span regardless of model, context, dataset, or decoder — and the non-H3 loops are not yet measured on a split that tests generalisation. Together these motivate the shift to a **structure objective** (see Roadmap).
 
 ---
 
@@ -369,13 +481,14 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ---
 
 ## ⚠️ Current Issues 
-*(current as of 2026-07-17; update per commit)*
+*(current as of 2026-07-28; update per commit)*
 
 ### Open problems
-- **Training still optimizes recovery, not design.** The masked-LM objective rewards reproducing the native loop; the generative metrics only *measure* design quality after the fact — nothing trains for it. A design-aligned objective stays open (Phase 2).
+- **The split only controls the loop it clusters on.** `add_split_field` clusters heavy CDR3, so the holdout is leakage-safe for H3 and **not** for H1/H2/L1/L2/L3 — 98% of OAS test H1s appear verbatim in train (Findings §6). Every non-H3 number in this README is therefore retrieval-bounded and should not be read as generalisation. Fix: cluster on the *target* CDR (per-loop split), a contained change to `add_split_field`; then re-run the OAS matrix.
+- **Training still optimizes recovery, not design.** The masked-LM objective rewards reproducing the native loop; the generative metrics only *measure* design quality after the fact — nothing trains for it. Findings §7 shows the two can disagree outright (H1: 0.99 recovery, 0.002 diversity). A design-aligned objective stays open (Phase 2).
 - **The judge shares the eval distribution.** IgBert was trained on OAS paired repertoires — the same distribution as the OAS eval split it judges. It's applied identically to every model, so the *comparison* is fair, but absolute perplexities are OAS-flavoured; an off-distribution judge would be a stronger check.
 - **Generative sweep is H3/OAS only.** The matrix covered CDR-H3 on OAS (150 held-out frameworks × 4 models). L-chain loops, SAbDab2, and the antigen configs have not been swept generatively.
-- **Sampler is marginal-based, not learned-joint.** The `iterative` (Mask-Predict) decoder approximates the loop joint by conditioning on committed residues, but the model is still a masked-LM trained on independent-position recovery — true joint/generative *training* (autoregressive or diffusion) is Phase-2 territory.
+- **Sampler is marginal-based, not learned-joint — now measured.** The `iterative` (Mask-Predict) decoder approximates the loop joint by conditioning on committed residues, but the model is still a masked-LM trained on independent-position recovery. As of 2026-07-28 this is no longer a suspicion: iterative and `independent` are **within noise on every metric** on H3/OAS/ESM-2 (recovery 0.4057 vs 0.4072; judge-ppl 7.14 vs 7.23) at ~15× the compute. The conditioning buys nothing because the learned marginals are already near-independent — true joint/generative *training* (autoregressive or diffusion) is Phase-2 territory.
 - **Hyperparameters were never tuned.** *(Partly addressed 2026-07-27: opt-in early stopping is now available — set `"early_stopping_patience": N` in a config to stop once `metric_for_best_model` plateaus. Off by default, so nothing changes unless you ask for it. The epoch counts below are still un-right-sized.)* All 48 configs pin one LR per family (scratch `1e-4`, pretrained `5e-5`) and exactly `num_train_epochs: 10`, with no warmup / weight-decay / scheduler set (HF defaults throughout). The curves show 10 is wrong for **both**, in opposite directions: `h3_esm2` peaks at **epoch 4** (core 0.3209) then decays to 0.3063 by 10 — six wasted epochs, rescued only by `load_best_model_at_end` — while `h3_scratch` is still creeping at 10 (~0.001 loss/epoch). *Mitigating evidence for Finding #1:* the two reach ~0.32 core from **opposite directions** (ESM-2 from above in 1–4 epochs, scratch from below over 10), which argues the ceiling is real rather than a shared-settings artifact. Sweep with [`scripts/sweep_scratch.sh`](scripts/sweep_scratch.sh).
 - ~~**Checkpoint selection uses the metric we say is misleading.**~~ **Fixed 2026-07-27.** 44 of 48 configs now set `"metric_for_best_model": "core_accuracy"` (HF resolves it to `eval_core_accuracy`). The four `l2_*` configs deliberately stay on whole-span `accuracy`: L2 core is computed over ~1.4% of eval rows, so selecting checkpoints on it would be selecting on noise — the same exception documented under "How to read the numbers". Runs before this date selected on whole-span and aren't checkpoint-comparable to later ones.
 - ~~**Scratch architecture isn't tunable.**~~ **Fixed 2026-07-27.** `num_attention_heads` and `intermediate_size` are now `ModelArguments` fields forwarded by `build_model` ([`custom/transformer.py`](cdrseqgen/models/custom/transformer.py)). `intermediate_size` defaults to `None` = **4 × hidden_size**, so the FFN ratio tracks width instead of silently drifting (at the old fixed 512, widening to 256 quietly halved the ratio and would have confounded any architecture sweep). Defaults reproduce the old geometry exactly (128 → 512), and a `hidden_size % num_attention_heads` check now fails loudly instead of deep inside `nn.MultiheadAttention`.
@@ -403,6 +516,20 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 
 ### Changelog
 <!-- Latest updates can be added here before protection zone -->
+- **2026-07-29** -- Split `train.py` (720 -> 85 lines) into `cdrseqgen/train/{arguments,workspace,pipeline,reporting}.py`; recovery metrics moved to `cdrseqgen/eval/recovery.py` beside the design-side `metrics.py`. `configure_logging()` is now explicit — `gen_eval.py` previously got its logging only as a side effect of importing `train.py`
+- **2026-07-29** -- `train.py`: `train.log` now records the run. Added a `TrainerCallback` routing HF's metric dicts through the logger (they were emitted by PrinterCallback/ProgressCallback via `print`/`tqdm`, so a 15-min run logged nothing between "Starting Training" and "Starting Evaluation"), and quieted `httpx`/`httpcore`/`urllib3`/`filelock`/`huggingface_hub` to WARNING (they were 62% of the file). Their warnings still pass through
+- **2026-07-29** -- `predict.py`: added `--partner_chain` / `--antigen` / `--max_len`, routed through the same `inject_context` the dataset uses; reads `run_meta.json` and warns when a checkpoint's expected context is missing (24/36 checkpoints in the latest batch need it; measured 0.986 -> 0.260 recovery when omitted)
+- **2026-07-29** -- `dataset.py`: extracted `inject_context` (partner/antigen injection + length capping) so training and inference build context identically — verified byte-identical over 1,500 examples
+- **2026-07-29** -- `utils/report_findings.py`[new]: regenerates every README Findings table from a batch (`python -m cdrseqgen.utils.report_findings`)
+- **2026-07-28** -- [FINDING] Decoders measured: `iterative` ≡ `independent` within noise on H3/OAS/ESM-2 at ~15× the cost — the learned marginals are near-independent (Findings, Step 4). Corrected the "iterative dominates" claim in `predict.py`
+- **2026-07-28** -- [FINDING] The clustered split only controls heavy CDR3 — 98% of OAS test H1s are seen verbatim in train, so all non-H3 numbers are retrieval-bounded (Findings §6). Per-loop split added to Roadmap
+- **2026-07-28** -- [FINDING] Pretraining pays by regime, not in general: +0.001 when memorisable (OAS H1), +0.23/+0.28 when generalisation is needed (SD2 H1/H2), +0.006 at the H3 ceiling (Findings §1)
+- **2026-07-28** -- `generation.py`: fixed `SUMMARY_KEYS` asking for `recovery_mean` while `metrics.calculate` emits `aar_mean` — the recovery row had been silently blank in every gen-eval report
+- **2026-07-28** -- Findings refreshed against the complete 36-run batch `20260724_211745`; added recovery-vs-design divergence (§7)
+- **2026-07-27** -- `dataset.py`/`predict.py`: extracted `assemble_masked_input` — training and inference now share one layout function instead of two copies that had to agree by hand
+- **2026-07-27** -- `train.py`: opt-in early stopping (`early_stopping_patience` / `_threshold`, off by default)
+- **2026-07-27** -- `custom/transformer.py`: `num_attention_heads` + `intermediate_size` plumbed through `build_model`; `intermediate_size=None` → 4 × `hidden_size` so the FFN ratio no longer drifts with width
+- **2026-07-27** -- configs: `metric_for_best_model` → `core_accuracy` on 44/48 (the four `l2_*` stay whole-span — L2 core covers ~1.4% of eval rows)
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 - **2026-07-27** -- [RECLAIM] Restructured `models/` directory (`custom/transformer.py`[`custom.py`]: rename; `registry.py`[`models.py`]: rename)
 - **2026-07-27** -- Fixed print/logging issues in `models.py`, `generation.py`
@@ -441,10 +568,12 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 **General — next steps**
 - [x] Sampler in `predict.py` (temperature / top-k / top-p, independent + iterative Mask-Predict) + generative metrics ([`sampling.py`](cdrseqgen/eval/sampling.py), [`metrics.py`](cdrseqgen/eval/metrics.py))
 - [x] Sweep the generative metrics across the H3 model/context matrix (150 held-out frameworks × 4 models, IgBert judge)
-- [ ] **HP hygiene** — `metric_for_best_model` → `eval_core_accuracy`; right-size epochs per family (ESM-2 peaks ~4, scratch still climbing at 10) or add early stopping
+- [x] **HP hygiene** — `metric_for_best_model` → `core_accuracy` on 44/48 configs (the four `l2_*` stay whole-span, see "How to read the numbers"); opt-in early stopping wired in. *Epoch budgets are still un-right-sized — see Open problems.*
+- [x] Plumb `num_attention_heads` / `intermediate_size` through `build_model` — `intermediate_size` now defaults to 4 × `hidden_size` (prerequisite for any architecture sweep)
+- [ ] **Per-loop split** — cluster on the *target* CDR, not always heavy CDR3, then re-run the OAS matrix. Everything non-H3 in Findings is retrieval-bounded until this lands (§6)
 - [ ] LR sweep on scratch ([`sweep_scratch.sh`](scripts/sweep_scratch.sh)) — cheap insurance for "model choice doesn't matter"; scratch is the model most likely under-tuned
-- [ ] Plumb `num_attention_heads` / `intermediate_size` through `build_scratch_model` (prerequisite for any architecture sweep)
 - [ ] Multi-seed the key H3 configs (error bars on the ±0.01 model/context deltas)
+- [ ] Re-run the 07-24 batch under core-based checkpoint selection (those 36 runs predate the fix; their saved weights were picked on whole-span)
 - [ ] Lock the Phase-2 objective + primary metric with advisor
 
 <!-- MANUAL PROTECTION ZONE BEGINS -->
@@ -461,13 +590,18 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
  - [x] `gen_eval.py`
  - [ ] `predict.py`
  - [x] `linegraph_plotter.py`
+ - [ ] `report_findings.py`
  - [x] `custom/transformer.py` 
  - [x] `registry.py` 
  - [x] `dataset.py` 
  - [x] preprocessing scripts
  - [ ] `run.sh`
  - [ ] hyperparameter tuning script (`sweep_scratch.sh`)
- - [ ] `train.py` (to be split into smaller scripts?)
+ - [ ] `train/arguments.py` 
+ - [ ] `train/pipeline.py` 
+ - [ ] `train/reporting.py` 
+ - [ ] `train/workspace.py` 
+ - [ ] `train.py` 
  - [ ] README
 
 **Datasets**
@@ -498,7 +632,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
     - [x] ESM-2 (general PLM)
     - [x] IgBert (antibody PLM)
     - [x] ProtBert (general-protein PLM)
-    - [ ] AbLang2  *(low priority — model choice barely moves OAS; see Findings)*
+    - [ ] AbLang2  *(low priority on OAS, where model choice barely moves H3 — but pretraining is worth +0.23–0.28 on SAbDab2, so worth revisiting there; Findings §1)*
     - [ ] IgLM  *(autoregressive — needs its own generation/scoring path)*
 - Structure-aware  *(Phase 2)*
   - [ ] Invariant Point Attention (IPA)

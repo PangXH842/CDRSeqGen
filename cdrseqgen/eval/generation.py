@@ -40,8 +40,7 @@ from cdrseqgen.eval.sampling import (
 
 logger = logging.getLogger(__name__)
 
-# CDR-H3 difficulty scales with length, so every summary is broken out by loop length rather than
-# hiding short/long behaviour behind one mean.
+# Split CDR length into buckets, especially for H3, for summary purposes
 LENGTH_BUCKETS = [("short", 0, 11), ("medium", 12, 17), ("long", 18, 10**6)]
 
 SUMMARY_KEYS = [
@@ -50,7 +49,7 @@ SUMMARY_KEYS = [
     ("diversity_hamming", "diversity"),
     ("per_position_entropy_bits", "entropy(b)"),
     ("unique_fraction", "unique"),
-    ("recovery_mean", "recovery"),
+    ("aar_mean", "recovery"),   
     ("novelty_mean", "novelty"),
 ]
 

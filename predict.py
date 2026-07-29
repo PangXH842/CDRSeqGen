@@ -1,20 +1,46 @@
-"""Inference/showcase tool - Design CDR loops for antibody frameworks supplied.
+"""Inference/showcase tool - Design CDR loops with given antibody frameworks and context.
 
-Give predict.py a framework with its CDR loop cut out — pt1 (sequence before the loop), pt2 (after),
-and a gap length — and it fills the gap: samples a library of candidate loops and prints them, each
-with recovery-vs-native (when you provide the native) and pseudo-perplexity, plus quick per-framework
-diversity/novelty stats. The frameworks come from YOU: one case on the CLI (--pt1/--pt2/
---target_length) or a JSON of curated cases (--test_file).
+Usage:
+  Select a trained model, provide the protein framework before (pt1) and after (pt2) the selected loop,
+  and it will generate a sample library of candidate loops, with corresponding eval metrics.
 
-Decoding (--decoding): independent (per-position, one forward pass) or iterative (Mask-Predict, each
-residue conditioned on those already committed — coherent, dominates on CDR-H3). --temperature 0
-makes either deterministic (greedy). Warp with --temperature / --top_k / --top_p. Everything runs
-through the backbone registry, so the same path drives the scratch transformer, ESM-2, or any
-protein-BERT with no model-family branching.
+  There is NO --target_loop argument, because nothing in the tensor names a loop or a chain: the
+  dataset uses target_region to decide where to CUT, but the model only ever sees
+  `[cls] pt1 [mask x L] pt2 [end]` and infers the loop from the framework. Which loop you design is
+  fixed by WHICH checkpoint you load (h3_OAS_scratch vs l2_OAS_scratch are different models), so
+  --model_path is effectively that argument; run_meta.json is read to report it back to you.
+
+Args:
+  * --model_path    -- path to trained model
+  * --model_type    -- specify the type of model
+  * --test_file     -- read from a json file including test cases
+                        (args to include: pt1, pt2, target_seq*, target_length*, partner_chain**,
+                         antigen**) (*one of either) (**if the checkpoint was trained with it)
+  * --pt1, --pt2    -- framework regions before and after the target CDR
+  * --target_seq    -- optional ground truth
+  * --target_length -- specified CDR length (?)
+  * --partner_chain -- paired chain (light for h*, heavy for l*); REQUIRED by any checkpoint trained
+                        with include_partner_chain — omitting it does not error, it silently degrades
+                        (measured 0.986 -> 0.260 recovery on an _LC H1 model)
+  * --antigen       -- antigen sequence; required by checkpoints trained with include_antigen.
+                        Which side it is injected on follows the backbone's position_type
+  * --max_len       -- length cap for the assembled input; match the training config
+                        (SAbDab2 antigen runs use 512)
+  * --decoding      -- decoding strategy choice: "independent" for individual position sampling; 
+                        "iterative" for iterative most-to-least confident sampling, uses more time
+                        depending on loop length
+  * --num_samples   -- number of CDR loop samples to generate (1 if greedy)
+  * --show_samples  -- number of CDR loop samples to display
+  * --temperature   -- likeliness to sample unlikely AAs, 0 for greedy
+  * --top_k         -- limit to top k most possible AAs per position, optional
+  * --top_p         -- eliminate tail AAs, optional
+  * --seed
+  * --output        -- path to store result json
 
 Usage examples (results/latest is the newest *batch* — name the config you want under it):
     # design 20 coherent H3 loops for one framework
-    python predict.py --model_path ./results/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... --target_length 17
+    python predict.py --model_path ./results/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... \
+        --target_length 17
 
     # a curated batch with nucleus sampling
     python predict.py --model_path ./results/latest/h3_OAS_scratch --test_file test/test_h3.json \
@@ -29,15 +55,11 @@ import torch
 
 # Entrypoints configure logging; library modules just getLogger(__name__). Without this, the
 # backbone-loading messages in registry.py (logger.info) would be dropped entirely here — the root
-# logger defaults to WARNING with no handler, so INFO goes nowhere. train.py and gen_eval.py get
-# this from train.py's own basicConfig; predict.py imports neither, so it needs its own.
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
+# logger defaults to WARNING with no handler, so INFO goes nowhere.
+from cdrseqgen.train.workspace import configure_logging
+configure_logging()
 
-from cdrseqgen.data.dataset import assemble_masked_input
+from cdrseqgen.data.dataset import assemble_masked_input, inject_context
 from cdrseqgen.models.registry import resolve
 from cdrseqgen.eval.sampling import (
     sample_independent,
@@ -46,34 +68,64 @@ from cdrseqgen.eval.sampling import (
 )
 from cdrseqgen.eval.metrics import amino_acid_recovery, calculate
 
+logger = logging.getLogger(__name__)
 
-def model_trained_for(model_path):
-    """The CDR loop this checkpoint was trained to design, from run_meta.json (train.py writes it).
 
-    predict.py takes pt1/pt2 for *any* loop, so there is no config to cross-check against — but
-    surfacing what the model was trained for still flags the "designing H3 with an L2 model" mistake.
-    Returns None for hub models or older runs that have no run_meta.json.
+def read_run_meta(model_path):
+    """What this checkpoint was trained on, from run_meta.json (train.py writes it).
+
+    Returns the dict, or {} for hub models / older runs that have no run_meta.json. Used both to
+    report the trained loop and to check the context the checkpoint expects — see warn_on_mismatch.
     """
     path = os.path.join(model_path, "run_meta.json")
     if os.path.isfile(path):
         try:
             with open(path) as f:
-                return json.load(f).get("target_region")
+                return json.load(f)
         except (OSError, json.JSONDecodeError):
-            return None
-    return None
+            return {}
+    return {}
 
 
-def build_masked_input(tokenizer, pt1, pt2, target_length):
+def warn_on_mismatch(meta, cases):
+    """Warn when the checkpoint expects context this invocation isn't supplying.
+
+    A model trained with partner-chain or antigen context does NOT fail on a bare framework — it
+    silently degrades, because the input is merely out-of-distribution rather than malformed.
+    Measured on h1_OAS_LC_scratch over 60 held-out frameworks: 0.986 recovery when the light chain
+    is supplied as trained, 0.260 without it. That is the whole reason this check exists.
+    """
+    if not meta:
+        logger.info("ℹ️  No run_meta.json — can't verify this checkpoint's expected context.")
+        return
+    for flag, key, name in [("include_partner_chain", "partner_chain", "partner chain"),
+                            ("include_antigen", "antigen", "antigen")]:
+        if not meta.get(flag):
+            continue
+        missing = [c.get("name", "case") for c in cases if not c.get(key)]
+        if missing:
+            logger.warning(
+                f"⚠️  This checkpoint was TRAINED WITH {name} context, but {len(missing)}/{len(cases)} "
+                f"case(s) supply none — the model will be run off-distribution and will quietly "
+                f"underperform (an _LC H1 model measures 0.986 -> 0.260 recovery this way). "
+                f"Pass --{key} (or a '{key}' field per case in --test_file)."
+            )
+
+
+def build_masked_input(tokenizer, pt1, pt2, target_length, partner_chain=None, antigen=None,
+                       max_len=256):
     """Assemble the masked input for one framework, minus the label track.
 
-    Returns (input_ids, mask_positions): the token-id list fed to the model, and the indices of the
-    masked target positions within it. The layout itself comes from dataset.assemble_masked_input —
-    the SAME function the training examples are built with, so inference can't drift from training.
+    Returns (input_ids, mask_positions). Both the context injection and the layout come from
+    dataset.py — `inject_context` then `assemble_masked_input`, the SAME functions the training
+    examples are built with — so inference cannot drift from training. Which side the antigen lands
+    on, and which side gets truncated, follow the backbone's position_type automatically.
     """
-    input_ids, start = assemble_masked_input(
-        tokenizer, tokenizer.encode(pt1), tokenizer.encode(pt2), target_length
+    pt1_ids, pt2_ids = inject_context(
+        tokenizer, tokenizer.encode(pt1), tokenizer.encode(pt2), target_length,
+        partner_seq=partner_chain, antigen_seq=antigen, max_len=max_len,
     )
+    input_ids, start = assemble_masked_input(tokenizer, pt1_ids, pt2_ids, target_length)
     return input_ids, list(range(start, start + target_length))
 
 
@@ -85,7 +137,12 @@ def decode_case(model, tokenizer, device, args, generator, case):
     native = native.upper().strip() if native else None
     target_length = len(native) if native else case.get("target_length", 10)
 
-    input_ids, mask_positions = build_masked_input(tokenizer, pt1, pt2, target_length)
+    input_ids, mask_positions = build_masked_input(
+        tokenizer, pt1, pt2, target_length,
+        partner_chain=case.get("partner_chain") or args.partner_chain,
+        antigen=case.get("antigen") or args.antigen,
+        max_len=args.max_len,
+    )
     banned = tokenizer.special_ids
 
     # --- decode ---  (greedy == temperature 0; see sampling.py)
@@ -157,7 +214,7 @@ def _print_case(name, pt1, pt2, target_length, native, args, samples, metrics):
         print(f"   🍀 native: {native}")
     print("-" * 72)
 
-    shown = samples[: args.show]
+    shown = samples[: args.show_samples]
     for i, s in enumerate(shown, 1):
         extra = ""
         if "recovery" in s and s["recovery"] is not None:
@@ -194,9 +251,14 @@ def main(args):
     model.to(device)
     model.eval()
 
-    trained_for = model_trained_for(args.model_path)
-    if trained_for:
-        print(f"🧬 This model was trained to design CDR '{trained_for}' loops.")
+    # The loop being designed is fixed by WHICH checkpoint is loaded — nothing in the tensor names a
+    # loop or a chain, so there is no runtime argument for it. Report what this one was trained for.
+    meta = read_run_meta(args.model_path)
+    if meta.get("target_region"):
+        ctx = [n for f, n in [("include_partner_chain", "partner chain"),
+                              ("include_antigen", "antigen")] if meta.get(f)]
+        print(f"🧬 This model was trained to design CDR '{meta['target_region']}' loops"
+              + (f", with {' + '.join(ctx)} context." if ctx else ", framework context only."))
 
     # Reproducible sampling: one seeded generator on the model's device drives every draw.
     torch.manual_seed(args.seed)
@@ -215,6 +277,8 @@ def main(args):
             "target_seq": args.target_seq,
             "target_length": args.target_length,
         }]
+
+    warn_on_mismatch(meta, test_cases)
 
     results = [decode_case(model, tokenizer, device, args, generator, case) for case in test_cases]
 
@@ -244,6 +308,17 @@ if __name__ == "__main__":
     parser.add_argument("--pt2", type=str, default="", help="Sequence AFTER the missing loop")
     parser.add_argument("--target_length", type=int, default=10, help="Gap length when no ground truth is given")
     parser.add_argument("--target_seq", type=str, default=None, help="Optional ground-truth loop")
+    # Context the checkpoint may have been TRAINED with. A model trained with these and run without
+    # them does not fail — it silently degrades (measured 0.986 -> 0.260 on an _LC H1 model), so
+    # warn_on_mismatch() checks run_meta.json and says so. Per-case keys in --test_file win over these.
+    parser.add_argument("--partner_chain", type=str, default=None,
+                        help="Paired partner chain (light for an h* target, heavy for l*). "
+                             "Required by any checkpoint trained with include_partner_chain.")
+    parser.add_argument("--antigen", type=str, default=None,
+                        help="Antigen sequence; required by checkpoints trained with include_antigen. "
+                             "Injection side follows the backbone's position_type automatically.")
+    parser.add_argument("--max_len", type=int, default=256,
+                        help="Length cap for the assembled input; match the training config (SAbDab2 antigen runs use 512).")
 
     # Sampling controls
     parser.add_argument("--decoding", choices=["independent", "iterative"], default="iterative",
@@ -251,13 +326,13 @@ if __name__ == "__main__":
                              "--temperature 0 makes either deterministic (greedy).")
     parser.add_argument("--num_samples", type=int, default=20,
                         help="Candidate loops to sample per framework (collapses to 1 when --temperature 0)")
+    parser.add_argument("--show_samples", type=int, default=5, help="How many sampled sequences to print per case")
     parser.add_argument("--temperature", type=float, default=1.0, help="Softmax temperature (>1 flatter, <1 sharper)")
     parser.add_argument("--top_k", type=int, default=0, help="Keep only the top-k logits (0 = disabled)")
     parser.add_argument("--top_p", type=float, default=1.0, help="Nucleus sampling cumulative-prob cutoff (1.0 = disabled)")
     parser.add_argument("--seed", type=int, default=42, help="Seed for reproducible sampling")
     parser.add_argument("--skip_perplexity", action="store_true",
                         help="Skip pseudo-perplexity scoring (the compute-heavy per-candidate part)")
-    parser.add_argument("--show", type=int, default=5, help="How many sampled sequences to print per case")
     parser.add_argument("--output", type=str, default=None,
                         help="Where to write the results JSON ('none' to skip; default: <model_path>/generation_results.json)")
 
