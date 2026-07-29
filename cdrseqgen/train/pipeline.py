@@ -39,7 +39,9 @@ def get_datasets(model_args, data_args, training_args, backbone) -> Tuple[torch.
         max_len=data_args.max_len,
         target_region=data_args.target_region,
         include_partner_chain=data_args.include_partner_chain,
-        include_antigen=data_args.include_antigen
+        include_antigen=data_args.include_antigen,
+        context_dropout=data_args.context_dropout,
+        context_dropout_seed=training_args.seed,
     )
 
     # Data split

@@ -108,6 +108,14 @@ class DataArguments:
         default=False,
         metadata={"help": "Whether to prepend the bound antigen sequence as context (SAbDab2-derived data only)."}
     )
+    context_dropout: float = field(
+        default=0.0,
+        metadata={"help": "Fraction of examples trained WITHOUT their optional context, so one "
+                          "checkpoint survives both regimes. 0.0 (default) = current behaviour. "
+                          "Without it a model is locked to its training regime in both directions "
+                          "(H1/scratch: 0.984->0.261 when context is withheld, 0.997->0.159 when it "
+                          "is supplied to a model trained without). Deterministic per example."}
+    )
 
 
 @dataclass

@@ -21,6 +21,7 @@ Notes:
 """
 import torch
 from torch.utils.data import Dataset, DataLoader
+import hashlib
 import json
 
 class AntibodyTokenizer:
@@ -179,7 +180,8 @@ class AntibodyInfillingDataset(Dataset):
     """
 
     def __init__(self, json_path, tokenizer, max_len=256, target_region="h3",
-                 include_partner_chain=False, include_antigen=False):
+                 include_partner_chain=False, include_antigen=False,
+                 context_dropout=0.0, context_dropout_seed=0):
         with open(json_path, 'r') as f:
             self.data = json.load(f)
         self.tokenizer = tokenizer
@@ -187,6 +189,33 @@ class AntibodyInfillingDataset(Dataset):
         self.target_region = target_region
         self.include_partner_chain = include_partner_chain
         self.include_antigen = include_antigen
+        self.context_dropout = context_dropout
+        self.context_dropout_seed = context_dropout_seed
+
+    def _keep_context(self, idx, kind):
+        """Whether THIS example keeps its `kind` ("partner" / "antigen") context, under context_dropout.
+
+        Deterministic in idx, so an example's regime is stable across epochs and between runs —
+        eval numbers stay reproducible, which per-call randomness would break (train.py takes the
+        train and eval splits as Subsets of one dataset object, so a random draw would also
+        re-randomise evaluation every epoch).
+
+        The point is to train ONE checkpoint that survives both regimes. Without it a model is
+        locked to the regime it was trained in, in both directions: measured on H1/scratch, the
+        with-context model drops 0.984 -> 0.261 when context is withheld, and the without-context
+        model drops 0.997 -> 0.159 when context is supplied — for an absolute-position backbone a
+        prepended partner chain shifts every learned position.
+
+        Each context kind is drawn INDEPENDENTLY (the kind salts the hash), so a SAbDab2 run sees all
+        four combinations — none / partner / antigen / both — rather than only "everything or
+        nothing". That is what lets one checkpoint stand in for both the `_ag` and `_ag_lconly`
+        configs instead of just being robust to total context loss.
+        """
+        if self.context_dropout <= 0.0:
+            return True
+        key = f"{self.context_dropout_seed}:{kind}:{idx}".encode()
+        h = hashlib.blake2b(key, digest_size=8).digest()
+        return (int.from_bytes(h, "big") / 2 ** 64) >= self.context_dropout
 
     def __len__(self):
         return len(self.data)
@@ -232,10 +261,14 @@ class AntibodyInfillingDataset(Dataset):
         # --- CONTEXT INJECTION + LENGTH CAPPING --- (shared with predict.py; see inject_context)
         partner = item.get(partner_key) or {}
         antigen = item.get('antigen') or {}
+        # context_dropout: each kind is dropped independently, so the model trains on every
+        # combination rather than only "all context" / "no context".
+        keep_partner = self._keep_context(idx, "partner")
+        keep_antigen = self._keep_context(idx, "antigen")
         pt1_ids, pt2_ids = inject_context(
             t, pt1_ids, pt2_ids, len(target_ids),
-            partner_seq=partner.get('full_aa') if self.include_partner_chain else None,
-            antigen_seq=antigen.get('full_aa') if self.include_antigen else None,
+            partner_seq=partner.get('full_aa') if (self.include_partner_chain and keep_partner) else None,
+            antigen_seq=antigen.get('full_aa') if (self.include_antigen and keep_antigen) else None,
             max_len=self.max_len,
         )
 

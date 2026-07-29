@@ -15,15 +15,12 @@ Args:
   * --model_type    -- specify the type of model
   * --test_file     -- read from a json file including test cases
                         (args to include: pt1, pt2, target_seq*, target_length*, partner_chain**,
-                         antigen**) (*one of either) (**if the checkpoint was trained with it)
+                         antigen**) (*one of either) (**optional)
   * --pt1, --pt2    -- framework regions before and after the target CDR
   * --target_seq    -- optional ground truth
   * --target_length -- specified CDR length (?)
-  * --partner_chain -- paired chain (light for h*, heavy for l*); REQUIRED by any checkpoint trained
-                        with include_partner_chain — omitting it does not error, it silently degrades
-                        (measured 0.986 -> 0.260 recovery on an _LC H1 model)
-  * --antigen       -- antigen sequence; required by checkpoints trained with include_antigen.
-                        Which side it is injected on follows the backbone's position_type
+  * --partner_chain -- paired chain context, optional (warning depending on model requirements)
+  * --antigen       -- antigen sequence context, optional (warning depending on model requirements)
   * --max_len       -- length cap for the assembled input; match the training config
                         (SAbDab2 antigen runs use 512)
   * --decoding      -- decoding strategy choice: "independent" for individual position sampling; 
@@ -53,9 +50,6 @@ import os
 import sys
 import torch
 
-# Entrypoints configure logging; library modules just getLogger(__name__). Without this, the
-# backbone-loading messages in registry.py (logger.info) would be dropped entirely here — the root
-# logger defaults to WARNING with no handler, so INFO goes nowhere.
 from cdrseqgen.train.workspace import configure_logging
 configure_logging()
 

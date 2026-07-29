@@ -15,6 +15,7 @@ Current implemented features include:
 - **Pluggable Backbone PLMs**: supports various PLMs, current list: custom transformer (scratch), ESM-2, IgBert, ProtBert
 - **Partner Chain Context**: optional inclusion of non-target chain sequence context
 - **Antigen Context**: optional inclusion of antigen sequence context for SAbDab2 dataset
+- **Context Dropout**: `context_dropout` trains one checkpoint that works with *and* without its optional context (partner chain / antigen drawn independently), instead of a model locked to the regime it was trained in
 - **Generative Sampling**: independent / iterative (Mask-Predict) decoding with temperature (`0` = greedy), top-k, top-p — samples a *library* of candidate loops instead of one argmax guess
 - **Evaluation Metrics**: *recovery-side* — Sequence Recovery Rate (Per-Residue Accuracy), anchor-excluded core accuracy, anchor accuracy. *Design-side* — diversity, novelty, per-position entropy, pseudo-perplexity, plus judge-scored perplexity for cross-model comparison
 - **Logging & Visualization**: per-run `train.log` (the whole run's record, including the generative-eval table and any uncaught traceback), TensorBoard logging, csv metric extraction, multi-line graph plotter
@@ -439,6 +440,26 @@ The biology is right — heavy CDR3 gets D-gene + junctional diversity, the rest
 
 H1 scores 0.99 AAR while emitting essentially **one** sequence with total certainty (perplexity ≈ 1.0) — a perfect copier and a useless designer. And on H3 the two metrics rank the models differently: recovery calls scratch and ESM-2 near-equal, the independent judge puts ESM-2 **1.7× ahead**. Recovery alone is insufficient to choose a model, which is the practical argument for a design-aligned objective.
 
+**8. A model is locked to the context regime it was trained in — and `context_dropout` unlocks it.** Feeding a checkpoint the *wrong* amount of context is as damaging as feeding it none, in both directions, because for an absolute-position backbone a prepended partner chain shifts every learned position:
+
+| H1 / OAS / scratch | eval WITH ctx | eval WITHOUT |
+|---|---|---|
+| trained WITHOUT ctx | **0.1588** | 0.9969 |
+| trained WITH ctx | 0.9837 | **0.2612** |
+| `context_dropout=0.5` | 0.9791 | 0.9931 |
+
+Training a fraction of examples context-free (each context kind drawn independently, deterministic per example) buys one checkpoint that holds up in every regime. Worst-case recovery, 80 held-out frameworks, greedy:
+
+| | specialist, own regime | specialist, wrong regime | `context_dropout=0.5`, worst |
+|---|---|---|---|
+| OAS H1 | 0.9969 | 0.1588 | **0.9791** |
+| OAS H3 | 0.4353 | 0.0535 | **0.4244** |
+| SAbDab2 H3 | 0.2271 | 0.1217 | **0.1766** |
+
+**On OAS it is nearly free** (−0.011 to −0.018 against the best specialist, for a ~6× better worst case). **On SAbDab2 it is not** (−0.051): with 3,234 training entries, splitting across four context combinations leaves ~800 per regime, and the model ends up preferring the *no-context* input (0.2384) over the one it was configured for (0.1832). Read that as a data-size limit, not a refutation — dropout costs what the dataset can't afford to split.
+
+Two side benefits on the datasets where it is cheap: the partner-chain and antigen ablations become *within-model* comparisons (same weights, two inputs) instead of comparisons between separately-trained runs with different init and SGD paths; and it removes the silent-degradation failure `predict.py` has to warn about.
+
 > **Bottom line:** sequence-only CDR-H3 infilling saturates at ~0.32 core / ~0.46 whole-span regardless of model, context, dataset, or decoder — and the non-H3 loops are not yet measured on a split that tests generalisation. Together these motivate the shift to a **structure objective** (see Roadmap).
 
 ---
@@ -516,6 +537,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 
 ### Changelog
 <!-- Latest updates can be added here before protection zone -->
+- **2026-07-29** -- `dataset.py`: `context_dropout` — train a fraction of examples without their optional context so ONE checkpoint works with and without it. Partner chain and antigen are dropped independently (all four combinations), deterministic per example so eval stays reproducible. Default 0.0 = unchanged. Measured: fixes the 0.98->0.26 collapse, nearly free on OAS, costs ~0.05 on the much smaller SAbDab2 (Findings §8)
 - **2026-07-29** -- `predict.py`: added `--partner_chain` / `--antigen` / `--max_len`, routed through the same `inject_context` the dataset uses; reads `run_config.json` and warns when a checkpoint's expected context is missing 
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 - **2026-07-29** -- Split `train.py` into `cdrseqgen/train/{arguments,workspace,pipeline,reporting}.py`
