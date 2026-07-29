@@ -11,12 +11,14 @@
     "do_eval": true,
     "per_device_train_batch_size": 32,
     "learning_rate": 0.0001,
-    "num_train_epochs": 10,
+    "num_train_epochs": 20,
     "eval_strategy": "epoch",
     "save_strategy": "epoch",
     "metric_for_best_model": "core_accuracy",
     "greater_is_better": true,
     "load_best_model_at_end": true,
     "save_total_limit": 2,
-    "report_to": "tensorboard"
+    "report_to": "tensorboard",
+    "gen_decoding": "independent",
+    "early_stopping_patience": 3
 }
