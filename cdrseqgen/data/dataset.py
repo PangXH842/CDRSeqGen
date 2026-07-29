@@ -2,7 +2,7 @@
 
   * AntibodyTokenizer        -- custom 25-token vocab (20 amino acids + 5 special)
   * TokenizerAdapter         -- uniform tokenizer interface (custom, HF)
-  * assemble_masked_input    -- the [cls] pt1 [mask x L] pt2 [end] layout, shared with predict.py
+  * assemble_masked_input    -- the [cls] pt1 [mask x L] pt2 [end] layout
   * AntibodyInfillingDataset -- one entry -> (input_ids, labels, target_len) with one CDR masked
   * collate_fn               -- pad a list of items into a batch (+ attention mask)
 
@@ -12,13 +12,12 @@ Input schema:
     split (optional)         -- "train"/"test", honored by get_datasets() in train.py
 
 Notes:
-  * Layout is: [cls] pt1 [mask x L] pt2 [end], where pt1/pt2 are the framework flanks either side of
-    the target loop; the wrap tokens are dropped for the scratch tokenizer (uses_special_tokens).
+  * Input layout: [cls] pt1 [mask x L] pt2 [end]; the wrap tokens are dropped for the scratch 
+    tokenizer (uses_special_tokens).
   * Loss is scored on the loop alone: labels are -100 everywhere except the masked span.
-  * The mask span is exactly as long as the native loop, so the model is TOLD the target length and
-    never has to predict it -- recovery numbers should be read with that in mind.
-  * Where partner-chain / antigen context is injected depends on the backbone's position_type, not
-    its model family -- see TokenizerAdapter and __getitem__.
+  * The mask length matches native loop length (?)
+  * Partner chain context is prepended to framework
+  * Where antigen context is injected depends on the backbone's position_type, not its model family
 """
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -119,22 +118,11 @@ def inject_context(tokenizer, pt1_ids, pt2_ids, n_target, *,
     Returns the (pt1_ids, pt2_ids) to hand to assemble_masked_input. `partner_seq`/`antigen_seq` are
     raw residue strings (None = that context is off).
 
-    Shared deliberately, for the same reason as assemble_masked_input: AntibodyInfillingDataset
-    builds TRAINING inputs with this and predict.py builds INFERENCE inputs with it. A checkpoint
-    trained with context but fed without it does not crash — it silently degrades (measured: an
-    `_LC` H1 model drops 0.986 -> 0.260 recovery when the light chain is missing), so the two paths
-    must construct context identically or inference is quietly wrong.
-
-    Placement rules, both keyed on the backbone's position_type rather than the model family:
-      * partner chain -> always PREPENDED to pt1. Its length varies little (light chains ~96-118
-        residues), so it doesn't destabilise the target's absolute index.
-      * antigen -> PREPENDED to pt1 for relative/rotary models (ESM-2), where the target's absolute
-        index is irrelevant; APPENDED to pt2 for absolute-position models (scratch, BERT-style), so
-        the target keeps a stable index. Antigens run to ~2,300 residues, so prepending one ahead of
-        an absolute-position model shifts the target unpredictably per example and it fails to learn
-        (empirically: a flat accuracy curve).
-      * capping trims whichever side carries the antigen, from its far end, so the most distal
-        context is dropped first and the residues adjacent to the loop always survive.
+    Placement rules:
+      * partner chain   -> PREPENDED to pt1
+      * antigen         -> PREPENDED to pt1 for relative/rotary models (ESM-2)
+                        -> APPENDED to pt2 for absolute-position models (scratch, BERT-style)
+      * capping trims side carrying the antigen from its far end (???)
     """
     t = tokenizer
     if partner_seq:
@@ -148,14 +136,14 @@ def inject_context(tokenizer, pt1_ids, pt2_ids, n_target, *,
             pt2_ids = pt2_ids + [t.chain_sep_id] + antigen_ids
 
     special_budget = 2 if t.uses_special_tokens else 0  # leading + trailing wrap tokens
+    budget = max(0, max_len - special_budget - n_target)
+
     if t.position_type == "relative":
-        max_pt1_len = max(0, max_len - special_budget - n_target - len(pt2_ids))
-        if len(pt1_ids) > max_pt1_len:
-            pt1_ids = pt1_ids[len(pt1_ids) - max_pt1_len:]
-    else:
-        max_pt2_len = max(0, max_len - special_budget - len(pt1_ids) - n_target)
-        if len(pt2_ids) > max_pt2_len:
-            pt2_ids = pt2_ids[:max_pt2_len]
+        pt2_ids = pt2_ids[:budget]
+        pt1_ids = pt1_ids[max(0, len(pt1_ids) - (budget - len(pt2_ids))):]
+    else:  # absolute
+        pt1_ids = pt1_ids[max(0, len(pt1_ids) - budget):]
+        pt2_ids = pt2_ids[:max(0, budget - len(pt1_ids))]
 
     return pt1_ids, pt2_ids
 
@@ -165,12 +153,6 @@ def assemble_masked_input(tokenizer, pt1_ids, pt2_ids, n_masked):
 
     Returns (input_ids, mask_start_idx). The wrap tokens are dropped for tokenizers that don't use
     them (the scratch model), which also shifts mask_start_idx by one.
-
-    Shared deliberately: AntibodyInfillingDataset.__getitem__ builds TRAINING examples with this,
-    and predict.py's build_masked_input builds INFERENCE inputs with it. The two must agree exactly
-    — designing against a different layout than the model trained on is silently wrong, not a crash
-    — and predict.py works from raw pt1/pt2 strings rather than dataset entries, so nothing else
-    forces them to stay in step. One function is that guarantee.
     """
     mask_ids = [tokenizer.mask_id] * n_masked
     if tokenizer.uses_special_tokens:

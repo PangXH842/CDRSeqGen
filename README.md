@@ -2,7 +2,7 @@
 # CDRSeqGen: Modular Antibody Infilling Framework
 
 **Date Updated:** 2026-07-29 
-**Status:** Operation Reclamation - finished with eval, datasets, and models sections
+**Status:** Operation Reclamation - reorganized code structure for training phase
 
 ## Project Overview
 CDRSeqGen is a computational immunology framework designed to predict antibody loop sequences given the surrounding framework context. 
@@ -516,21 +516,12 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 
 ### Changelog
 <!-- Latest updates can be added here before protection zone -->
-- **2026-07-29** -- Split `train.py` (720 -> 85 lines) into `cdrseqgen/train/{arguments,workspace,pipeline,reporting}.py`; recovery metrics moved to `cdrseqgen/eval/recovery.py` beside the design-side `metrics.py`. `configure_logging()` is now explicit — `gen_eval.py` previously got its logging only as a side effect of importing `train.py`
-- **2026-07-29** -- `train.py`: `train.log` now records the run. Added a `TrainerCallback` routing HF's metric dicts through the logger (they were emitted by PrinterCallback/ProgressCallback via `print`/`tqdm`, so a 15-min run logged nothing between "Starting Training" and "Starting Evaluation"), and quieted `httpx`/`httpcore`/`urllib3`/`filelock`/`huggingface_hub` to WARNING (they were 62% of the file). Their warnings still pass through
-- **2026-07-29** -- `predict.py`: added `--partner_chain` / `--antigen` / `--max_len`, routed through the same `inject_context` the dataset uses; reads `run_meta.json` and warns when a checkpoint's expected context is missing (24/36 checkpoints in the latest batch need it; measured 0.986 -> 0.260 recovery when omitted)
-- **2026-07-29** -- `dataset.py`: extracted `inject_context` (partner/antigen injection + length capping) so training and inference build context identically — verified byte-identical over 1,500 examples
-- **2026-07-29** -- `utils/report_findings.py`[new]: regenerates every README Findings table from a batch (`python -m cdrseqgen.utils.report_findings`)
-- **2026-07-28** -- [FINDING] Decoders measured: `iterative` ≡ `independent` within noise on H3/OAS/ESM-2 at ~15× the cost — the learned marginals are near-independent (Findings, Step 4). Corrected the "iterative dominates" claim in `predict.py`
-- **2026-07-28** -- [FINDING] The clustered split only controls heavy CDR3 — 98% of OAS test H1s are seen verbatim in train, so all non-H3 numbers are retrieval-bounded (Findings §6). Per-loop split added to Roadmap
-- **2026-07-28** -- [FINDING] Pretraining pays by regime, not in general: +0.001 when memorisable (OAS H1), +0.23/+0.28 when generalisation is needed (SD2 H1/H2), +0.006 at the H3 ceiling (Findings §1)
-- **2026-07-28** -- `generation.py`: fixed `SUMMARY_KEYS` asking for `recovery_mean` while `metrics.calculate` emits `aar_mean` — the recovery row had been silently blank in every gen-eval report
-- **2026-07-28** -- Findings refreshed against the complete 36-run batch `20260724_211745`; added recovery-vs-design divergence (§7)
-- **2026-07-27** -- `dataset.py`/`predict.py`: extracted `assemble_masked_input` — training and inference now share one layout function instead of two copies that had to agree by hand
-- **2026-07-27** -- `train.py`: opt-in early stopping (`early_stopping_patience` / `_threshold`, off by default)
-- **2026-07-27** -- `custom/transformer.py`: `num_attention_heads` + `intermediate_size` plumbed through `build_model`; `intermediate_size=None` → 4 × `hidden_size` so the FFN ratio no longer drifts with width
-- **2026-07-27** -- configs: `metric_for_best_model` → `core_accuracy` on 44/48 (the four `l2_*` stay whole-span — L2 core covers ~1.4% of eval rows)
+- **2026-07-29** -- `predict.py`: added `--partner_chain` / `--antigen` / `--max_len`, routed through the same `inject_context` the dataset uses; reads `run_meta.json` and warns when a checkpoint's expected context is missing 
 <!-- MANUAL PROTECTION ZONE BEGINS -->
+- **2026-07-29** -- Split `train.py` into `cdrseqgen/train/{arguments,workspace,pipeline,reporting}.py`
+- **2026-07-29** -- `train.py`: fixed `train.log`, records per epoch (used to only have "Starting Training.../Starting Evaluation...") (pending verification)
+- **2026-07-29** -- [RECLAIM] `dataset.py`: extracted `assemble_masked_input` and `inject_context` (partner/antigen injection + length capping) functions to be used in training and inference (`dataset.py` still under control)
+- **2026-07-29** -- `utils/report_findings.py`[new]: regenerates every README Findings table from a batch (`python -m cdrseqgen.utils.report_findings`)
 - **2026-07-27** -- [RECLAIM] Restructured `models/` directory (`custom/transformer.py`[`custom.py`]: rename; `registry.py`[`models.py`]: rename)
 - **2026-07-27** -- Fixed print/logging issues in `models.py`, `generation.py`
 - **2026-07-27** -- `data/preprocess/common.py`[new]: common scaffolding for csv -> json data preprocessing scripts
@@ -582,7 +573,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
  - [ ] Models section
  - [ ] Eval section
  - [ ] Train section
- - [ ] Interface section
+ - [ ] Analysis & Visualization section
 - **Operation Reclamation** -- Manual code cleaning: Comprehend and rewrite the project content in my own terms - previous work handled by AI resulted in the project almost becoming a "black box" for the developer himself 
  - [x] `metrics.py`
  - [x] `sampling.py`
