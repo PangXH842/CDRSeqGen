@@ -75,10 +75,21 @@ def select_indices(lengths, k, stratify, rng):
     by_bucket = defaultdict(list)
     for i, length in enumerate(lengths):
         by_bucket[bucket_of(length)].append(i)
+
     per_bucket = max(1, k // len(by_bucket))
     picked = []
     for idxs in by_bucket.values():
         picked += rng.sample(idxs, min(per_bucket, len(idxs)))
+
+    # Redistribute the shortfall. An under-populated bucket cannot fill its quota, and without this
+    # the draw silently comes back short of k: SD2 H1 is 749 short-loop / 1 medium, so a request for
+    # 150 returned 75 + 1 = 76 and eight runs of the 07-29 batch had their generative metrics
+    # computed on half the intended sample. Top up from whatever is left, still without replacement.
+    if len(picked) < k:
+        taken = set(picked)
+        rest = [i for i in range(n) if i not in taken]
+        picked += rng.sample(rest, min(k - len(picked), len(rest)))
+
     return sorted(picked[:k])
 
 

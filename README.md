@@ -226,8 +226,8 @@ Each `--run` takes `LABEL FOLDER [METRIC]`; omit `METRIC` and it falls back to t
 # same metric across runs — metric named once
 python -m cdrseqgen.utils.linegraph_plotter \
   --metric eval_core_accuracy \
-  --run "H3 Scratch" "results/20260724_211745/h3_OAS_scratch" \
-  --run "H3 ESM-2"   "results/20260724_211745/h3_OAS_esm2_t12_35M_UR50D" \
+  --run "H3 Scratch" "results/20260729_202635/h3_OAS_scratch" \
+  --run "H3 ESM-2"   "results/20260729_202635/h3_OAS_esm2_t12_35M_UR50D" \
   --title "H3 Core Recovery: Scratch vs ESM-2"
 
 # breakdown of ONE run — per-run metric, several columns on one chart
@@ -364,12 +364,17 @@ checkpoints you already trained, or re-sweeping temperature / top-p / judge with
 
 Phase 1 (the sequence sweep) is a **leakage-safe benchmark** for CDR infilling. What it establishes:
 
-*Numbers below are from the complete 36-run batch `results/20260724_211745` (6 loops × {scratch, ESM-2} ×
-context × {OAS, SAbDab2}, 10 epochs each), read at **best epoch**, core metric unless stated.*
+*Numbers below are from the complete 36-run batch `results/20260729_202635` (6 loops × {scratch, ESM-2} ×
+context × {OAS, SAbDab2}), read at **best epoch**, core metric unless stated. Budgets are per family —
+20 epochs for scratch, 10 for pretrained, both with `early_stopping_patience: 3`.*
+
+> **⚠️ These numbers supersede the 07-24 batch, which trained every family for exactly 10 epochs.**
+> That budget under-trained the scratch model, and it inflated the magnitude of **four** findings at
+> once — §1, §2, §4 and §7 — all in the same direction, against the smaller model. See §9.
 
 > **Every table here is generated, not hand-written** — regenerate them all after any new batch with:
 > ```bash
-> python -m cdrseqgen.utils.report_findings --batch results/20260724_211745
+> python -m cdrseqgen.utils.report_findings --batch results/20260729_202635
 > python -m cdrseqgen.utils.report_findings --only regimes,loops   # or a subset
 > ```
 > It reads only what a finished run already writes (`epoch_metrics.csv`, `generation_eval.json`,
@@ -382,23 +387,23 @@ context × {OAS, SAbDab2}, 10 epochs each), read at **best epoch**, core metric 
 
 | regime | example | test CDRs unseen in train | scratch → ESM-2 |
 |---|---|---|---|
-| memorisable | OAS H1 | 1.6% | 0.9928 → 0.9935 (**+0.001**) |
-| learnable, not memorisable | SD2 H1 | 57.5% | 0.4349 → **0.6657** (+0.231) |
-| " | SD2 H2 | 79.6% | 0.3277 → **0.6096** (+0.282) |
-| neither (information ceiling) | OAS H3 | 100% | 0.3148 → 0.3209 (+0.006) |
+| memorisable | OAS H1 | 1.6% | 0.9930 → 0.9935 (**+0.000**) |
+| learnable, not memorisable | SD2 H1 | 57.5% | 0.5473 → **0.6664** (+0.119) |
+| " | SD2 H2 | 79.6% | 0.3672 → **0.6083** (+0.241) |
+| neither (information ceiling) | OAS H3 | 100% | 0.3185 → 0.3209 (+0.002) |
 
-Pretraining buys ~nothing when the answer can be looked up, **+0.23–0.28** when the task needs genuine generalisation, and ~nothing again at the H3 ceiling. The original claim was drawn from regimes 1 and 3 only.
+Pretraining buys ~nothing when the answer can be looked up, **+0.12–0.24** when the task needs genuine generalisation, and ~nothing again at the H3 ceiling. The original claim was drawn from regimes 1 and 3 only.
 
 **2. CDR-H3 is the only hard loop — but the other five are easier than they look.** Best-epoch recovery on OAS (core; L2 whole-span, see "How to read the numbers"):
 
 | | scratch | +ctx | ESM-2 | +ctx |
 |---|---|---|---|---|
-| H1 | 0.9928 | 0.9825 | 0.9935 | 0.9934 |
-| H2 | 0.9897 | 0.9617 | 0.9899 | 0.9903 |
-| **H3** | **0.3148** | 0.3063 | **0.3209** | **0.3240** |
-| L1 | 0.9928 | 0.9651 | 0.9938 | 0.9937 |
-| L2 | 0.9921 | 0.9590 | 0.9932 | 0.9926 |
-| L3 | 0.9252 | 0.8466 | 0.9274 | 0.9268 |
+| H1 | 0.9930 | 0.9893 | 0.9935 | 0.9933 |
+| H2 | 0.9897 | 0.9802 | 0.9899 | 0.9903 |
+| **H3** | **0.3185** | 0.3139 | **0.3209** | **0.3243** |
+| L1 | 0.9925 | 0.9841 | 0.9938 | 0.9937 |
+| L2 | 0.9927 | 0.9819 | 0.9932 | 0.9927 |
+| L3 | 0.9261 | 0.9019 | 0.9274 | 0.9262 |
 
 The biology is right — heavy CDR3 gets D-gene + junctional diversity, the rest is germline-templated — but the ~0.99s are **not** evidence the model generalises; under the current split they are largely retrieval (§6). Only H3 is measured on entirely unseen loops.
 
@@ -412,11 +417,27 @@ The biology is right — heavy CDR3 gets D-gene + junctional diversity, the rest
 
 | CDR | scratch lc-only → +ag | ESM-2 lc-only → +ag |
 |---|---|---|
-| H1 | 0.4349 → 0.4036 | 0.6657 → 0.6664 |
-| H2 | 0.3277 → 0.3111 | 0.6096 → 0.5900 |
-| H3 | 0.1337 → 0.1362 | 0.2214 → 0.2128 |
+| H1 | 0.5473 → 0.4834 | 0.6664 → 0.6629 |
+| H2 | 0.3672 → 0.3486 | 0.6083 → 0.5894 |
+| H3 | 0.1308 → 0.1352 | 0.2214 → 0.2128 |
 
-|Δ| ≤ 0.031, sign inconsistent, 5 of 6 comparisons negative. Not a truncation artifact (84% of complexes keep the full antigen at `max_len=512`). Partner-chain context is worse than neutral for the small model — it hurts scratch on **all six** loops (−0.009 to −0.079, largest on L3) while leaving ESM-2 unmoved (−0.001 to +0.003), which reads as capacity dilution rather than a signal. **Interpretation:** binding information is geometric, not linear-sequence — so the next lever is structure / cross-attention, not more sequence context.
+|Δ| ≤ 0.064, sign inconsistent, 5 of 6 comparisons negative. Not a truncation artifact (84% of complexes keep the full antigen at `max_len=512`).
+
+**Partner-chain context: the earlier "it hurts the small model" claim was mostly an under-training artifact.** At a 10-epoch budget it looked like a solid effect; at 20 epochs two thirds of it disappears:
+
+| loop | Δ at 10 epochs | Δ at 20 epochs |
+|---|---|---|
+| H1 | −0.0103 | −0.0038 |
+| H2 | −0.0279 | −0.0095 |
+| H3 | −0.0086 | −0.0046 |
+| L1 | −0.0277 | −0.0084 |
+| L2 | −0.0331 | −0.0108 |
+| L3 | **−0.0786** | −0.0242 |
+| **mean** | **−0.0310** | **−0.0102** |
+
+Adding context lengthens the input and slows convergence: every `+ctx` scratch run peaked at **epoch 18–20**, against 4–14 without it, and five were still improving when the budget ran out. So −0.0102 is an *upper* bound on the penalty, and it may be inside seed noise — this project has no error bars (see Open problems). ESM-2 is unmoved either way (−0.001 to +0.003).
+
+**Interpretation is unchanged:** sequence context — partner chain or antigen — buys nothing measurable. Binding information is geometric, not linear-sequence, so the next lever is structure / cross-attention. What changed is that the apparent *harm* was largely our own budget.
 
 **5. The homology leak was real but immaterial *for H3*.** OAS's original random split leaked clonal near-duplicates (76 of 2,111 test entries, 3.6%, share a CDR3 cluster with train). The clustered-split fix removed it (→0%), and re-running confirmed the H3 core moved by **≤0.004**. (Now the default; see [`preprocess/oas_paired.py`](cdrseqgen/data/preprocess/oas_paired.py).) The important qualifier is *for H3* — the split clusters on heavy CDR3 only, so it controls nothing for the other five loops (§6).
 
@@ -433,10 +454,10 @@ The biology is right — heavy CDR3 gets D-gene + junctional diversity, the rest
 
 | | recovery | diversity | entropy (bits) | judge-ppl |
 |---|---|---|---|---|
-| H1 scratch | 0.991 | **0.002** | **0.006** | 1.05 |
-| H1 ESM-2 | 0.960 | 0.010 | 0.024 | 1.56 |
-| H3 scratch | 0.322 | 0.407 | 1.229 | 12.42 |
-| H3 ESM-2 | **0.406** | 0.573 | 1.841 | **7.14** |
+| H1 scratch | 0.991 | 0.005 | 0.010 | 1.06 |
+| H1 ESM-2 | 0.991 | **0.002** | **0.004** | 1.05 |
+| H3 scratch | 0.405 | 0.569 | 1.836 | 7.22 |
+| H3 ESM-2 | 0.407 | 0.570 | 1.824 | 7.23 |
 
 H1 scores 0.99 AAR while emitting essentially **one** sequence with total certainty (perplexity ≈ 1.0) — a perfect copier and a useless designer. And on H3 the two metrics rank the models differently: recovery calls scratch and ESM-2 near-equal, the independent judge puts ESM-2 **1.7× ahead**. Recovery alone is insufficient to choose a model, which is the practical argument for a design-aligned objective.
 
@@ -459,6 +480,21 @@ Training a fraction of examples context-free (each context kind drawn independen
 **On OAS it is nearly free** (−0.011 to −0.018 against the best specialist, for a ~6× better worst case). **On SAbDab2 it is not** (−0.051): with 3,234 training entries, splitting across four context combinations leaves ~800 per regime, and the model ends up preferring the *no-context* input (0.2384) over the one it was configured for (0.1832). Read that as a data-size limit, not a refutation — dropout costs what the dataset can't afford to split.
 
 Two side benefits on the datasets where it is cheap: the partner-chain and antigen ablations become *within-model* comparisons (same weights, two inputs) instead of comparisons between separately-trained runs with different init and SGD paths; and it removes the silent-degradation failure `predict.py` has to warn about.
+
+**9. One un-audited hyperparameter inflated four findings at once.** Every config trained for exactly `num_train_epochs: 10`, which suited the pretrained models (ESM-2 median best epoch **4**) and starved the scratch model (median **9**, with 8/18 still improving at the cut-off). Re-running with per-family budgets — 20 epochs for scratch, 10 for pretrained, both with `early_stopping_patience: 3` — moved four separate results, all in the same direction:
+
+| finding | at 10 epochs | at per-family budgets |
+|---|---|---|
+| §1 pretraining lead, SD2 H1 | +0.231 | **+0.119** |
+| §4 partner-chain penalty (mean) | −0.0310 | **−0.0102** |
+| §7 judge-ppl gap, H3 scratch vs ESM-2 | 1.74× | **1.00×** |
+| §2 scratch `+ctx` recovery | — | +0.007 to +0.055 |
+
+The §7 change is the starkest: scratch's judge-perplexity went **12.42 → 7.22** against ESM-2's 7.23. Recovery and the judge no longer disagree; they were only disagreeing because one model was under-trained. (Not the decoder switch — iterative and independent were measured equivalent, and ESM-2's number barely moved.)
+
+Early stopping cost nothing on the pretrained side — mean Δ over 12 OAS runs was **−0.0000**, and zero runs were cut with their best at the final epoch — while shortening the batch from 295 to 226 minutes.
+
+**The lesson is procedural:** a single budget shared across model families is not a neutral choice, and every distortion it caused ran against the smaller model. Anything compared across families should have its budget justified per family, or the comparison measures the budget.
 
 > **Bottom line:** sequence-only CDR-H3 infilling saturates at ~0.32 core / ~0.46 whole-span regardless of model, context, dataset, or decoder — and the non-H3 loops are not yet measured on a split that tests generalisation. Together these motivate the shift to a **structure objective** (see Roadmap).
 
@@ -510,7 +546,9 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **The judge shares the eval distribution.** IgBert was trained on OAS paired repertoires — the same distribution as the OAS eval split it judges. It's applied identically to every model, so the *comparison* is fair, but absolute perplexities are OAS-flavoured; an off-distribution judge would be a stronger check.
 - **Generative sweep is H3/OAS only.** The matrix covered CDR-H3 on OAS (150 held-out frameworks × 4 models). L-chain loops, SAbDab2, and the antigen configs have not been swept generatively.
 - **Sampler is marginal-based, not learned-joint — now measured.** The `iterative` (Mask-Predict) decoder approximates the loop joint by conditioning on committed residues, but the model is still a masked-LM trained on independent-position recovery. As of 2026-07-28 this is no longer a suspicion: iterative and `independent` are **within noise on every metric** on H3/OAS/ESM-2 (recovery 0.4057 vs 0.4072; judge-ppl 7.14 vs 7.23) at ~15× the compute. The conditioning buys nothing because the learned marginals are already near-independent — true joint/generative *training* (autoregressive or diffusion) is Phase-2 territory.
-- **Hyperparameters were never tuned.** *(Partly addressed 2026-07-27: opt-in early stopping is now available — set `"early_stopping_patience": N` in a config to stop once `metric_for_best_model` plateaus. Off by default, so nothing changes unless you ask for it. The epoch counts below are still un-right-sized.)* All 48 configs pin one LR per family (scratch `1e-4`, pretrained `5e-5`) and exactly `num_train_epochs: 10`, with no warmup / weight-decay / scheduler set (HF defaults throughout). The curves show 10 is wrong for **both**, in opposite directions: `h3_esm2` peaks at **epoch 4** (core 0.3209) then decays to 0.3063 by 10 — six wasted epochs, rescued only by `load_best_model_at_end` — while `h3_scratch` is still creeping at 10 (~0.001 loss/epoch). *Mitigating evidence for Finding #1:* the two reach ~0.32 core from **opposite directions** (ESM-2 from above in 1–4 epochs, scratch from below over 10), which argues the ceiling is real rather than a shared-settings artifact. Sweep with [`scripts/sweep_scratch.sh`](scripts/sweep_scratch.sh).
+- **Five runs hit their epoch ceiling, all of them context runs.** `h1_SD2_LC`, `h2_OAS_LC`, `h3_OAS_LC`, `l1_OAS_HC`, `l3_OAS_HC` peaked at epoch 19–20 of 20 in the 07-29 batch. Their numbers are lower bounds, so the §4 partner-chain penalty (−0.0102) is an upper bound on the true effect. A scratch-only sweep at 30–40 epochs would settle it (~1 hour; scratch is 60 of the batch's 226 minutes).
+- **Effects have shrunk to the point where the missing error bars matter.** Everything is single-seed. That was tolerable when the context penalty read −0.031; at −0.010 it is plausibly inside seed noise and there is currently no way to tell. Multi-seed the H3 configs before any of §4's magnitude is written down as a result.
+- **Hyperparameters were never tuned.** *(Largely addressed 2026-07-29: per-family epoch budgets — 20 for scratch, 10 for pretrained — plus `early_stopping_patience: 3` everywhere. See §9 for what the previous fixed budget was costing. LR is still one value per family and untuned.)* *(2026-07-27: opt-in early stopping — set `"early_stopping_patience": N` in a config to stop once `metric_for_best_model` plateaus. Off by default, so nothing changes unless you ask for it. The epoch counts below are still un-right-sized.)* All 48 configs pin one LR per family (scratch `1e-4`, pretrained `5e-5`) and exactly `num_train_epochs: 10`, with no warmup / weight-decay / scheduler set (HF defaults throughout). The curves show 10 is wrong for **both**, in opposite directions: `h3_esm2` peaks at **epoch 4** (core 0.3209) then decays to 0.3063 by 10 — six wasted epochs, rescued only by `load_best_model_at_end` — while `h3_scratch` is still creeping at 10 (~0.001 loss/epoch). *Mitigating evidence for Finding #1:* the two reach ~0.32 core from **opposite directions** (ESM-2 from above in 1–4 epochs, scratch from below over 10), which argues the ceiling is real rather than a shared-settings artifact. Sweep with [`scripts/sweep_scratch.sh`](scripts/sweep_scratch.sh).
 - ~~**Checkpoint selection uses the metric we say is misleading.**~~ **Fixed 2026-07-27.** 44 of 48 configs now set `"metric_for_best_model": "core_accuracy"` (HF resolves it to `eval_core_accuracy`). The four `l2_*` configs deliberately stay on whole-span `accuracy`: L2 core is computed over ~1.4% of eval rows, so selecting checkpoints on it would be selecting on noise — the same exception documented under "How to read the numbers". Runs before this date selected on whole-span and aren't checkpoint-comparable to later ones.
 - ~~**Scratch architecture isn't tunable.**~~ **Fixed 2026-07-27.** `num_attention_heads` and `intermediate_size` are now `ModelArguments` fields forwarded by `build_model` ([`custom/transformer.py`](cdrseqgen/models/custom/transformer.py)). `intermediate_size` defaults to `None` = **4 × hidden_size**, so the FFN ratio tracks width instead of silently drifting (at the old fixed 512, widening to 256 quietly halved the ratio and would have confounded any architecture sweep). Defaults reproduce the old geometry exactly (128 → 512), and a `hidden_size % num_attention_heads` check now fails loudly instead of deep inside `nn.MultiheadAttention`.
 - **Single-seed runs.** Small differences (e.g. light chain hurts scratch ~0.01, neutral for ESM-2) need multiple seeds + error bars before they can be claimed.
@@ -537,6 +575,8 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 
 ### Changelog
 <!-- Latest updates can be added here before protection zone -->
+- **2026-07-30** -- [FINDING] Re-ran the full matrix with per-family epoch budgets (`results/20260729_202635`). The previous fixed 10-epoch budget under-trained the scratch model and had inflated **four** findings at once — §1 (+0.231→+0.119), §4 (−0.031→−0.010), §7 (judge-ppl gap 1.74×→1.00×), §2. Early stopping cost nothing on the pretrained side (mean Δ −0.0000) and cut the batch from 295 to 226 min. New Findings §9
+- **2026-07-30** -- `generation.py`: fixed `select_indices` returning fewer than `k` when a length bucket is under-populated — the shortfall was never redistributed, so SAbDab2 H1/H2 requests for 150 came back with 76/77 and **8 of 36 runs** in the 07-29 batch scored their design metrics on half the intended sample. Shortfall is now topped up from the remaining pool
 - **2026-07-29** -- `dataset.py`: `context_dropout` — train a fraction of examples without their optional context so ONE checkpoint works with and without it. Partner chain and antigen are dropped independently (all four combinations), deterministic per example so eval stays reproducible. Default 0.0 = unchanged. Measured: fixes the 0.98->0.26 collapse, nearly free on OAS, costs ~0.05 on the much smaller SAbDab2 (Findings §8)
 - **2026-07-29** -- `predict.py`: added `--partner_chain` / `--antigen` / `--max_len`, routed through the same `inject_context` the dataset uses; reads `run_config.json` and warns when a checkpoint's expected context is missing 
 <!-- MANUAL PROTECTION ZONE BEGINS -->
