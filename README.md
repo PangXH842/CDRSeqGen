@@ -435,7 +435,25 @@ The biology is right — heavy CDR3 gets D-gene + junctional diversity, the rest
 | L3 | **−0.0786** | −0.0242 |
 | **mean** | **−0.0310** | **−0.0102** |
 
-Adding context lengthens the input and slows convergence: every `+ctx` scratch run peaked at **epoch 18–20**, against 4–14 without it, and five were still improving when the budget ran out. So −0.0102 is an *upper* bound on the penalty, and it may be inside seed noise — this project has no error bars (see Open problems). ESM-2 is unmoved either way (−0.001 to +0.003).
+Adding context lengthens the input and slows convergence: every `+ctx` scratch run peaked at **epoch 18–20**, against 4–14 without it, and five were still improving when the budget ran out — so −0.0102 is an *upper* bound. ESM-2 is unmoved either way (−0.001 to +0.003).
+
+**With an error bar (finally).** Three seeds of `h3_scratch` ± partner chain, 20-epoch budget:
+
+| seed | no ctx | +LC | Δ |
+|---|---|---|---|
+| 1 | 0.3196 | 0.3154 | −0.0042 |
+| 2 | 0.3199 | 0.3123 | −0.0076 |
+| 3 | 0.3187 | 0.3089 | −0.0098 |
+| | sd **0.0006** | sd **0.0033** | mean −0.0072, sd **0.0028** |
+
+The effect is real but small (2.5σ, all three seeds negative), and the noise floor on a per-loop Δ is **σ ≈ 0.0028**, i.e. ~0.006 at 2σ. Applying that to the table above, only four of the six loops survive:
+
+| loop | Δ | |Δ|/σ | |
+|---|---|---|---|
+| H2 / L1 / L2 / L3 | −0.0084 … −0.0242 | 3.0 – 8.6 | real |
+| **H1 (−0.0038), H3 (−0.0046)** | | **1.4 / 1.6** | **not distinguishable from noise** |
+
+So on the loop that actually matters — H3 — partner-chain context has **no measurable effect in either direction**, and the earlier −0.0086 was noise plus under-training. A second observation from the same three seeds: the `+ctx` runs are **5× more variable** than the base runs (sd 0.0033 vs 0.0006) and their best epoch swings between 10 and 20, so context destabilises training as well as slowing it.
 
 **Interpretation is unchanged:** sequence context — partner chain or antigen — buys nothing measurable. Binding information is geometric, not linear-sequence, so the next lever is structure / cross-attention. What changed is that the apparent *harm* was largely our own budget.
 
@@ -547,7 +565,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **Generative sweep is H3/OAS only.** The matrix covered CDR-H3 on OAS (150 held-out frameworks × 4 models). L-chain loops, SAbDab2, and the antigen configs have not been swept generatively.
 - **Sampler is marginal-based, not learned-joint — now measured.** The `iterative` (Mask-Predict) decoder approximates the loop joint by conditioning on committed residues, but the model is still a masked-LM trained on independent-position recovery. As of 2026-07-28 this is no longer a suspicion: iterative and `independent` are **within noise on every metric** on H3/OAS/ESM-2 (recovery 0.4057 vs 0.4072; judge-ppl 7.14 vs 7.23) at ~15× the compute. The conditioning buys nothing because the learned marginals are already near-independent — true joint/generative *training* (autoregressive or diffusion) is Phase-2 territory.
 - **Five runs hit their epoch ceiling, all of them context runs.** `h1_SD2_LC`, `h2_OAS_LC`, `h3_OAS_LC`, `l1_OAS_HC`, `l3_OAS_HC` peaked at epoch 19–20 of 20 in the 07-29 batch. Their numbers are lower bounds, so the §4 partner-chain penalty (−0.0102) is an upper bound on the true effect. A scratch-only sweep at 30–40 epochs would settle it (~1 hour; scratch is 60 of the batch's 226 minutes).
-- **Effects have shrunk to the point where the missing error bars matter.** Everything is single-seed. That was tolerable when the context penalty read −0.031; at −0.010 it is plausibly inside seed noise and there is currently no way to tell. Multi-seed the H3 configs before any of §4's magnitude is written down as a result.
+- **Only one comparison has an error bar.** Three seeds of `h3_scratch` ± partner chain put the seed sd of a per-loop Δ at **0.0028** (§4), which already retires two of the six per-loop context numbers as noise. Every *other* number in this README is still single-seed, and any claimed difference below ~0.006 should be treated as unmeasured until it has the same treatment.
 - **Hyperparameters were never tuned.** *(Largely addressed 2026-07-29: per-family epoch budgets — 20 for scratch, 10 for pretrained — plus `early_stopping_patience: 3` everywhere. See §9 for what the previous fixed budget was costing. LR is still one value per family and untuned.)* *(2026-07-27: opt-in early stopping — set `"early_stopping_patience": N` in a config to stop once `metric_for_best_model` plateaus. Off by default, so nothing changes unless you ask for it. The epoch counts below are still un-right-sized.)* All 48 configs pin one LR per family (scratch `1e-4`, pretrained `5e-5`) and exactly `num_train_epochs: 10`, with no warmup / weight-decay / scheduler set (HF defaults throughout). The curves show 10 is wrong for **both**, in opposite directions: `h3_esm2` peaks at **epoch 4** (core 0.3209) then decays to 0.3063 by 10 — six wasted epochs, rescued only by `load_best_model_at_end` — while `h3_scratch` is still creeping at 10 (~0.001 loss/epoch). *Mitigating evidence for Finding #1:* the two reach ~0.32 core from **opposite directions** (ESM-2 from above in 1–4 epochs, scratch from below over 10), which argues the ceiling is real rather than a shared-settings artifact. Sweep with [`scripts/sweep_scratch.sh`](scripts/sweep_scratch.sh).
 - ~~**Checkpoint selection uses the metric we say is misleading.**~~ **Fixed 2026-07-27.** 44 of 48 configs now set `"metric_for_best_model": "core_accuracy"` (HF resolves it to `eval_core_accuracy`). The four `l2_*` configs deliberately stay on whole-span `accuracy`: L2 core is computed over ~1.4% of eval rows, so selecting checkpoints on it would be selecting on noise — the same exception documented under "How to read the numbers". Runs before this date selected on whole-span and aren't checkpoint-comparable to later ones.
 - ~~**Scratch architecture isn't tunable.**~~ **Fixed 2026-07-27.** `num_attention_heads` and `intermediate_size` are now `ModelArguments` fields forwarded by `build_model` ([`custom/transformer.py`](cdrseqgen/models/custom/transformer.py)). `intermediate_size` defaults to `None` = **4 × hidden_size**, so the FFN ratio tracks width instead of silently drifting (at the old fixed 512, widening to 256 quietly halved the ratio and would have confounded any architecture sweep). Defaults reproduce the old geometry exactly (128 → 512), and a `hidden_size % num_attention_heads` check now fails loudly instead of deep inside `nn.MultiheadAttention`.
@@ -575,6 +593,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 
 ### Changelog
 <!-- Latest updates can be added here before protection zone -->
+- **2026-07-30** -- [FINDING] First error bar: 3 seeds of `h3_scratch` ± partner chain give a seed sd of **0.0028** on a per-loop Δ. The context penalty is real overall (2.5σ) but **H1 and H3 individually are not distinguishable from noise** — so on H3 specifically, partner-chain context has no measurable effect. `+ctx` runs are also 5× more variable than base runs (§4)
 - **2026-07-30** -- [FINDING] Re-ran the full matrix with per-family epoch budgets (`results/20260729_202635`). The previous fixed 10-epoch budget under-trained the scratch model and had inflated **four** findings at once — §1 (+0.231→+0.119), §4 (−0.031→−0.010), §7 (judge-ppl gap 1.74×→1.00×), §2. Early stopping cost nothing on the pretrained side (mean Δ −0.0000) and cut the batch from 295 to 226 min. New Findings §9
 - **2026-07-30** -- `generation.py`: fixed `select_indices` returning fewer than `k` when a length bucket is under-populated — the shortfall was never redistributed, so SAbDab2 H1/H2 requests for 150 came back with 76/77 and **8 of 36 runs** in the 07-29 batch scored their design metrics on half the intended sample. Shortfall is now topped up from the remaining pool
 - **2026-07-29** -- `dataset.py`: `context_dropout` — train a fraction of examples without their optional context so ONE checkpoint works with and without it. Partner chain and antigen are dropped independently (all four combinations), deterministic per example so eval stays reproducible. Default 0.0 = unchanged. Measured: fixes the 0.98->0.26 collapse, nearly free on OAS, costs ~0.05 on the much smaller SAbDab2 (Findings §8)
