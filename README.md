@@ -1,14 +1,13 @@
-<!-- MANUAL PROTECTION ZONE BEGINS -->
+<!-- Note to AI: Edits allowed OUTSIDE of MANUAL PROTECTION ZONES and INSIDE of AI ACCESS ZONES -->
 # CDRSeqGen: Modular Antibody Infilling Framework
 
-**Date Updated:** 2026-07-29 
-**Status:** Operation Reclamation - reorganized code structure for training phase
+**Date Updated:** 2026-07-31 
+**Status:** Operation Reclamation - `predict.py`
 
 ## Project Overview
 CDRSeqGen is a computational immunology framework designed to predict antibody loop sequences given the surrounding framework context. 
 
 Current implemented features include: 
-<!-- MANUAL PROTECTION ZONE ENDS -->
 - **Data Preprocessing**: standardize data into Bio-Object JSON format (IMGT), current datasets: OAS (21106 paired sequences) and SAbDab2 (3984 paired + antigen structures)
 - **Addressing Data Leakage**: clustered train/test split for OAS to prevent clonal near-duplicate leakage
 - **Task-Agnostic Masking**: masking training method for all 6 CDR loops individually by target selection
@@ -601,9 +600,10 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **Never plot OAS and SAbDab2 on shared axes** — different test sets; the `_OAS`/`_SD2` run tags enforce it, and per-dataset charts live in `results/pngs/*_{oas,sd2}_*.png`.
 - **`epoch_metrics.csv` and `*_results.json` measure different models — they're *supposed* to disagree.** The CSV is the per-epoch **trajectory** (the model as it stood at each epoch); `eval_results.json`/`all_results.json` come from the post-training `trainer.evaluate()`, which with `load_best_model_at_end` runs on the **best** checkpoint while still being stamped with the final epoch number. On `h3_esm2` the CSV's epoch-10 row reads core **0.3063** (the actual last model) while `eval_results.json` reads **0.3209** (the epoch-4 best model). `save_training_csv` de-duplicates on epoch and **keeps the first** occurrence precisely so the curve keeps the real last-epoch point — keeping the last would silently redraw the best model at x=10 and erase the overfitting decay entirely.
 
-### Changelog
-<!-- Latest updates can be added here before protection zone -->
 <!-- MANUAL PROTECTION ZONE BEGINS -->
+### Changelog
+<!-- AI ACCESS ZONE BEGINS -->
+<!-- AI ACCESS ZONE ENDS -->
 - **2026-07-31** -- [RECLAIM] `predict.py` (finally): inference entrypoint - loads from json or custom CLI args
 - **2026-07-29** -- `dataset.py`: added `context_dropout` variable to train a fraction of examples without paired chain/antigen context
 - **2026-07-29** -- Split `train.py` into `cdrseqgen/train/{arguments,workspace,pipeline,reporting}.py`
@@ -615,33 +615,30 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **2026-07-27** -- `data/preprocess/common.py`[new]: common scaffolding for csv -> json data preprocessing scripts
 - **2026-07-27** -- moved and renamed preprocessing scripts to `data/preprocess/`, removed separate dataset README file
 - **2026-07-27** -- [RECLAIM] Reclaimed: `dataset.py`, data preprocessing scripts
-- **2026-07-24** -- `run_config.json` provenance: `train.py` records the CDR loop (+ model/context) each run was trained for
+- **2026-07-24** -- Generate `run_config.json` for each training run
 - **2026-07-24** -- fixed `results/latest/` symlink to latest batch (to verify further)
 - **2026-07-24** -- [RECLAIM] `linegraph_plotter.py`: enables multi-run + multi-metric breakdown all in one function
 - **2026-07-24** -- [RECLAIM] Reclaimed: `metrics.py`, `sampling.py`, `generate.py`, `gen_eval.py`
 - **2026-07-24** -- `linegraph_plotter.py`: moved to new `utils/` folder
 - **2026-07-24** -- `sampling.py`: handled greedy algo for both independent and iterative decoders
-- **2026-07-21** -- `eval_recovery.py`: temporarily discarded (now in `old/`)
 - **2026-07-21** -- `train.py`: Gen eval after per training run
 - **2026-07-20** -- Fixed issue with anchor excluded AAR for short CDRs
 - **2026-07-20** -- Edited results directory naming (`[timestamp]/[configs]/` (timestamp at time of `run.sh` round start))
 - **2026-07-20** -- Enabled line graph plotting for whole + core (no anchor) AARs for each run
 - **2026-07-20** -- Run hyperparameter sweep on scratch model 
-- **2026-07-20** -- [RECLAIM] Begin manual code cleaning plan (*Codename: Operation Reclamation (lol)*) (list - see roadmap)
+- **2026-07-20** -- [RECLAIM] Begin manual code cleaning operation (list - see roadmap)
 - **2026-07-17** -- Data restructure, preparation for hyperparameter sweep on scratch model
-- **2026-07-17** -- `eval_generative.py`[new]: generative eval on the held-out split (2,111 frameworks — real natives, leakage-safe, injection reused so nothing drifts)
+- **2026-07-17** -- `gen_eval.py`[`eval_generative.py`]: generative eval on the held-out split (2,111 frameworks — real natives, leakage-safe, injection reused so nothing drifts)
 - **2026-07-17** -- `cdrseqgen/eval/generation.py`[new]: generative eval metrics: diversity, novelty, pseudo-perplexity, per-position entropy
 - **2026-07-17** -- `train.py`: opt-in post-training generative eval (`"run_generative_eval": true`)
 - **2026-07-16** -- `sampling.py`[new]: decoders (greedy / independent / iterative Mask-Predict) + pseudo-perplexity scoring
 - **2026-07-16** -- `metrics.py`[new]: diversity / novelty / per-position entropy 
-- **2026-07-16** -- Repo restructure
-- **2026-07-15** -- Polished README (half-manually), updated roadmap (pending manual edit)
-<!-- MANUAL PROTECTION ZONE ENDS -->
 
 ---
 
 ## ⏭️ Roadmap
 
+<!-- AI ACCESS ZONE BEGINS -->
 > **Objective-first:** the target is **CDR-H3 design**. **Phase 1** = a leakage-safe *sequence benchmark* (done — establishes the ~0.32 core ceiling; see Findings). **Phase 2** = *structure-conditioned* design (RMSD-to-native; exact target to lock with advisor). Everything below is a tool toward that objective.
 
 **General — next steps**
@@ -654,8 +651,8 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - [ ] Multi-seed the key H3 configs (error bars on the ±0.01 model/context deltas)
 - [ ] Re-run the 07-24 batch under core-based checkpoint selection (those 36 runs predate the fix; their saved weights were picked on whole-span)
 - [ ] Lock the Phase-2 objective + primary metric with advisor
+<!-- AI ACCESS ZONE ENDS -->
 
-<!-- MANUAL PROTECTION ZONE BEGINS -->
 - [ ] Project flowchart
  - [ ] Data section
  - [ ] Models section
@@ -701,34 +698,33 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - [x] Clustered split (OAS) -- homology-leak-safe 
 - [ ] Structure / coordinate parsing 
 - [ ] Unpaired-OAS preprocessor (`preprocess_oas_unpaired.py`)
-<!-- MANUAL PROTECTION ZONE ENDS -->
 
 **Training / methods**
 - Sequence-only
   - [x] Masked-LM infilling objective
   - Models
-    - [x] From-scratch transformer (baseline — *not* pretrained)
+    - [x] From-scratch transformer (baseline)
     - [x] ESM-2 (general PLM)
     - [x] IgBert (antibody PLM)
-    - [x] ProtBert (general-protein PLM)
-    - [ ] AbLang2  *(low priority on OAS, where model choice barely moves H3 — but pretraining is worth +0.23–0.28 on SAbDab2, so worth revisiting there; Findings §1)*
+    - [x] ProtBert (general PLM)
+    - [ ] AbLang2  (antibody PLM)
     - [ ] IgLM  *(autoregressive — needs its own generation/scoring path)*
 - Structure-aware  *(Phase 2)*
   - [ ] Invariant Point Attention (IPA)
   - [ ] E(n)-equivariant GNNs
   - [ ] Diffusion (dyMEAN / DiffAb-informed)
-  - [ ] Antigen cross-attention / epitope-contact signal  *(the flat-sequence version was inert)*
+  - [ ] Antigen cross-attention / epitope-contact signal  
 
 **Evaluation**
-- [x] Sequence recovery (AAR) — whole-span
-- [x] Anchor-excluded core recovery (`compute_metrics` in `train.py`; standalone re-scorer `eval_recovery.py` archived in `old/`)
-- [x] Pseudo-perplexity — masked-LM PLL over the loop ([`sampling.py`](cdrseqgen/eval/sampling.py))
-- [x] Diversity & novelty — pairwise Hamming, unique fraction, per-position entropy, novelty-vs-native ([`metrics.py`](cdrseqgen/eval/metrics.py))
-- [ ] Novelty vs. *training set* (nearest-neighbour CDR3 identity — needs the train CDR3 index)
-- [ ] Structure metrics — RMSD, TM-score  *(Phase 2)*
+- [x] Sequence recovery (AAR) -- whole-span
+- [x] Sequence recovery (AAR) -- core, anchor-excluded
+- [x] Pseudo-perplexity -- masked-LM PLL over the loop
+- [x] Diversity & novelty -- pairwise Hamming, unique fraction, per-position entropy, novelty-vs-native
+- [ ] Structure metrics - RMSD, TM-score  *(Phase 2)*
 
 **Long-term objectives / deliverables**
 - Leakage-safe **benchmark** for CDR-infilling methods (the Phase-1 result)
 - Structure-conditioned CDR-H3 design
 - Integrated sequence + structure design framework
-- → benchmark paper and/or a novel antibody-design method
+- Benchmark paper and/or a novel antibody-design method
+<!-- MANUAL PROTECTION ZONE ENDS -->
