@@ -29,7 +29,10 @@ from cdrseqgen.eval.generation import run_generative_eval, build_judge
 
 def read_run_config(model_dir):
     """Load the run_config.json a training run wrote, or None (older runs won't have it)."""
-    path = os.path.join(model_dir, run_config_FILENAME)
+    # run_config.json was run_meta.json before 2026-07-29; older runs still carry the old name.
+    path = next((q for q in (os.path.join(model_dir, run_config_FILENAME),
+                             os.path.join(model_dir, "run_meta.json")) if os.path.exists(q)),
+                os.path.join(model_dir, run_config_FILENAME))
     if os.path.exists(path):
         with open(path) as f:
             return json.load(f)

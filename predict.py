@@ -4,23 +4,24 @@ Usage:
   Select a trained model, provide the protein framework before (pt1) and after (pt2) the selected loop,
   and it will generate a sample library of candidate loops, with corresponding eval metrics.
 
-  There is NO --target_loop argument, because nothing in the tensor names a loop or a chain: the
-  dataset uses target_region to decide where to CUT, but the model only ever sees
-  `[cls] pt1 [mask x L] pt2 [end]` and infers the loop from the framework. Which loop you design is
-  fixed by WHICH checkpoint you load (h3_OAS_scratch vs l2_OAS_scratch are different models), so
-  --model_path is effectively that argument; run_config.json is read to report it back to you.
-
 Args:
   * --model_path    -- path to trained model
-  * --model_type    -- specify the type of model
+  * --model_type    -- specify the type of model; defaults to whatever run_config.json says the
+                        checkpoint is, so it only needs passing for an external one
   * --test_file     -- read from a json file including test cases
-                        (args to include: pt1, pt2, target_seq*, target_length*, partner_chain**,
+                        (args to include: pt1, pt2, target_truth*, target_length*, partner_chain**,
                          antigen**) (*one of either) (**optional)
   * --pt1, --pt2    -- framework regions before and after the target CDR
-  * --target_seq    -- optional ground truth
+  * --target_loop   -- target CDR (h1/h2/h3/l1/l2/l3) this run is designing; declarative only, and
+                        warns on mismatch with the loop in run_config.json
+                        (a gap sitting at the wrong offset is warned for either way, from pt1's
+                         length, since that needs no declaration)
+  * --target_truth  -- optional ground truth
   * --target_length -- specified CDR length (?)
-  * --partner_chain -- paired chain context, optional (warning depending on model requirements)
-  * --antigen       -- antigen sequence context, optional (warning depending on model requirements)
+  * --partner_chain -- paired chain context, optional (refused depending on model requirements)
+  * --antigen       -- antigen sequence context, optional (refused depending on model requirements)
+  * --force         -- run despite the context mismatches above (which block, unlike the loop
+                        warnings); recorded in the output json
   * --max_len       -- length cap for the assembled input; match the training config
                         (SAbDab2 antigen runs use 512)
   * --decoding      -- decoding strategy choice: "independent" for individual position sampling; 
@@ -32,6 +33,7 @@ Args:
   * --top_k         -- limit to top k most possible AAs per position, optional
   * --top_p         -- eliminate tail AAs, optional
   * --seed
+  * --skip_perplexity -- skip pseudo-perplexity scoring (the compute-heavy per-candidate part)
   * --output        -- path to store result json
 
 Usage examples (results/latest is the newest *batch* — name the config you want under it):
@@ -47,7 +49,6 @@ import argparse
 import json
 import logging
 import os
-import sys
 import torch
 
 from cdrseqgen.train.workspace import configure_logging
@@ -64,57 +65,161 @@ from cdrseqgen.eval.metrics import amino_acid_recovery, calculate
 
 logger = logging.getLogger(__name__)
 
+RUN_CONFIG_NAMES = ("run_config.json", "run_meta.json")
 
-def read_run_config(model_path):
-    """What this checkpoint was trained on, from run_config.json (train.py writes it).
+def get_configs(args):
+    """Reads configs from run_config.json; if unavailable, build configs from CLI args.
 
-    Returns the dict, or {} for hub models / older runs that have no run_config.json. Used both to
-    report the trained loop and to check the context the checkpoint expects — see warn_on_mismatch.
+    Returns a config dict, carrying a "source" key for which of the two it came from. That
+    difference matters downstream: a CLI-built config only restates this invocation, so it cannot
+    be used to check the invocation against (see check_compatibility).
     """
-    path = os.path.join(model_path, "run_config.json")
-    if os.path.isfile(path):
-        try:
-            with open(path) as f:
-                return json.load(f)
-        except (OSError, json.JSONDecodeError):
-            return {}
-    return {}
+    configs = {}
+    for name in RUN_CONFIG_NAMES:
+        path = os.path.join(args.model_path, name)
+        if os.path.isfile(path):
+            try:
+                with open(path) as f:
+                    configs = json.load(f)
+            except (OSError, json.JSONDecodeError) as e:
+                logger.warning(f"⚠️  Error reading from {path}: {e}")
+            break       # first name that exists wins, readable or not
+
+    if configs:
+        configs["source"] = "run_config"
+        # --model_type picks the tokenizer as well as the backbone, so the wrong one mis-encodes
+        # every residue. Only warn when a flag was actually passed and disagrees — omitting it just
+        # means "use whatever this checkpoint is", which is the resolution on the next line.
+        trained_type = configs.get("model_type")
+        if args.model_type and trained_type and args.model_type != trained_type:
+            logger.warning(f"⚠️  Model type mismatch: checkpoint was trained as '{trained_type}', but "
+                           f"--model_type says '{args.model_type}' — the tokenizer comes from that "
+                           f"flag, so every residue would be encoded against the wrong vocabulary.")
+        configs["model_type"] = args.model_type or trained_type or "scratch"
+    else:
+        logger.info("ℹ️  No run_config.json - building configs from CLI args instead.")
+        configs = {"target_region": args.target_loop,
+                   "model_type": args.model_type or "scratch",
+                   "include_partner_chain": bool(args.partner_chain),
+                   "include_antigen": bool(args.antigen),
+                   "data_path": None,
+                   "max_len": args.max_len,
+                   "source": "cli"}
+
+    # Print configs
+    ctx = [n for f, n in [("include_partner_chain", "partner chain"),
+                          ("include_antigen", "antigen")] if configs.get(f)]
+    lead = "🧬 Checkpoint expects" if configs["source"] == "run_config" else "🧬 Assuming from CLI args"
+    print(f"{lead}: CDR '{configs.get('target_region') or 'unknown'}'"
+          + (f", with {' + '.join(ctx)} context" if ctx else ", framework context only"))
+    if args.target_loop:
+        print(f"🎯 This run is designing: CDR '{args.target_loop}'.")
+
+    return configs
 
 
-def warn_on_mismatch(meta, cases):
-    """Warn when the checkpoint expects context this invocation isn't supplying.
+def get_test_case(args):
+    """Test cases to run: a JSON batch if --test_file, else the single case built from CLI args."""
+    if args.test_file:
+        with open(args.test_file, "r") as f:
+            test_cases = json.load(f)
+    else:
+        test_cases = [{
+            "name": "CLI Test Case",
+            "pt1": args.pt1,
+            "pt2": args.pt2,
+            "target_truth": args.target_truth,
+            "target_length": args.target_length,
+        }]
+    return test_cases
 
-    A model trained with partner-chain or antigen context does NOT fail on a bare framework — it
-    silently degrades, because the input is merely out-of-distribution rather than malformed.
-    Measured on h1_OAS_LC_scratch over 60 held-out frameworks: 0.986 recovery when the light chain
-    is supplied as trained, 0.260 without it. That is the whole reason this check exists.
-    """
-    if not meta:
-        logger.info("ℹ️  No run_config.json — can't verify this checkpoint's expected context.")
-        return
+
+# Where the loop sits along the chain, as the length of pt1 (everything before the gap). This is
+# the ONLY loop signal present in the input: pt1 for a CDR1 target is just fwr1, for CDR2 it is
+# fwr1+cdr1+fwr2, and for CDR3 everything up to fwr3. Measured over all 25,090 entries of both
+# processed datasets (both chains, so 50,180 frameworks) the three are cleanly separated:
+#
+#     CDR1   8 .. 26        CDR2  33 .. 57        CDR3  78 .. 106
+#
+# with empty gaps at 26..33 and 57..78; the cuts below sit in the middle of those. The wide floors
+# come from SAbDab2, whose crystal structures are often ragged at the N-terminus (CDR1 pt1 down to
+# 8). What this CANNOT do is separate heavy from light: H1 (23-25) and L1 (24-26) overlap outright,
+# as do H2 and L2. So the number is inferable and the chain is not, and the check below only ever
+# claims the number.
+LOOP_PT1_BANDS = [(1, 0, 30), (2, 31, 67), (3, 68, 10**6)]
+
+
+def infer_loop_number(pt1_len):
+    """Which CDR (1/2/3) a gap at this offset looks like; None if pt1 is too short to judge"""
+    if pt1_len < 8:      # below every framework observed — a deliberately truncated stub
+        return None
+    for number, lo, hi in LOOP_PT1_BANDS:
+        if lo <= pt1_len <= hi:
+            return number
+    return None
+
+
+def check_compatibility(configs, cases, args):
+    """Check for arg mismatches, returns problems and warnings for logging / printing."""
+    problems, warnings = [], []
+    trained_for = (configs or {}).get("target_region")
+
+    # WARNING: CLI arg target_loop mismatch
+    if args.target_loop and trained_for and args.target_loop.lower() != trained_for.lower():
+        warnings.append(
+            f"LOOP: checkpoint was trained to design CDR '{trained_for}', but --target_loop says "
+            f"'{args.target_loop}'. The model has no loop identity in its input, so it will happily "
+            f"emit something — it just won't be a '{args.target_loop}' model's answer."
+        )
+
+    # WARNING: the gap sits at the wrong offset for the expected loop. Needs no declaration, so it
+    # is the only loop check that still fires when --target_loop is omitted.
+    loop = trained_for or args.target_loop
+    if loop and loop[-1].isdigit():
+        expected_n = int(loop[-1])
+        odd = [(c.get("name", f"case {i}"), len(c.get("pt1", "") or ""), n)
+               for i, c in enumerate(cases)
+               for n in [infer_loop_number(len(c.get("pt1", "") or ""))]
+               if n is not None and n != expected_n]
+        if odd:
+            shown = "; ".join(f"'{name}' pt1={ln} (looks like CDR{n})" for name, ln, n in odd[:3])
+            more = f" (+{len(odd) - 3} more)" if len(odd) > 3 else ""
+            warnings.append(
+                f"SHAPE: expecting CDR '{loop}', but {len(odd)}/{len(cases)} case(s) have a gap "
+                f"positioned like a different CDR — {shown}{more}. Either the wrong loop is being "
+                f"designed, or these frameworks are truncated. Only the CDR NUMBER is inferable from "
+                f"pt1's length; heavy vs light is not, so an h/l mix-up cannot be caught this way."
+            )
+
+    # PROBLEM: missing or unexpected partner chain / antigen context
     for flag, key, name in [("include_partner_chain", "partner_chain", "partner chain"),
                             ("include_antigen", "antigen", "antigen")]:
-        if not meta.get(flag):
-            continue
-        missing = [c.get("name", "case") for c in cases if not c.get(key)]
-        if missing:
-            logger.warning(
-                f"⚠️  This checkpoint was TRAINED WITH {name} context, but {len(missing)}/{len(cases)} "
-                f"case(s) supply none — the model will be run off-distribution and will quietly "
-                f"underperform (an _LC H1 model measures 0.986 -> 0.260 recovery this way). "
-                f"Pass --{key} (or a '{key}' field per case in --test_file)."
+        # Only meaningful against a real run_config. A CLI-built config sets include_* from what this
+        # run supplies, so checking one against the other would be comparing args with themselves —
+        # and would misfire outright on a test file whose cases carry their own context keys.
+        if configs.get("source") != "run_config":
+            break
+        supplied_cli = bool(getattr(args, key, None))
+        with_ctx = [c.get("name", "case") for c in cases if (c.get(key) or supplied_cli)]
+
+        if configs.get(flag) and len(with_ctx) < len(cases):
+            problems.append(
+                f"CONTEXT MISSING: checkpoint was trained WITH {name} context, but "
+                f"{len(cases) - len(with_ctx)}/{len(cases)} case(s) supply none — it will run off-"
+                f"distribution and quietly underperform. Pass --{key}, or a '{key}' field per case."
             )
+        elif not configs.get(flag) and with_ctx:
+            problems.append(
+                f"CONTEXT UNEXPECTED: checkpoint was trained WITHOUT {name} context, but "
+                f"{len(with_ctx)}/{len(cases)} case(s) supply it — prepending it shifts every "
+                f"learned position and is equally destructive. Drop --{key} and the '{key}' case field."
+            )
+    return problems, warnings
 
 
 def build_masked_input(tokenizer, pt1, pt2, target_length, partner_chain=None, antigen=None,
                        max_len=256):
-    """Assemble the masked input for one framework, minus the label track.
-
-    Returns (input_ids, mask_positions). Both the context injection and the layout come from
-    dataset.py — `inject_context` then `assemble_masked_input`, the SAME functions the training
-    examples are built with — so inference cannot drift from training. Which side the antigen lands
-    on, and which side gets truncated, follow the backbone's position_type automatically.
-    """
+    """Assemble the masked input for one framework. Returns (input_ids, mask_positions)."""
     pt1_ids, pt2_ids = inject_context(
         tokenizer, tokenizer.encode(pt1), tokenizer.encode(pt2), target_length,
         partner_seq=partner_chain, antigen_seq=antigen, max_len=max_len,
@@ -127,7 +232,7 @@ def decode_case(model, tokenizer, device, args, generator, case):
     """Generate + score one test case. Returns a JSON-serialisable record."""
     name = case.get("name", "Unnamed Test")
     pt1, pt2 = case["pt1"], case["pt2"]
-    native = case.get("target_seq")
+    native = case.get("target_truth")
     native = native.upper().strip() if native else None
     target_length = len(native) if native else case.get("target_length", 10)
 
@@ -198,7 +303,7 @@ def decode_case(model, tokenizer, device, args, generator, case):
 
 
 def _print_case(name, pt1, pt2, target_length, native, args, samples, metrics):
-    """Human-readable console report for one case (a compact superset of the old alignment print)."""
+    """Human-readable console report for one case."""
     print("\n" + "=" * 72)
     print(f"🧪 {name}")
     print(f"   context {len(pt1)}aa │ gap {target_length} │ {len(pt2)}aa   "
@@ -236,52 +341,66 @@ def _print_case(name, pt1, pt2, target_length, native, args, samples, metrics):
 
 
 def main(args):
-    print(f"🧬 Loading model from: {args.model_path}")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"🧬 Checkpoint: {args.model_path}")
+    configs = get_configs(args)
+    test_cases = get_test_case(args)
 
-    backbone = resolve(args.model_type)
-    tokenizer = backbone.build_tokenizer(args.model_type)
+    problems, warnings = check_compatibility(configs, test_cases, args)
+    for w in warnings:
+        logger.warning(f"⚠️  {w}")
+    for p in problems:
+        logger.warning(f"⛔ {p}")
+    if problems and not args.force:
+        raise SystemExit(
+            f"\n❌ Refusing to run: {len(problems)} compatibility problem(s) above.\n"
+            f"   Fix them, or pass --force to run anyway (the mismatch is then recorded in the "
+            f"output JSON so the result stays self-describing)."
+        )
+    if problems:
+        logger.warning(f"🔓 --force given: continuing despite {len(problems)} problem(s). "
+                       f"They are recorded under 'model.compatibility' in the output.")
+
+    # Load model for inference. model_type comes from configs, not args: --model_type is optional and
+    # falls back to whatever the checkpoint says it is.
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model_type = configs["model_type"]
+    print(f"🧬 Loading '{model_type}' weights onto {device}…")
+    backbone = resolve(model_type)
+    tokenizer = backbone.build_tokenizer(model_type)
     model = backbone.load_pretrained_model(args.model_path)
     model.to(device)
     model.eval()
 
-    # The loop being designed is fixed by WHICH checkpoint is loaded — nothing in the tensor names a
-    # loop or a chain, so there is no runtime argument for it. Report what this one was trained for.
-    meta = read_run_config(args.model_path)
-    if meta.get("target_region"):
-        ctx = [n for f, n in [("include_partner_chain", "partner chain"),
-                              ("include_antigen", "antigen")] if meta.get(f)]
-        print(f"🧬 This model was trained to design CDR '{meta['target_region']}' loops"
-              + (f", with {' + '.join(ctx)} context." if ctx else ", framework context only."))
-
-    # Reproducible sampling: one seeded generator on the model's device drives every draw.
+    # Set seed
     torch.manual_seed(args.seed)
     generator = torch.Generator(device=device)
     generator.manual_seed(args.seed)
-
-    # Gather test cases (JSON batch, else a single case from the CLI args).
-    if args.test_file:
-        with open(args.test_file, "r") as f:
-            test_cases = json.load(f)
-    else:
-        test_cases = [{
-            "name": "CLI Test Case",
-            "pt1": args.pt1,
-            "pt2": args.pt2,
-            "target_seq": args.target_seq,
-            "target_length": args.target_length,
-        }]
-
-    warn_on_mismatch(meta, test_cases)
 
     results = [decode_case(model, tokenizer, device, args, generator, case) for case in test_cases]
 
     # Persist samples + metrics for downstream analysis (mirrors train.py's per-run CSV habit).
     if args.output != "none":
         out_path = args.output or os.path.join(args.model_path, "generation_results.json")
+        # Wrap the per-case records with what produced them. Without this a generation_results.json
+        # from a deliberate off-target run is indistinguishable from an on-target one later.
+        payload = {
+            "model": {
+                "model_path": args.model_path,
+                "model_type": model_type,
+                "expects": configs,
+                "designing": args.target_loop,
+                "context_supplied": {
+                    "partner_chain": bool(args.partner_chain) or any(c.get("partner_chain") for c in test_cases),
+                    "antigen": bool(args.antigen) or any(c.get("antigen") for c in test_cases),
+                },
+                "compatibility": {"problems": problems, "warnings": warnings,
+                                "forced": bool(args.force)},
+            },
+            "cases": results,
+        }
         try:
             with open(out_path, "w") as f:
-                json.dump(results, f, indent=2)
+                json.dump(payload, f, indent=2)
             print(f"\n💾 Saved {len(results)} case(s) of samples + metrics to: {out_path}")
         except OSError as e:
             print(f"\n⚠️  Could not write results to {out_path}: {e}")
@@ -291,7 +410,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Design CDR loops for frameworks you provide (qualitative tool; use gen_eval.py for benchmarks)")
     parser.add_argument("--model_path", type=str, required=True, help="Path to your trained model folder")
-    parser.add_argument("--model_type", type=str, default="scratch",
+    parser.add_argument("--model_type", type=str, default=None,
                         help="Backbone: 'scratch', an ESM-2 id, a protein-BERT id, or any HF masked-LM hub path")
 
     parser.add_argument("--test_file", type=str, default=None,
@@ -301,16 +420,22 @@ if __name__ == "__main__":
     parser.add_argument("--pt1", type=str, default="", help="Sequence BEFORE the missing loop")
     parser.add_argument("--pt2", type=str, default="", help="Sequence AFTER the missing loop")
     parser.add_argument("--target_length", type=int, default=10, help="Gap length when no ground truth is given")
-    parser.add_argument("--target_seq", type=str, default=None, help="Optional ground-truth loop")
-    # Context the checkpoint may have been TRAINED with. A model trained with these and run without
-    # them does not fail — it silently degrades (measured 0.986 -> 0.260 on an _LC H1 model), so
-    # warn_on_mismatch() checks run_config.json and says so. Per-case keys in --test_file win over these.
+    parser.add_argument("--target_truth", type=str, default=None, help="Optional ground-truth loop")
     parser.add_argument("--partner_chain", type=str, default=None,
                         help="Paired partner chain (light for an h* target, heavy for l*). "
                              "Required by any checkpoint trained with include_partner_chain.")
     parser.add_argument("--antigen", type=str, default=None,
                         help="Antigen sequence; required by checkpoints trained with include_antigen. "
                              "Injection side follows the backbone's position_type automatically.")
+    parser.add_argument("--target_loop", type=str, choices=['h1', 'h2', 'h3', 'l1', 'l2', 'l3'], default=None,
+                        help="Which CDR this run is designing (h1/h2/h3/l1/l2/l3). Declarative: it "
+                             "cannot change the computation, and a mismatch with the checkpoint's "
+                             "trained loop warns rather than refuses (off-target probing is a valid "
+                             "experiment). The mismatch is recorded in the output JSON.")
+    parser.add_argument("--force", action="store_true",
+                        help="Run despite blocking CONTEXT problems (the checkpoint expects partner "
+                             "chain / antigen that this run does not supply, or vice versa). Loop "
+                             "and shape mismatches only warn and never need this.")
     parser.add_argument("--max_len", type=int, default=256,
                         help="Length cap for the assembled input; match the training config (SAbDab2 antigen runs use 512).")
 

@@ -87,11 +87,14 @@ def data_path_for(runs, ds):
     for (_, d, _, _), run_dir in runs.items():
         if d != ds:
             continue
-        meta = os.path.join(run_dir, "run_config.json")
-        if os.path.exists(meta):
-            p = _load(meta).get("data_path")
-            if p and os.path.exists(p):
-                return p
+        # run_config.json was run_meta.json before 2026-07-29; older batches still use the old name.
+        for name in ("run_config.json", "run_meta.json"):
+            meta = os.path.join(run_dir, name)
+            if os.path.exists(meta):
+                p = _load(meta).get("data_path")
+                if p and os.path.exists(p):
+                    return p
+                break
     return DEFAULT_DATA.get(ds)
 
 

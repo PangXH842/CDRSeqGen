@@ -1,14 +1,18 @@
 [
-    {
-        "name": "Jaffe_2022_Donor4_H1 (Known Ground Truth)",
-        "pt1": "EVQLVESGGGLVQPGGSLRLSCAAS",
-        "pt2": "MSWVRQAPGKGLEWVANIKQDGSEKYYVDSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYCARERWGIHSSSWYRHGMDVWGQGTTVTVSS",
-        "target_seq": "GFTFSSYW"
-    },
-    {
-        "name": "OAS_Novel_H1 (Length 8)",
-        "pt1": "QVQLVESGGGVVQPGRSLRLSCAAS",
-        "pt2": "GMHWVRQAPGKGLEWVAVIWYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCARRGYYDSSGYYYFDYWGQGTLVTVSS",
-        "target_length": 8
-    }
+  {
+    "name": "H1 \u2014 known ground truth",
+    "note": "OAS held-out (split != train), so any recovery shown is honest. Expect ~0.99 recovery: H1 is germline-templated.",
+    "source_id": "AACTCTTGTCTTGCGG-1_contig_1",
+    "pt1": "EVQLVESGGGLVQPGRSLRLSCAAS",
+    "pt2": "MHWVRQAPGKGLEWVSGISWNSGSIGYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTALYYCAKGQSIAVAGRMDYWGQGTLVTVSS",
+    "target_truth": "GFTFDDYA"
+  },
+  {
+    "name": "H1 \u2014 design only (no native)",
+    "note": "OAS held-out (split != train), so any recovery shown is honest. target_truth omitted on purpose: the pure design path.",
+    "source_id": "CCACGGATCACCAGGC-1_contig_1",
+    "pt1": "EVQLVESGGGLVKPGGSLRLSCAAS",
+    "pt2": "MNWVRQAPGKGLEWVSSISSSSSYIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYCARSSARGAFDIWGQGTMVTVSS",
+    "target_length": 8
+  }
 ]

@@ -262,14 +262,24 @@ which CDR the checkpoint was trained for (read from `run_config.json`). Samples 
 >
 > Pass it with `--partner_chain` / `--antigen` (or per-case `partner_chain` / `antigen` keys in a
 > `--test_file`), and set `--max_len` to the training config's value (512 for the SAbDab2 antigen runs).
-> `predict.py` reads `run_config.json`, prints what the checkpoint expects, and **warns** when a case
-> supplies none. Injection goes through the same `inject_context` / `assemble_masked_input` that build
-> the training examples, so which side the antigen lands on — and which side gets truncated — follows
-> the backbone's `position_type` automatically instead of being hand-encoded in the test file.
+> `predict.py` reads `run_config.json`, prints what the checkpoint expects, and **refuses** a context
+> mismatch in either direction unless `--force` — supplying context a model never saw is as damaging
+> as withholding context it needs (0.308 → **0.000** on `h3_OAS_scratch` with a partner chain
+> prepended), because for an absolute-position backbone it shifts every learned position. Injection
+> goes through the same `inject_context` / `assemble_masked_input` that build the training examples,
+> so which side the antigen lands on — and which side gets truncated — follows the backbone's
+> `position_type` automatically instead of being hand-encoded in the test file.
 >
-> There is **no `--target_loop` argument**: nothing in the tensor names a loop or a chain (the dataset
-> uses `target_region` only to decide where to *cut*), so the loop is fixed by which checkpoint you
-> load — `--model_path` is effectively that argument.
+> The **loop** is a weaker signal and is treated accordingly. Nothing in the tensor names a loop or a
+> chain, so which CDR you are designing is fixed by which checkpoint you load; `--target_loop` only
+> *declares* your intent and cannot change the computation, so a mismatch **warns** rather than
+> refuses — the input is still well-formed, just answered by weights fitted for another loop, which
+> is a legitimate thing to probe. Because that check is opt-in, one more runs unconditionally: the
+> length of `pt1` says where along the chain the gap sits, and across all 50,180 frameworks in both
+> processed datasets the three CDR numbers separate cleanly (CDR1 8–26, CDR2 33–57, CDR3 78–106).
+> That catches an h3 checkpoint fed an H1 framework with nothing declared, which was previously
+> silent. Only the **number** is inferable — H1 (23–25) and L1 (24–26) overlap outright — so a
+> heavy/light mix-up still cannot be detected this way.
 
 ```bash
 # design coherent loops for a batch of curated frameworks (default: iterative sampling)
@@ -593,12 +603,9 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 
 ### Changelog
 <!-- Latest updates can be added here before protection zone -->
-- **2026-07-30** -- [FINDING] First error bar: 3 seeds of `h3_scratch` ± partner chain give a seed sd of **0.0028** on a per-loop Δ. The context penalty is real overall (2.5σ) but **H1 and H3 individually are not distinguishable from noise** — so on H3 specifically, partner-chain context has no measurable effect. `+ctx` runs are also 5× more variable than base runs (§4)
-- **2026-07-30** -- [FINDING] Re-ran the full matrix with per-family epoch budgets (`results/20260729_202635`). The previous fixed 10-epoch budget under-trained the scratch model and had inflated **four** findings at once — §1 (+0.231→+0.119), §4 (−0.031→−0.010), §7 (judge-ppl gap 1.74×→1.00×), §2. Early stopping cost nothing on the pretrained side (mean Δ −0.0000) and cut the batch from 295 to 226 min. New Findings §9
-- **2026-07-30** -- `generation.py`: fixed `select_indices` returning fewer than `k` when a length bucket is under-populated — the shortfall was never redistributed, so SAbDab2 H1/H2 requests for 150 came back with 76/77 and **8 of 36 runs** in the 07-29 batch scored their design metrics on half the intended sample. Shortfall is now topped up from the remaining pool
-- **2026-07-29** -- `dataset.py`: `context_dropout` — train a fraction of examples without their optional context so ONE checkpoint works with and without it. Partner chain and antigen are dropped independently (all four combinations), deterministic per example so eval stays reproducible. Default 0.0 = unchanged. Measured: fixes the 0.98->0.26 collapse, nearly free on OAS, costs ~0.05 on the much smaller SAbDab2 (Findings §8)
-- **2026-07-29** -- `predict.py`: added `--partner_chain` / `--antigen` / `--max_len`, routed through the same `inject_context` the dataset uses; reads `run_config.json` and warns when a checkpoint's expected context is missing 
 <!-- MANUAL PROTECTION ZONE BEGINS -->
+- **2026-07-31** -- [RECLAIM] `predict.py` (finally): inference entrypoint - loads from json or custom CLI args
+- **2026-07-29** -- `dataset.py`: added `context_dropout` variable to train a fraction of examples without paired chain/antigen context
 - **2026-07-29** -- Split `train.py` into `cdrseqgen/train/{arguments,workspace,pipeline,reporting}.py`
 - **2026-07-29** -- `train.py`: fixed `train.log`, records per epoch (used to only have "Starting Training.../Starting Evaluation...") (pending verification)
 - **2026-07-29** -- [RECLAIM] `dataset.py`: extracted `assemble_masked_input` and `inject_context` (partner/antigen injection + length capping) functions to be used in training and inference (`dataset.py` still under control)
@@ -660,7 +667,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
  - [x] `sampling.py`
  - [x] `generation.py`
  - [x] `gen_eval.py`
- - [ ] `predict.py`
+ - [x] `predict.py`
  - [x] `linegraph_plotter.py`
  - [ ] `report_findings.py`
  - [x] `custom/transformer.py` 
