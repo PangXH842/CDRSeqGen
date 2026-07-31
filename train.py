@@ -1,15 +1,12 @@
-"""Training entrypoint — one config in, one results/<batch>/<run>/ directory out.
+"""Training entrypoint, processes configs from batch jsons/CLI, loads functions from `cdrseqgen/train/`.
 
-    python train.py configs/h3_scratch.json
-    python train.py configs/h3_scratch.json --learning_rate 3e-4 --num_train_epochs 20
+Usage (in CLI):
+  * python train.py configs/h3_scratch.json
+  * python train.py configs/h3_scratch.json --learning_rate 3e-4 --num_train_epochs 20
 
 Trailing flags override the JSON rather than replacing it, so any TrainingArguments field is tunable
 without writing a new config. Batch rounds go through scripts/run.sh, which exports
 CDRSEQGEN_RESULTS_ROOT so every run of the round shares one batch folder.
-
-This file is deliberately thin — it holds main() and nothing else. The parts live in
-cdrseqgen/train/ (arguments, workspace, pipeline, reporting) and cdrseqgen/eval/recovery.py; see
-cdrseqgen/train/__init__.py for the map.
 """
 import functools
 
@@ -20,20 +17,16 @@ from cdrseqgen.models.registry import resolve
 from cdrseqgen.eval.recovery import compute_metrics
 from cdrseqgen.train.arguments import setup_args
 from cdrseqgen.train.pipeline import get_datasets, post_training_generation, run_training_pipeline
-from cdrseqgen.train.workspace import LogMetricsCallback, configure_logging
+from cdrseqgen.train.logging import LogMetricsCallback, configure_logging
 
 configure_logging()
 
 
 def build_callbacks(model_args, training_args, logger):
     """Trainer callbacks: metric logging always, early stopping only when a config asks for it."""
-    # Always on: without it train.log records that training started and finished, but nothing between.
-    callbacks = [LogMetricsCallback()]
+    callbacks = [LogMetricsCallback()]  # Required for train.log to record training process
 
     if model_args.early_stopping_patience and model_args.early_stopping_patience > 0:
-        # EarlyStoppingCallback watches metric_for_best_model, so it inherits whatever the config
-        # selects checkpoints on (core_accuracy everywhere except the l2_* configs, where core is
-        # computed over ~1.4% of eval rows and would be noise to stop on).
         from transformers import EarlyStoppingCallback
         callbacks.append(EarlyStoppingCallback(
             early_stopping_patience=model_args.early_stopping_patience,

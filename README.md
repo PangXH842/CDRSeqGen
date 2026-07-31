@@ -45,9 +45,9 @@ CDRSeqGen/
 │   │       └── transformer.py  # From-scratch encoder — model_type "scratch"
 │   ├── train/                  # What train.py is assembled from (train.py itself is just main())
 │   │   ├── arguments.py        # Model/Data/Generation dataclasses + setup_args
-│   │   ├── workspace.py        # Logging, train.log, run dirs, results/latest, run_config.json
+│   │   ├── logging.py        # Logging, train.log, run dirs, results/latest, run_config.json
 │   │   ├── pipeline.py         # get_datasets, train/eval driver, post-training generative eval
-│   │   └── reporting.py        # epoch_metrics.csv + the four curve PNGs
+│   │   └── record_results.py        # epoch_metrics.csv + the four curve PNGs
 │   ├── eval/
 │   │   ├── sampling.py         # Decoders (independent / iterative Mask-Predict; temperature 0 = greedy) + pseudo-perplexity
 │   │   ├── metrics.py          # Design-side stats: diversity, novelty, per-position entropy
@@ -604,9 +604,10 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-07-31** -- [RECLAIM] `train.py` and `train/` scripts
 - **2026-07-31** -- [RECLAIM] `predict.py` (finally): inference entrypoint - loads from json or custom CLI args
 - **2026-07-29** -- `dataset.py`: added `context_dropout` variable to train a fraction of examples without paired chain/antigen context
-- **2026-07-29** -- Split `train.py` into `cdrseqgen/train/{arguments,workspace,pipeline,reporting}.py`
+- **2026-07-29** -- Split `train.py` into `cdrseqgen/train/{arguments,logging,pipeline,record_results}.py`
 - **2026-07-29** -- `train.py`: fixed `train.log`, records per epoch (used to only have "Starting Training.../Starting Evaluation...") (pending verification)
 - **2026-07-29** -- [RECLAIM] `dataset.py`: extracted `assemble_masked_input` and `inject_context` (partner/antigen injection + length capping) functions to be used in training and inference (`dataset.py` still under control)
 - **2026-07-29** -- `utils/report_findings.py`[new]: regenerates every README Findings table from a batch (`python -m cdrseqgen.utils.report_findings`)
@@ -673,11 +674,11 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
  - [x] preprocessing scripts
  - [ ] `run.sh`
  - [ ] hyperparameter tuning script (`sweep_scratch.sh`)
- - [ ] `train/arguments.py` 
- - [ ] `train/pipeline.py` 
- - [ ] `train/reporting.py` 
- - [ ] `train/workspace.py` 
- - [ ] `train.py` 
+ - [x] `train/arguments.py` 
+ - [x] `train/pipeline.py` 
+ - [x] `train/record_results.py` 
+ - [x] `train/logging.py` 
+ - [x] `train.py` 
  - [ ] README
 
 **Datasets**

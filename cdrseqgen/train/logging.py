@@ -1,4 +1,4 @@
-"""Where a run writes and how it logs — everything that sets up a run's workspace.
+"""Setup directory for training batch and runs, and logging.
 
   * configure_logging   -- stdout logging + quieting the noisy hub libraries (entrypoints call this)
   * attach_file_logging -- tee the root logger into <run_dir>/train.log

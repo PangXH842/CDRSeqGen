@@ -1,4 +1,4 @@
-"""The run itself: build the datasets, drive train/eval, then sample designs from the finished model.
+"""Main training pipeline. Dataset -> training -> generative eval
 
   * get_datasets             -- tokenizer + AntibodyInfillingDataset + the train/eval split
   * run_training_pipeline    -- the do_train / do_eval loops, then the CSV and curves
@@ -22,14 +22,14 @@ from sklearn.model_selection import train_test_split
 from transformers import Trainer, TrainingArguments
 
 from cdrseqgen.data.dataset import AntibodyInfillingDataset
-from cdrseqgen.train.reporting import save_training_csv, plot_training_curves
+from cdrseqgen.train.record_results import save_training_csv, plot_training_curves
 
 logger = logging.getLogger(__name__)
 
 
 def get_datasets(model_args, data_args, training_args, backbone) -> Tuple[torch.utils.data.Dataset, torch.utils.data.Dataset, any]:
     """Handles tokenizer selection, dataset loading, and splitting."""
-    # Tokenizer comes from the resolved backbone as a uniform TokenizerAdapter.
+    # Load TokenizerAdapter from dataset.py as tokenizer.
     tokenizer = backbone.build_tokenizer(model_args.model_type)
 
     # Dataset Loading
@@ -84,13 +84,7 @@ def run_training_pipeline(trainer: Trainer, training_args: TrainingArguments):
 
 
 def post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_args, training_args):
-    """Sample designs from the finished model and write generation_eval.json (opt-in).
-
-    Uses trainer.model directly: with "load_best_model_at_end" that IS the peak checkpoint and it is
-    already on the GPU, so nothing is reloaded from disk. The whole thing is guarded — a generation
-    failure (e.g. an OOM from a judge) must never destroy a training run that already succeeded and
-    saved, so it degrades to a warning.
-    """
+    """Sample designs from the finished model, produces generation_eval.json."""
     from cdrseqgen.eval.generation import run_generative_eval, build_judge
 
     try:

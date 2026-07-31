@@ -18,7 +18,7 @@ from transformers import HfArgumentParser, TrainingArguments
 
 from cdrseqgen.train.arguments import ModelArguments, DataArguments, GenerationArguments
 from cdrseqgen.train.pipeline import get_datasets
-from cdrseqgen.train.workspace import run_config_FILENAME, configure_logging
+from cdrseqgen.train.logging import run_config_FILENAME, configure_logging
 
 # Entrypoints configure their own logging. This used to arrive for free by importing train.py, which
 # ran basicConfig at import — an accident that broke the moment train.py was split.

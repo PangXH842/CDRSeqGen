@@ -51,7 +51,7 @@ import logging
 import os
 import torch
 
-from cdrseqgen.train.workspace import configure_logging
+from cdrseqgen.train.logging import configure_logging
 configure_logging()
 
 from cdrseqgen.data.dataset import assemble_masked_input, inject_context

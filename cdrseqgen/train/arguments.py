@@ -1,12 +1,14 @@
-"""Everything a run is configured by: the three dataclasses, and the parse-then-make-workspace step.
+"""Parses and processes CLI arguments. Consists of several dataclasses.
+  
+  * setup_args          -- parse config/CLI, name the run, create its directory, start its log
 
   * ModelArguments      -- backbone choice + scratch architecture knobs + early stopping
   * DataArguments       -- which JSON, which loop, which context, length cap
   * GenerationArguments -- the post-training design sweep (on by default)
-  * setup_args          -- parse config/CLI, name the run, create its directory, start its log
 
-TrainingArguments is HF's own and is parsed alongside these, so any of its fields (learning_rate,
-num_train_epochs, metric_for_best_model, ...) can be set in a config or overridden on the CLI.
+  * TrainingArguments   -- predefined by HF, including fields (learning_rate, num_train_epochs,
+                            metric_for_best_model, ...)  that can be set in a config or overridden 
+                            on the CLI
 
 Notes:
   * A config path is positional: `python train.py configs/h3_scratch.json`. Trailing flags OVERRIDE
@@ -26,7 +28,7 @@ from typing import Tuple
 
 from transformers import HfArgumentParser, TrainingArguments
 
-from cdrseqgen.train.workspace import (
+from cdrseqgen.train.logging import (
     RUN_SUFFIX_ENV,
     attach_file_logging,
     dataset_tag,
@@ -64,11 +66,6 @@ class ModelArguments:
                           "ratio tracks width automatically during an architecture sweep; set an "
                           "explicit value only to break that ratio deliberately."}
     )
-    # Early stopping is OFF by default so existing configs behave exactly as before. It only becomes
-    # useful because every config already sets load_best_model_at_end + eval_strategy=epoch: the
-    # trainer is already keeping the best checkpoint, this just stops paying for epochs after it.
-    # Right-sizing matters per family — ESM-2 peaks around epoch 4 and then decays on H3, while the
-    # scratch model is still improving at 10 (see README "Current Issues").
     early_stopping_patience: int = field(
         default=0,
         metadata={"help": "Stop after this many evals with no improvement in metric_for_best_model. "
@@ -122,10 +119,6 @@ class DataArguments:
 class GenerationArguments:
     """Post-training generative evaluation (see cdrseqgen/eval/generation.py). ON by default.
 
-    Training optimizes masked-LM *recovery*, which rewards copying the native loop — the opposite of
-    design. So every run also samples a library of candidates from its finished best model and scores
-    diversity / novelty / perplexity into generation_eval.json, beside epoch_metrics.csv.
-
     On gen_judge: pseudo-perplexity under a model's OWN distribution measures self-consistency, not
     quality — an overconfident model rates its own samples highly regardless. Comparing self-ppl
     across models compares two different measuring sticks (empirically it put the scratch-vs-ESM-2
@@ -133,10 +126,6 @@ class GenerationArguments:
     reference LM fixes this. Comparability requires the same judge across runs — NOT the same
     process — so per-run judging is valid. IgBert is a good default: antibody-specific, and
     independent of both the scratch model and ESM-2.
-
-    Cost, measured on scratch/H3 at these defaults: ~80s sampling + ~15s to load the judge, against
-    ~60s of training. Trim gen_num_examples for cheap runs, or set run_generative_eval false to skip.
-    gen_eval.py re-scores a finished checkpoint with other settings/judges, no retraining.
     """
     run_generative_eval: bool = field(
         default=True,
@@ -182,11 +171,10 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
         # Case: parse CLI args directly
         model_args, data_args, gen_args, training_args = parser.parse_args_into_dataclasses()
 
+    # Assemble batch dir name
     # Combine: [LOOP][DS_TAG][PARTNER_TAG][AG_TAG]_[MODEL][_SUFFIX]
     # Example: h3_SD2_LC_AG_esm2_t12_35M_UR50D  (heavy target, light-chain + antigen context)
     #          l3_OAS_HC_scratch                (light target, heavy-chain context)
-    # The date/time lives on the parent batch folder, so it isn't repeated here. Uniqueness is
-    # guaranteed by unique_run_dir() instead — see the note there on why that guard is required.
     target_loop = data_args.target_region
     ds_tag = f"_{dataset_tag(data_args.data_path)}"
     if getattr(data_args, 'include_partner_chain', False):
@@ -196,18 +184,13 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
     ag_tag = "_AG" if getattr(data_args, 'include_antigen', False) else ""
     model_name = model_args.model_type.split('/')[-1]
 
-    # Optional tag from a batch runner to distinguish runs of the SAME config — sweep_scratch.sh
-    # sets e.g. "lr1e-3_ep20_wu0.06", which is far more useful on a folder than a timestamp.
+    # Optional tag from a batch runner to distinguish runs of the SAME config
     suffix = os.environ.get(RUN_SUFFIX_ENV, "").strip()
     suffix = f"_{suffix}" if suffix else ""
 
     run_name = f"{target_loop}{ds_tag}{partner_tag}{ag_tag}_{model_name}{suffix}"
 
-    # Update paths.
-    # NOTE: there used to be a `logging_dir = output_dir/"logs"` assignment here. It was dead —
-    # the TensorBoard callback writes event files to output_dir/runs/<datetime>_<host>/ regardless,
-    # and no logs/ directory was ever created — while implying a log folder that never existed.
-    # The human-readable log is written by attach_file_logging() below, as output_dir/train.log.
+    # Update paths
     training_args.output_dir = unique_run_dir(results_root(), run_name)
     training_args.run_name = os.path.basename(training_args.output_dir)
 
