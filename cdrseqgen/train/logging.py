@@ -24,6 +24,7 @@ import sys
 import json
 import logging
 from datetime import datetime
+from dataclasses import asdict
 
 from transformers import TrainerCallback
 
@@ -145,16 +146,18 @@ def results_root() -> str:
 
 
 def update_latest_link(run_dir: str) -> None:
-    """Point results/latest at the newest *batch* directory (the parent of this run's folder).
+    """Point results/latest at the newest batch unless a batch runner explicitly opts out.
 
     A run.sh round trains many configs into one results/<batch-timestamp>/ folder; latest tracks that
-    whole round, so results/latest/<config>/ addresses any run in it — e.g. results/latest/h3_OAS_esm2/.
-    Point predict.py at a specific config: --model_path ./results/latest/<config>.
-    The link is relative, so moving/renaming the results tree doesn't break it.
+    whole round, so results/latest/<config>/ addresses any run in it. Sweeps set
+    CDRSEQGEN_SKIP_LATEST=1 because their trial folders should not replace the main usable batch.
 
     Refuses to touch results/latest if it is a real directory rather than a symlink — that would
     mean deleting real results, which is never worth a convenience shortcut.
     """
+    if os.environ.get("CDRSEQGEN_SKIP_LATEST", "").strip().lower() in {"1", "true", "yes"}:
+        logger.info("Skipping results/latest update (CDRSEQGEN_SKIP_LATEST is set).")
+        return
     batch_dir = os.path.dirname(os.path.abspath(run_dir))
     # Never self-link results/latest -> results (would happen only if a run dir sat directly in
     # results/ with no batch folder; results_root() always interposes one, so this is a guard).
@@ -174,23 +177,16 @@ def update_latest_link(run_dir: str) -> None:
         logger.warning(f"⚠️ Could not update {link_path}: {e}")
 
 
-def write_run_config(output_dir: str, model_args, data_args) -> dict:
-    """Persist the data/model provenance so a checkpoint is self-describing.
+def write_run_config(output_dir: str, model_args, data_args, gen_args, training_args) -> dict:
+    """Persist every resolved argument so a checkpoint and sweep trial are self-describing.
 
-    target_region (which CDR loop the model was trained to fill) otherwise lives ONLY in the config
-    and the run-dir name. Saving it into the run dir lets gen_eval.py report what the model was
-    actually trained for — and warn if it's later evaluated with a config targeting a different loop,
-    which would silently mask the wrong CDR and produce confident, meaningless numbers. predict.py
-    reads the same file to warn when a checkpoint's expected context isn't being supplied.
+    The file remains flat for backward compatibility with predict.py and gen_eval.py, which read
+    target_region and context flags directly from the top level.
     """
-    meta = {
-        "target_region": data_args.target_region,
-        "model_type": model_args.model_type,
-        "include_partner_chain": bool(data_args.include_partner_chain),
-        "include_antigen": bool(data_args.include_antigen),
-        "data_path": data_args.data_path,
-        "max_len": data_args.max_len,
-    }
+    meta = {}
+    for args in (model_args, data_args, gen_args):
+        meta.update(asdict(args))
+    meta.update(training_args.to_dict())
     with open(os.path.join(output_dir, run_config_FILENAME), "w") as f:
         json.dump(meta, f, indent=2)
     return meta

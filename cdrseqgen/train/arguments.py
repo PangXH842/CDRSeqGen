@@ -92,6 +92,12 @@ class DataArguments:
         default=0.1,
         metadata={"help": "Fraction of data to use for validation."}
     )
+    eval_split: str = field(
+        default="",
+        metadata={"help": "Named split used for evaluation/checkpoint selection. Empty preserves the "
+                          "legacy behavior of using every non-train entry; use 'validation' for tuning "
+                          "and 'test' only after hyperparameters are frozen."}
+    )
     target_region: str = field(
         default="h3",
         metadata={"help": "Which loop to mask: heavy h1/h2/h3, or light l1/l2/l3"}
@@ -197,7 +203,7 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
     os.makedirs(training_args.output_dir, exist_ok=True)
     log_path = attach_file_logging(training_args.output_dir)
     update_latest_link(training_args.output_dir)
-    write_run_config(training_args.output_dir, model_args, data_args)
+    write_run_config(training_args.output_dir, model_args, data_args, gen_args, training_args)
     logger.info(f"📁 Workspace initialized at: {training_args.output_dir}")
     logger.info(f"📝 Logging this run to: {log_path}")
 

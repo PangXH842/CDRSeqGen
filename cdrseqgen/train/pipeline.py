@@ -45,11 +45,24 @@ def get_datasets(model_args, data_args, training_args, backbone) -> Tuple[torch.
     )
 
     # Data split
+    selected_eval_split = data_args.eval_split.strip()
     if len(full_dataset) > 0 and all('split' in entry for entry in full_dataset.data):
-        # If 'split' is given, split train and val accordingly
+        available = sorted({entry['split'] for entry in full_dataset.data})
         train_idx = [i for i, entry in enumerate(full_dataset.data) if entry['split'] == 'train']
-        val_idx = [i for i, entry in enumerate(full_dataset.data) if entry['split'] != 'train']
+        if selected_eval_split:
+            if selected_eval_split == 'train' or selected_eval_split not in available:
+                raise ValueError(
+                    f"eval_split={selected_eval_split!r} is invalid; available non-training splits: "
+                    f"{[s for s in available if s != 'train']}"
+                )
+            val_idx = [i for i, entry in enumerate(full_dataset.data)
+                       if entry['split'] == selected_eval_split]
+        else:
+            # Backward compatibility for existing two-way datasets/configs.
+            val_idx = [i for i, entry in enumerate(full_dataset.data) if entry['split'] != 'train']
     else:
+        if selected_eval_split:
+            raise ValueError("eval_split requires a processed dataset with named split fields")
         # random train/val split, arg: data_args.test_size
         train_idx, val_idx = train_test_split(
             range(len(full_dataset)),
@@ -60,7 +73,9 @@ def get_datasets(model_args, data_args, training_args, backbone) -> Tuple[torch.
     train_ds = torch.utils.data.Subset(full_dataset, train_idx)
     eval_ds = torch.utils.data.Subset(full_dataset, val_idx)
 
-    logger.info(f"📊 Data loaded: {len(train_ds)} train, {len(eval_ds)} eval.")
+    eval_label = selected_eval_split or "all non-train"
+    logger.info(f"📊 Data loaded: {len(train_ds)} train, {len(eval_ds)} eval "
+                f"(eval split: {eval_label}).")
     return train_ds, eval_ds, tokenizer
 
 

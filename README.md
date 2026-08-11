@@ -1,15 +1,15 @@
 <!-- Note to AI: Edits allowed OUTSIDE of MANUAL PROTECTION ZONES and INSIDE of AI ACCESS ZONES -->
 # CDRSeqGen: Modular Antibody Infilling Framework
 
-**Date Updated:** 2026-07-31 
-**Status:** Operation Reclamation - `predict.py`
+**Date Updated:** 2026-08-11
+**Status:** SOTA baseline alignment — IgLM benchmark
 
 ## Project Overview
 CDRSeqGen is a computational immunology framework designed to predict antibody loop sequences given the surrounding framework context. 
 
 Current implemented features include: 
 - **Data Preprocessing**: standardize data into Bio-Object JSON format (IMGT), current datasets: OAS (21106 paired sequences) and SAbDab2 (3984 paired + antigen structures)
-- **Addressing Data Leakage**: clustered train/test split for OAS to prevent clonal near-duplicate leakage
+- **Addressing Data Leakage**: clustered OAS splitting with optional train/validation/test partitions that keep clonal near-duplicates together
 - **Task-Agnostic Masking**: masking training method for all 6 CDR loops individually by target selection
 - **Pluggable Backbone PLMs**: supports various PLMs, current list: custom transformer (scratch), ESM-2, IgBert, ProtBert
 - **Partner Chain Context**: optional inclusion of non-target chain sequence context
@@ -45,7 +45,7 @@ CDRSeqGen/
 │   │       └── transformer.py  # From-scratch encoder — model_type "scratch"
 │   ├── train/                  # What train.py is assembled from (train.py itself is just main())
 │   │   ├── arguments.py        # Model/Data/Generation dataclasses + setup_args
-│   │   ├── logging.py        # Logging, train.log, run dirs, results/latest, run_config.json
+│   │   ├── logging.py        # Logging, run dirs/latest, complete resolved run_config.json
 │   │   ├── pipeline.py         # get_datasets, train/eval driver, post-training generative eval
 │   │   └── record_results.py        # epoch_metrics.csv + the four curve PNGs
 │   ├── eval/
@@ -71,7 +71,8 @@ CDRSeqGen/
 ├── gen_eval.py                 # Entrypoint — GENERATIVE metrics on a finished run (+ --judge)
 ├── scripts/
 │   ├── run.sh                  # Unified runner: ./scripts/run.sh <gpu> [oas|antigen|lcdr|igbert|protbert|plm|all ...]
-│   └── sweep_scratch.sh        # HP sweep for the scratch model (LR × epochs × warmup)
+│   ├── sweep_h3.sh             # Validation-safe, multi-seed H3 hyperparameter screen
+│   └── sweep_scratch.sh        # Legacy 2026-07 pilot sweep (kept for provenance)
 ├── env.sh
 └── README.md
 ```
@@ -103,6 +104,16 @@ Convert datasets into a custom "Bio-Object" JSON format, extracting the regions 
 python -m cdrseqgen.data.preprocess.oas_paired \
     --input_file dataset/data/raw/1287169_1_Paired_All.csv \
     --output_file dataset/data/processed/processed_oas_data.json
+```
+
+For hyperparameter tuning, create a separate three-way file. Test clusters are allocated first using
+the historical shuffle, so the established test membership is preserved; validation is then taken
+from the former training partition:
+```bash
+python -m cdrseqgen.data.preprocess.oas_paired \
+    --input_file dataset/data/raw/1287169_1_Paired_All.csv \
+    --output_file dataset/data/processed/processed_oas_tuning.json \
+    --split cluster --test_size 0.1 --validation_size 0.1 --seed 42
 ```
 
 **SAbDab2**: currently including 3984 structures - paired with resolved antigen, remaining >10k structures without antigen pending future inclusion
@@ -147,9 +158,9 @@ results/
 │   └── h3_OAS_LC_scratch/
 ├── 20260720_193002/                    ← a single train.py run
 │   └── h3_OAS_scratch/
-├── sweeps/scratch_20260720_193030/     ← a sweep: grid point in the name
-│   ├── h3_OAS_scratch_lr1e-4_ep1_wu0.0/
-│   └── h3_OAS_scratch_lr1e-3_ep1_wu0.0/
+├── sweeps/h3_20260811_193030/          ← validation-safe sweep; results/latest unchanged
+│   ├── h3_OAS_scratch_lr1e-4_wu0.0_wd0.0_s42/
+│   └── h3_OAS_scratch_lr1e-3_wu0.06_wd0.01_s43/
 └── latest -> 20260720_193002/          ← newest batch; predict.py uses latest/<config>
 ```
 
@@ -162,15 +173,13 @@ date/time lives on the batch folder and isn't repeated inside.
 CDRSEQGEN_RUN_SUFFIX=ablation_noLC python train.py configs/h3_scratch.json
 #  -> results/<batch>/h3_OAS_scratch_ablation_noLC/
 ```
-`sweep_scratch.sh` sets it automatically to the grid point (`lr1e-3_ep20_wu0.06`), so sweep folders are
-self-describing. If two runs still collide, the second becomes `..._2` **with a logged warning** — a run
-never silently overwrites another. `results/latest` is left untouched if it exists as a real directory.
+`sweep_h3.sh` tags every trial with its LR, warm-up, weight decay, and seed, so folders are
+self-describing. It groups trials with `CDRSEQGEN_RESULTS_ROOT`, writes `runs.tsv`/`summary.tsv`, and
+sets `CDRSEQGEN_SKIP_LATEST=1` so exploratory trials do not replace the main usable batch. If two runs
+still collide, the second becomes `..._2` with a logged warning; a run never silently overwrites another.
 
-`sweep_scratch.sh` does the same, putting its runs beside its own `runs.tsv` under
-`results/sweeps/scratch_<stamp>/`. Mechanism: the runner exports `CDRSEQGEN_RESULTS_ROOT` and
-`train.py` creates its run dir underneath it (see `results_root()`); per-run folder names are
-unchanged. A standalone `python train.py …` sets no env var and writes to `./results/<run>/` as before,
-so nothing about single runs changes. Export it yourself to group manual runs:
+A standalone `python train.py …` sets neither environment variable and retains the normal behavior.
+Export `CDRSEQGEN_RESULTS_ROOT` yourself to group manual runs:
 ```bash
 CDRSEQGEN_RESULTS_ROOT=results/my_experiment python train.py configs/h3_scratch.json
 ```
@@ -181,26 +190,20 @@ CDRSEQGEN_RESULTS_ROOT=results/my_experiment python train.py configs/h3_scratch.
 python train.py configs/h3_scratch.json --learning_rate 3e-4 --num_train_epochs 20 --warmup_ratio 0.06
 ```
 
-**Sweep hyperparameters (scratch):** [`scripts/sweep_scratch.sh`](scripts/sweep_scratch.sh) grids LR × epochs ×
-warmup over a base config (~50s per scratch run) and prints a summary sorted by **best-epoch** core accuracy,
-flagging runs that overfit after their peak or are still improving at the last epoch.
+**Tune H3 on validation:** [`scripts/sweep_h3.sh`](scripts/sweep_h3.sh) runs a validation-only,
+multi-seed screen. Its default 32 trials cover 4 learning rates × 2 warm-up ratios × 2 weight decays ×
+2 seeds. Every trial shares a fixed 30-epoch linear-scheduler horizon and uses early stopping; epoch
+budget is deliberately not swept because it would also reshape the scheduler. Post-training generative
+evaluation is disabled during tuning.
 ```bash
-./scripts/sweep_scratch.sh <gpu>                                     # default: 3 LRs × 2 epoch budgets
-LRS="1e-4 3e-4 1e-3" EPOCHS="10 20" WARMUPS="0.0 0.06" ./scripts/sweep_scratch.sh 4
+./scripts/sweep_h3.sh 4
+SEEDS="42 43 44" LRS="3e-4 1e-3" ./scripts/sweep_h3.sh 4
 ```
-> **Architecture is now sweepable** *(since 2026-07-27)*. `num_attention_heads` and `intermediate_size` are
-> `ModelArguments` fields forwarded by `build_model` ([`custom/transformer.py`](cdrseqgen/models/custom/transformer.py)).
-> Leave `intermediate_size` unset and it resolves to **4 × `hidden_size`**, so the FFN ratio follows width instead of
-> silently drifting (at the old hardcoded 512, widening to 256 halved the ratio and would have confounded width with
-> FFN ratio in any architecture sweep). `hidden_size` must stay divisible by `num_attention_heads` — now a loud
-> `ValueError` rather than a failure deep inside `nn.MultiheadAttention`.
->
-> Also note HF's default scheduler is **linear decay over the total budget**, so `num_train_epochs` reshapes the whole
-> LR trajectory — `10` vs `20` compares two schedules, not one schedule at two lengths.
->
-> **Early stopping** is available but off by default: set `"early_stopping_patience": N` (and optionally
-> `"early_stopping_threshold"`) to stop once `metric_for_best_model` plateaus. Useful because the two families
-> misfit `num_train_epochs: 10` in opposite directions — see Open problems.
+The script refuses datasets without explicit `train`/`validation`/`test` labels, ranks settings by
+mean best validation core recovery across seeds, writes `runs.tsv` and `summary.tsv`, never selects
+the test partition, and leaves `results/latest` untouched. Set `SWEEP_DIR` to resume. The older
+[`sweep_scratch.sh`](scripts/sweep_scratch.sh) is retained only as provenance for the July pilot; it
+selected among trials on the final holdout and should not be used for the IgLM comparison.
 
 ### Step 3: Result Visualization & Comparison
 All three recovery metrics are recorded **every epoch** (`compute_metrics` → `epoch_metrics.csv`:
@@ -565,7 +568,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ---
 
 ## ⚠️ Current Issues 
-*(current as of 2026-07-28; update per commit)*
+*(current as of 2026-08-11; update per commit)*
 
 ### Open problems
 - **The split only controls the loop it clusters on.** `add_split_field` clusters heavy CDR3, so the holdout is leakage-safe for H3 and **not** for H1/H2/L1/L2/L3 — 98% of OAS test H1s appear verbatim in train (Findings §6). Every non-H3 number in this README is therefore retrieval-bounded and should not be read as generalisation. Fix: cluster on the *target* CDR (per-loop split), a contained change to `add_split_field`; then re-run the OAS matrix.
@@ -575,7 +578,8 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **Sampler is marginal-based, not learned-joint — now measured.** The `iterative` (Mask-Predict) decoder approximates the loop joint by conditioning on committed residues, but the model is still a masked-LM trained on independent-position recovery. As of 2026-07-28 this is no longer a suspicion: iterative and `independent` are **within noise on every metric** on H3/OAS/ESM-2 (recovery 0.4057 vs 0.4072; judge-ppl 7.14 vs 7.23) at ~15× the compute. The conditioning buys nothing because the learned marginals are already near-independent — true joint/generative *training* (autoregressive or diffusion) is Phase-2 territory.
 - **Five runs hit their epoch ceiling, all of them context runs.** `h1_SD2_LC`, `h2_OAS_LC`, `h3_OAS_LC`, `l1_OAS_HC`, `l3_OAS_HC` peaked at epoch 19–20 of 20 in the 07-29 batch. Their numbers are lower bounds, so the §4 partner-chain penalty (−0.0102) is an upper bound on the true effect. A scratch-only sweep at 30–40 epochs would settle it (~1 hour; scratch is 60 of the batch's 226 minutes).
 - **Only one comparison has an error bar.** Three seeds of `h3_scratch` ± partner chain put the seed sd of a per-loop Δ at **0.0028** (§4), which already retires two of the six per-loop context numbers as noise. Every *other* number in this README is still single-seed, and any claimed difference below ~0.006 should be treated as unmeasured until it has the same treatment.
-- **Hyperparameters were never tuned.** *(Largely addressed 2026-07-29: per-family epoch budgets — 20 for scratch, 10 for pretrained — plus `early_stopping_patience: 3` everywhere. See §9 for what the previous fixed budget was costing. LR is still one value per family and untuned.)* *(2026-07-27: opt-in early stopping — set `"early_stopping_patience": N` in a config to stop once `metric_for_best_model` plateaus. Off by default, so nothing changes unless you ask for it. The epoch counts below are still un-right-sized.)* All 48 configs pin one LR per family (scratch `1e-4`, pretrained `5e-5`) and exactly `num_train_epochs: 10`, with no warmup / weight-decay / scheduler set (HF defaults throughout). The curves show 10 is wrong for **both**, in opposite directions: `h3_esm2` peaks at **epoch 4** (core 0.3209) then decays to 0.3063 by 10 — six wasted epochs, rescued only by `load_best_model_at_end` — while `h3_scratch` is still creeping at 10 (~0.001 loss/epoch). *Mitigating evidence for Finding #1:* the two reach ~0.32 core from **opposite directions** (ESM-2 from above in 1–4 epochs, scratch from below over 10), which argues the ceiling is real rather than a shared-settings artifact. Sweep with [`scripts/sweep_scratch.sh`](scripts/sweep_scratch.sh).
+- **Historical batches reused the final holdout for model selection.** The 07-29 runs used their only non-training OAS partition for early stopping, best-checkpoint selection, and reporting. Those numbers remain useful exploratory results but are not an untouched-test estimate. The new opt-in three-way clustered split plus `eval_split=validation` fixes the protocol for future tuning; final test evaluation must occur only after settings are frozen.
+- **Hyperparameter tuning is not complete.** The July scratch-H3 pilot tested LR × epochs × warm-up on one seed and selected on the final holdout; moreover, the 07-29 batch retained `1e-4` rather than the pilot's upper-bound winner near `1e-3`. [`sweep_h3.sh`](scripts/sweep_h3.sh) now provides a validation-only, fixed-horizon, multi-seed screen over LR, warm-up, and weight decay, but its real 32-trial run is still pending.
 - ~~**Checkpoint selection uses the metric we say is misleading.**~~ **Fixed 2026-07-27.** 44 of 48 configs now set `"metric_for_best_model": "core_accuracy"` (HF resolves it to `eval_core_accuracy`). The four `l2_*` configs deliberately stay on whole-span `accuracy`: L2 core is computed over ~1.4% of eval rows, so selecting checkpoints on it would be selecting on noise — the same exception documented under "How to read the numbers". Runs before this date selected on whole-span and aren't checkpoint-comparable to later ones.
 - ~~**Scratch architecture isn't tunable.**~~ **Fixed 2026-07-27.** `num_attention_heads` and `intermediate_size` are now `ModelArguments` fields forwarded by `build_model` ([`custom/transformer.py`](cdrseqgen/models/custom/transformer.py)). `intermediate_size` defaults to `None` = **4 × hidden_size**, so the FFN ratio tracks width instead of silently drifting (at the old fixed 512, widening to 256 quietly halved the ratio and would have confounded any architecture sweep). Defaults reproduce the old geometry exactly (128 → 512), and a `hidden_size % num_attention_heads` check now fails loudly instead of deep inside `nn.MultiheadAttention`.
 - **Single-seed runs.** Small differences (e.g. light chain hurts scratch ~0.01, neutral for ESM-2) need multiple seeds + error bars before they can be claimed.
@@ -603,7 +607,12 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
+- **2026-08-11** -- Added validation-safe, resumable, multi-seed H3 tuning via `scripts/sweep_h3.sh`; fixed scheduler horizon, validation-only checkpoint selection, aggregated seed statistics, and no generative-eval overhead
+- **2026-08-11** -- OAS preprocessing now supports an opt-in three-way clustered split; historical test membership is preserved exactly while validation is carved from former training clusters
+- **2026-08-11** -- Added `eval_split` so tuning can select `validation` explicitly and final evaluation can select `test`; legacy two-way configs retain their previous behavior
+- **2026-08-11** -- `run_config.json` now records all resolved model/data/generation/training arguments; sweeps can opt out of updating `results/latest`
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-08-11** -- Update roadplan for baseline comparison: IgLM, IgCraft
 - **2026-07-31** -- [RECLAIM] `train.py` and `train/` scripts
 - **2026-07-31** -- [RECLAIM] `predict.py` (finally): inference entrypoint - loads from json or custom CLI args
 - **2026-07-29** -- `dataset.py`: added `context_dropout` variable to train a fraction of examples without paired chain/antigen context
@@ -640,7 +649,30 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ## ⏭️ Roadmap
 
 <!-- AI ACCESS ZONE BEGINS -->
-> **Objective-first:** the target is **CDR-H3 design**. **Phase 1** = a leakage-safe *sequence benchmark* (done — establishes the ~0.32 core ceiling; see Findings). **Phase 2** = *structure-conditioned* design (RMSD-to-native; exact target to lock with advisor). Everything below is a tool toward that objective.
+> **Objective-first:** the target is **CDR-H3 design**. **Phase 1** = a leakage-controlled *sequence benchmark* (the current models plateau near 0.32 core recovery under the tested settings; see Findings). The active milestone is to position that result against a published sequence-infilling baseline under one matched evaluation protocol. **Phase 2** = *structure-conditioned* design (RMSD-to-native; exact target to lock with advisor). Everything below is a tool toward that objective.
+
+### Active milestone — matched CDRSeqGen vs IgLM benchmark
+
+**Primary baseline:** [IgLM](https://github.com/Graylab/IgLM), because it is the closest published and reproducible match to CDRSeqGen's sequence-infilling task. IgCraft is the intended second sequence baseline after the comparison interface is stable; structure/antigen models such as IgGM belong to Phase 2 and should not be mixed into the sequence-only table.
+
+The comparison must run both methods on the **same frozen examples**, with the same number of candidates and the same scorer. It has two distinct tracks and they must not be collapsed into one number:
+
+1. **Fixed-length redesign (first deliverable).** Supply the native H3 length to both models. This matches CDRSeqGen's current mask construction and permits position-wise recovery, including the existing anchor/core split.
+2. **Length-free infilling (follow-up).** Supply only the flanking framework and require the model to terminate the loop itself. Report validity and length metrics in addition to sequence metrics. CDRSeqGen does not support this track yet; its fixed number of mask tokens reveals the native length.
+
+**Implementation plan**
+
+- [ ] Freeze a versioned H3 benchmark manifest from the clustered OAS evaluation split. Each record must carry a stable ID, heavy-chain `pt1`/`pt2`, native H3, native length, split provenance, and optional partner chain. Both model adapters must consume this exact file rather than reconstructing their own split.
+- [ ] Refactor the model-independent parts of [`generation.py`](cdrseqgen/eval/generation.py) into a shared scorer that accepts `{example_id, native, samples}` records. Keep model-specific sampling outside the scorer.
+- [ ] Add a CDRSeqGen benchmark adapter that generates the common record schema from an existing checkpoint.
+- [ ] Add an IgLM adapter around the official pretrained model and its `infill` API. Record the model/version, chain and species tokens, sampling parameters, seed, failures, and generated lengths. Do not force IgLM through the masked-LM backbone registry.
+- [ ] Define the fixed-length IgLM policy explicitly. Prefer constrained generation if the official implementation supports it; otherwise oversample and retain candidates of the native length, reporting acceptance rate and sampling budget. Never silently discard length-mismatched samples.
+- [ ] Score both outputs once through the shared evaluator: whole-span AAR, core AAR, anchor AAR, diversity, novelty, unique fraction, per-position entropy, and one independent judge score. Add valid-generation rate, length-match rate, and runtime per candidate.
+- [ ] Add paired uncertainty: bootstrap test examples and report the CDRSeqGen-minus-IgLM difference with a 95% confidence interval. The example, not each generated candidate, is the statistical unit.
+- [ ] Produce side-by-side evaluation curves: recovery by H3-length bucket, accuracy by relative H3 position, and the recovery--diversity frontier across matched sampling settings. Do not compare CDRSeqGen training curves with a frozen pretrained IgLM checkpoint; training curves become meaningful only if IgLM is retrained on the same corpus and should then use tokens/examples seen rather than epoch number.
+- [ ] First reproduce one official IgLM example and, where possible, one reported IgLM benchmark result before trusting the adapter.
+- [ ] Audit training-data overlap. A frozen IgLM model was pretrained on OAS, so performance on the local OAS holdout is not automatically a leakage-free generalization estimate. Report the frozen-model comparison with this limitation, and separately investigate either retraining IgLM on the exact local training split or constructing a post-training/independent test set.
+- [ ] Write one comparison artifact containing the manifest hash, model provenance, complete parameters, per-example records, aggregate table, confidence intervals, and plot paths so the result is reproducible from a single command.
 
 **General — next steps**
 - [x] Sampler in `predict.py` (temperature / top-k / top-p, independent + iterative Mask-Predict) + generative metrics ([`sampling.py`](cdrseqgen/eval/sampling.py), [`metrics.py`](cdrseqgen/eval/metrics.py))
@@ -648,7 +680,8 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - [x] **HP hygiene** — `metric_for_best_model` → `core_accuracy` on 44/48 configs (the four `l2_*` stay whole-span, see "How to read the numbers"); opt-in early stopping wired in. *Epoch budgets are still un-right-sized — see Open problems.*
 - [x] Plumb `num_attention_heads` / `intermediate_size` through `build_model` — `intermediate_size` now defaults to 4 × `hidden_size` (prerequisite for any architecture sweep)
 - [ ] **Per-loop split** — cluster on the *target* CDR, not always heavy CDR3, then re-run the OAS matrix. Everything non-H3 in Findings is retrieval-bounded until this lands (§6)
-- [ ] LR sweep on scratch ([`sweep_scratch.sh`](scripts/sweep_scratch.sh)) — cheap insurance for "model choice doesn't matter"; scratch is the model most likely under-tuned
+- [x] Implement three-way clustered OAS splitting, explicit validation/test selection, full run provenance, and the validation-safe H3 sweep
+- [ ] Run the validation-safe scratch H3 screen ([`sweep_h3.sh`](scripts/sweep_h3.sh)), confirm the selected region with a third seed, then freeze settings before test evaluation
 - [ ] Multi-seed the key H3 configs (error bars on the ±0.01 model/context deltas)
 - [ ] Re-run the 07-24 batch under core-based checkpoint selection (those 36 runs predate the fix; their saved weights were picked on whole-span)
 - [ ] Lock the Phase-2 objective + primary metric with advisor
@@ -673,7 +706,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
  - [x] `dataset.py` 
  - [x] preprocessing scripts
  - [ ] `run.sh`
- - [ ] hyperparameter tuning script (`sweep_scratch.sh`)
+ - [ ] hyperparameter tuning script (`sweep_h3.sh`)
  - [x] `train/arguments.py` 
  - [x] `train/pipeline.py` 
  - [x] `train/record_results.py` 
@@ -696,7 +729,8 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - [x] Bio-Object JSON schema (14 IMGT regions)
 - [x] Partner-chain context (light ↔ heavy)
 - [x] Antigen context (SAbDab2)
-- [x] Clustered split (OAS) -- homology-leak-safe 
+- [x] Clustered train/test split (OAS) -- H3 homology-leak-safe
+- [x] Optional clustered train/validation/test split for tuning -- preserves the historical test set
 - [ ] Structure / coordinate parsing 
 - [ ] Unpaired-OAS preprocessor (`preprocess_oas_unpaired.py`)
 

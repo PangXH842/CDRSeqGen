@@ -89,8 +89,20 @@ def cluster_by_cdr3(cdr3_seqs, identity=0.85):
 
 
 def assign_cluster_split(cluster_ids, test_size=0.1, seed=42):
-    """Hold out whole CDR3 clusters until ~test_size of entries are in test, so no clonal relative
-    straddles the train/test boundary. Deterministic given seed. Returns a per-entry split list."""
+    """Backward-compatible two-way clustered split."""
+    return assign_cluster_splits(cluster_ids, test_size=test_size, validation_size=0.0, seed=seed)
+
+
+def assign_cluster_splits(cluster_ids, test_size=0.1, validation_size=0.0, seed=42):
+    """Assign whole CDR3 clusters to train/validation/test.
+
+    Test clusters are allocated first using the historical shuffle, so adding validation does not
+    change the established test set. Validation clusters then come from what was previously training
+    data. Both sizes are fractions of the complete corpus.
+    """
+    if test_size < 0 or validation_size < 0 or test_size + validation_size >= 1:
+        raise ValueError("test_size and validation_size must be non-negative and sum to less than 1")
+
     members = defaultdict(list)
     for i, c in enumerate(cluster_ids):
         members[c].append(i)
@@ -99,61 +111,69 @@ def assign_cluster_split(cluster_ids, test_size=0.1, seed=42):
     random.Random(seed).shuffle(cids)
 
     n = len(cluster_ids)
-    target = round(test_size * n)
     split = ["train"] * n
-    n_test = 0
-    for c in cids:
-        if n_test >= target:
-            break
-        for i in members[c]:
-            split[i] = "test"
-        n_test += len(members[c])
+    cursor = 0
+    for label, fraction in (("test", test_size), ("validation", validation_size)):
+        target = round(fraction * n)
+        assigned = 0
+        while cursor < len(cids) and assigned < target:
+            c = cids[cursor]
+            cursor += 1
+            for i in members[c]:
+                split[i] = label
+            assigned += len(members[c])
     return split
 
 
-def add_split_field(processed_data, mode, test_size, seed, cluster_identity):
-    """Attach a per-entry 'split' field (train/test) that get_datasets in train.py will honor.
+def add_split_field(processed_data, mode, test_size, seed, cluster_identity, validation_size=0.0):
+    """Attach a per-entry train/test or train/validation/test split field.
 
-    Modes, oldest first:
-      * 'none'    -- attach nothing. The original behaviour: train.py draws its own random split at
-                     load time, so it differs from run to run.
-      * 'random'  -- that same random split, but seeded and written into the file. Reproducible,
-                     and still leaks clonal near-duplicates.
-      * 'cluster' -- the leakage-safe holdout added later, now the default: whole CDR3 clusters go
-                     to test, so no clonal relative straddles the boundary. See the module Notes.
-
-    Clustering runs for 'random' as well — not to build that split, but so the leakage count printed
-    at the end is measured the same way in both modes and the two can be compared directly.
+    With a clustered split, test clusters are allocated first and validation clusters second. This
+    preserves the historical test set when validation_size changes from zero to a positive value.
     """
     if mode == "none":
         print("No 'split' field written — train.py will draw a random split at load time (leaky).")
         return
 
-    cluster_ids, n_clusters = cluster_by_cdr3([e["heavy"]["cdr3"] for e in processed_data], cluster_identity)
+    cluster_ids, n_clusters = cluster_by_cdr3(
+        [e["heavy"]["cdr3"] for e in processed_data], cluster_identity
+    )
 
     if mode == "cluster":
-        split = assign_cluster_split(cluster_ids, test_size, seed)
+        split = assign_cluster_splits(cluster_ids, test_size, validation_size, seed)
     else:  # random
+        if test_size < 0 or validation_size < 0 or test_size + validation_size >= 1:
+            raise ValueError("test_size and validation_size must be non-negative and sum to less than 1")
         rng = random.Random(seed)
         idx = list(range(len(processed_data)))
         rng.shuffle(idx)
         n_test = round(test_size * len(idx))
+        n_validation = round(validation_size * len(idx))
         test_set = set(idx[:n_test])
-        split = ["test" if i in test_set else "train" for i in range(len(processed_data))]
+        validation_set = set(idx[n_test:n_test + n_validation])
+        split = [
+            "test" if i in test_set else "validation" if i in validation_set else "train"
+            for i in range(len(processed_data))
+        ]
 
     for entry, s in zip(processed_data, split):
         entry["split"] = s
 
-    # Leakage check, printed for every mode so they can be compared directly: how many test entries
-    # share a CDR3 cluster with any train entry? 0 for the cluster split by construction; on the
-    # current 21,106-sequence file 'random' reports 76 (3.6%) — that gap is why 'cluster' was added.
     train_clusters = {cluster_ids[i] for i, s in enumerate(split) if s == "train"}
-    leaked = sum(1 for i, s in enumerate(split) if s == "test" and cluster_ids[i] in train_clusters)
+    validation_clusters = {cluster_ids[i] for i, s in enumerate(split) if s == "validation"}
+    test_clusters = {cluster_ids[i] for i, s in enumerate(split) if s == "test"}
     n_test = split.count("test")
+    n_validation = split.count("validation")
+    leakage = {
+        "train/validation": len(train_clusters & validation_clusters),
+        "train/test": len(train_clusters & test_clusters),
+        "validation/test": len(validation_clusters & test_clusters),
+    }
     print(f"Split '{mode}': {n_clusters} CDR3 clusters (>={cluster_identity:.0%} identity); "
-          f"test = {n_test} entries ({n_test / len(split):.1%}). "
-          f"Test entries sharing a CDR3 cluster with train (leakage): {leaked} "
-          f"({leaked / max(n_test, 1):.1%}).")
+          f"train = {split.count('train')} ({split.count('train') / len(split):.1%}); "
+          f"validation = {n_validation} ({n_validation / len(split):.1%}); "
+          f"test = {n_test} ({n_test / len(split):.1%}). "
+          f"Cluster overlap: {leakage}.")
 
 
 def build_regions(row, suffix):
@@ -222,11 +242,15 @@ if __name__ == "__main__":
                              "split, seeded and written to the file; 'cluster' (default) = the "
                              "leakage-safe CDR3-identity holdout added later. See the module docstring.")
     parser.add_argument("--test_size", type=float, default=0.1, help="Fraction of entries held out as test.")
+    parser.add_argument("--validation_size", type=float, default=0.0,
+                        help="Fraction held out as validation after test allocation. Set 0 to reproduce "
+                             "the historical two-way split.")
     parser.add_argument("--cluster_identity", type=float, default=0.85,
                         help="Min heavy-CDR3 identity to group sequences into one clonal cluster.")
     parser.add_argument("--seed", type=int, default=42, help="Seed for reproducible cluster/random split.")
     args = parser.parse_args()
 
     data = build_entries(args.input_file, limit=args.limit)
-    add_split_field(data, args.split, args.test_size, args.seed, args.cluster_identity)
+    add_split_field(data, args.split, args.test_size, args.seed, args.cluster_identity,
+                    validation_size=args.validation_size)
     write_processed(data, args.output_file)
