@@ -1,0 +1,103 @@
+import unittest
+
+from benchmark.adapters.cdrseqgen import (
+    assert_resume_compatible,
+    run_example,
+    stable_example_seed,
+    validate_checkpoint_contract,
+)
+
+
+def manifest_record():
+    return {
+        "example_id": "oas:7:example",
+        "parent_sequence": "QQAAAWW",
+        "pt1": "QQ",
+        "native": "AAA",
+        "pt2": "WW",
+        "native_length": 3,
+        "infill_range": [2, 5],
+    }
+
+
+class FakeSampler:
+    def __init__(self, samples):
+        self.samples = samples
+        self.prepared = None
+        self.received_seed = None
+
+    def prepare(self, record):
+        self.prepared = record["example_id"]
+
+    def draw_many(self, **kwargs):
+        self.received_seed = kwargs["seed"]
+        return list(self.samples)
+
+
+class CDRSeqGenAdapterTests(unittest.TestCase):
+    def test_records_samples_and_preserves_duplicates(self):
+        sampler = FakeSampler(["CCC", "CCC", "DDD"])
+        result = run_example(
+            manifest_record(), sampler,
+            num_samples=3, decoding="iterative", temperature=1.0,
+            top_k=0, top_p=0.9, base_seed=42,
+        )
+        self.assertEqual(result["samples"], ["CCC", "CCC", "DDD"])
+        self.assertEqual(result["attempts"], 3)
+        self.assertEqual(result["length_matches"], 3)
+        self.assertTrue(result["complete"])
+        self.assertEqual(sampler.prepared, manifest_record()["example_id"])
+        self.assertEqual(
+            sampler.received_seed,
+            stable_example_seed(42, manifest_record()["example_id"]),
+        )
+
+    def test_invalid_output_is_audited_not_scored(self):
+        sampler = FakeSampler(["CC", "C?C", "CCC"])
+        result = run_example(
+            manifest_record(), sampler,
+            num_samples=3, decoding="independent", temperature=1.0,
+            top_k=0, top_p=1.0, base_seed=42,
+        )
+        self.assertEqual(result["samples"], ["CCC"])
+        self.assertEqual(result["length_mismatches"], 1)
+        self.assertEqual(result["valid_attempts"], 2)
+        self.assertEqual(result["invalid_attempts"], 1)
+        self.assertFalse(result["complete"])
+        self.assertEqual({f["code"] for f in result["failures"]}, {"length_mismatch", "invalid_amino_acid"})
+
+    def test_checkpoint_contract_rejects_context_or_dataset_mismatch(self):
+        manifest = {
+            "task": {
+                "target_region": "h3",
+                "track": "fixed_native_length",
+                "partner_chain_context": False,
+                "antigen_context": False,
+            },
+            "source": {"processed_file": "processed.json"},
+        }
+        config = {
+            "target_region": "h3",
+            "include_partner_chain": False,
+            "include_antigen": False,
+            "data_path": "data/processed.json",
+        }
+        validate_checkpoint_contract(config, manifest)
+        with self.assertRaisesRegex(ValueError, "include_partner_chain"):
+            validate_checkpoint_contract({**config, "include_partner_chain": True}, manifest)
+        with self.assertRaisesRegex(ValueError, "data file"):
+            validate_checkpoint_contract({**config, "data_path": "other.json"}, manifest)
+
+    def test_resume_rejects_changed_checkpoint_or_sampling(self):
+        expected = {
+            "schema_version": "v1", "adapter": "cdrseqgen", "benchmark_id": "b",
+            "manifest": {"sha256": "m"}, "model": {"checkpoint_sha256": "c"},
+            "sampling": {"decoding": "iterative"},
+        }
+        assert_resume_compatible(dict(expected), expected)
+        with self.assertRaisesRegex(ValueError, "model"):
+            assert_resume_compatible({**expected, "model": {"checkpoint_sha256": "x"}}, expected)
+
+
+if __name__ == "__main__":
+    unittest.main()

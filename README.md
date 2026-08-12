@@ -628,6 +628,8 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
+- **2026-08-12** -- Added the manifest-validated shared comparison scorer with anchor/core recovery, duplicate-preserving design metrics, generation/length accounting, length buckets, position recovery, and an optional revision-pinned IgBert judge; validated on both 25-framework adapter smoke outputs without touching test data
+- **2026-08-12** -- Added matched, resumable IgLM and CDRSeqGen benchmark adapters plus a frozen validation smoke manifest; both adapters passed 25-framework fixed-length smoke runs with 125/125 valid outputs and no failures
 - **2026-08-12** -- Processed-data provenance now preserves species, both chain IDs, and stable source identifiers; preprocessing emits hash-verified metadata sidecars, and benchmark manifests consume rather than guess conditioning metadata
 - **2026-08-12** -- Recorded the completed 32-trial scratch-H3 validation sweep: the leading setting was `1e-3` LR / 0.06 warm-up / 0.01 weight decay (0.32305 mean core recovery over two seeds), with confirmation seeds still required before final test evaluation
 - **2026-08-11** -- Added validation-safe, resumable, multi-seed H3 tuning via `scripts/sweep_h3.sh`; fixed scheduler horizon, validation-only checkpoint selection, aggregated seed statistics, and no generative-eval overhead
@@ -686,14 +688,14 @@ The comparison must run both methods on the **same frozen examples**, with the s
 **Implementation plan**
 
 - [ ] Freeze a versioned H3 benchmark manifest from the clustered OAS evaluation split. Each record must carry a stable ID, heavy-chain `pt1`/`pt2`, native H3, native length, split provenance, and optional partner chain. Both model adapters must consume this exact file rather than reconstructing their own split.
-- [ ] Refactor the model-independent parts of [`generation.py`](cdrseqgen/eval/generation.py) into a shared scorer that accepts `{example_id, native, samples}` records. Keep model-specific sampling outside the scorer.
-- [ ] Add a CDRSeqGen benchmark adapter that generates the common record schema from an existing checkpoint.
-- [ ] Add an IgLM adapter around the official pretrained model and its `infill` API. Record the model/version, chain and species tokens, sampling parameters, seed, failures, and generated lengths. Do not force IgLM through the masked-LM backbone registry.
-- [ ] Define the fixed-length IgLM policy explicitly. Prefer constrained generation if the official implementation supports it; otherwise oversample and retain candidates of the native length, reporting acceptance rate and sampling budget. Never silently discard length-mismatched samples.
-- [ ] Score both outputs once through the shared evaluator: whole-span AAR, core AAR, anchor AAR, diversity, novelty, unique fraction, per-position entropy, and one independent judge score. Add valid-generation rate, length-match rate, and runtime per candidate.
+- [x] Add a model-independent shared scorer that accepts both adapters' `{example_id, native, samples}` records, validates the paired experiment contract, and keeps model-specific sampling outside scoring.
+- [x] Add a manifest-driven CDRSeqGen benchmark adapter for existing checkpoints. It validates run/task/context provenance, recreates training-time tokenization and truncation, preserves duplicate draws, hashes checkpoint artifacts, and writes resumable records in the same schema as IgLM.
+- [x] Add an attempt-bounded IgLM adapter around the official pretrained checkpoint. It records model/checkpoint provenance, conditioning tokens, sampling parameters, per-example seeds, failures, raw generated lengths, runtime, and resumable progress; IgLM remains outside the masked-LM backbone registry.
+- [x] Define the fixed-length IgLM policy explicitly. Default `constrain` forces IgLM's end-of-span at the supplied native length through its underlying generation API; audit mode `filter` preserves every variable-length draw and reports match/acceptance counts under a finite attempt budget.
+- [x] Validate the shared evaluator on both 25-framework validation outputs: whole-span/core/anchor AAR, diversity, native-distance novelty, unique fraction, per-position entropy, length buckets, validity/length rates, generation runtime per candidate, and a revision-pinned IgBert judge. Final test scoring remains gated on freezing the sampling policy.
 - [ ] Add paired uncertainty: bootstrap test examples and report the CDRSeqGen-minus-IgLM difference with a 95% confidence interval. The example, not each generated candidate, is the statistical unit.
 - [ ] Produce side-by-side evaluation curves: recovery by H3-length bucket, accuracy by relative H3 position, and the recovery--diversity frontier across matched sampling settings. Do not compare CDRSeqGen training curves with a frozen pretrained IgLM checkpoint; training curves become meaningful only if IgLM is retrained on the same corpus and should then use tokens/examples seen rather than epoch number.
-- [ ] First reproduce one official IgLM example and, where possible, one reported IgLM benchmark result before trusting the adapter.
+- [x] Reproduce the official IgLM infill example and validate the adapter on 25 frozen validation frameworks (125/125 constrained draws valid and length-matched; zero adapter failures). Reproducing a reported paper-scale benchmark remains pending.
 - [ ] Audit training-data overlap. A frozen IgLM model was pretrained on OAS, so performance on the local OAS holdout is not automatically a leakage-free generalization estimate. Report the frozen-model comparison with this limitation, and separately investigate either retraining IgLM on the exact local training split or constructing a post-training/independent test set.
 - [ ] Write one comparison artifact containing the manifest hash, model provenance, complete parameters, per-example records, aggregate table, confidence intervals, and plot paths so the result is reproducible from a single command.
 
@@ -736,6 +738,7 @@ The comparison must run both methods on the **same frozen examples**, with the s
  - [x] `train/record_results.py` 
  - [x] `train/logging.py` 
  - [x] `train.py` 
+ - [ ] `benchmark/export_manifest.py`
  - [ ] README
 
 **Datasets**
