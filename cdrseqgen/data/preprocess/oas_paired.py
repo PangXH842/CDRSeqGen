@@ -32,8 +32,10 @@ Notes:
   * Entries carry NO antigen — OAS is unbound repertoire sequence. Antigen-conditioned runs use
     sabdab2.py, which emits the same schema plus an 'antigen' block.
 """
-import ast
 import argparse
+import ast
+import csv
+import json
 import random
 from collections import defaultdict
 
@@ -47,7 +49,35 @@ from cdrseqgen.data.preprocess.common import (
     add_io_args,
     print_funnel,
     write_processed,
+    write_processed_metadata,
 )
+
+
+def read_oas_metadata(csv_path):
+    """Read and normalize OAS's JSON metadata record from the first CSV row."""
+    with open(csv_path, newline="") as handle:
+        row = next(csv.reader(handle), None)
+    if not row or len(row) != 1:
+        raise ValueError(f"{csv_path} does not start with the expected one-field OAS metadata row")
+    try:
+        raw = json.loads(row[0])
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise ValueError(f"could not parse OAS metadata row in {csv_path}: {exc}") from exc
+
+    species = str(raw.get("Species", "")).strip().lower()
+    if not species:
+        raise ValueError(f"OAS metadata row in {csv_path} has no Species value")
+    run = raw.get("Run")
+    if run in (None, ""):
+        raise ValueError(f"OAS metadata row in {csv_path} has no Run value")
+    return {
+        "dataset": "OAS",
+        "run": int(run),
+        "species": species,
+        "source_url": raw.get("Link"),
+        "author": raw.get("Author"),
+        "subject": raw.get("Subject"),
+    }
 
 
 def cluster_by_cdr3(cdr3_seqs, identity=0.85):
@@ -181,7 +211,7 @@ def build_regions(row, suffix):
     return {r: row[f"{r}_aa_{suffix}"] for r in REGIONS}
 
 
-def build_entries(csv_path, limit=None):
+def build_entries(csv_path, limit=None, source_metadata=None):
     """Load the OAS paired CSV and build one entry per usable antibody.
 
     Keeps productive heavy+light pairs (no stop codons / frameshifts), then drops rows whose ANARCI
@@ -189,6 +219,8 @@ def build_entries(csv_path, limit=None):
     stage. `limit` truncates the input for a quick sanity check. Returns the entry list with no
     'split' field yet; add_split_field attaches that.
     """
+    source_metadata = source_metadata or read_oas_metadata(csv_path)
+
     # The first row is metadata, not a header.
     df = pd.read_csv(csv_path, skiprows=1, low_memory=False)
     n_raw = len(df)
@@ -220,6 +252,15 @@ def build_entries(csv_path, limit=None):
 
         entry = {
             "sequence_id": row['sequence_id_heavy'],
+            "chain_sequence_ids": {
+                "heavy": row['sequence_id_heavy'],
+                "light": row['sequence_id_light'],
+            },
+            "species": source_metadata["species"],
+            "source": {
+                "dataset": source_metadata["dataset"],
+                "run": source_metadata["run"],
+            },
             "isotype": row['Isotype_heavy'],
             "heavy": build_chain(heavy_regions, row['sequence_alignment_aa_heavy'], heavy_imgt),
             "light": build_chain(light_regions, row['sequence_alignment_aa_light'], light_imgt),
@@ -250,7 +291,23 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42, help="Seed for reproducible cluster/random split.")
     args = parser.parse_args()
 
-    data = build_entries(args.input_file, limit=args.limit)
+    source_metadata = read_oas_metadata(args.input_file)
+    data = build_entries(args.input_file, limit=args.limit, source_metadata=source_metadata)
     add_split_field(data, args.split, args.test_size, args.seed, args.cluster_identity,
                     validation_size=args.validation_size)
     write_processed(data, args.output_file)
+    write_processed_metadata(args.output_file, {
+        "dataset": "OAS paired",
+        "source": source_metadata,
+        "records": len(data),
+        "preprocessing": {
+            "productive_pairs_only": True,
+            "numbering_scheme": "IMGT",
+            "split": args.split,
+            "test_fraction": args.test_size,
+            "validation_fraction": args.validation_size,
+            "cluster_identity": args.cluster_identity if args.split == "cluster" else None,
+            "seed": args.seed,
+            "limit": args.limit,
+        },
+    })

@@ -123,6 +123,13 @@ python -m cdrseqgen.data.preprocess.sabdab2 \
     --output_file dataset/data/processed/processed_sabdab2_data.json
 ```
 
+Processed records preserve provenance needed by external baselines and future multi-source datasets:
+`species`, both original IDs in `chain_sequence_ids`, and a stable `source` block (OAS run or
+SAbDab/PDB identifiers). OAS species is read from its raw metadata row; the current SAbDab2 source
+has an empty species column, so those records deliberately store `"species": null` rather than
+assuming human. Each preprocessing run also writes a hash-verified `*.metadata.json` sidecar with
+source details, filters, numbering convention, and split parameters.
+
 ### Step 2: Training & Batch Experimentation
 We use `.json` configuration files to manage hyperparameters cleanly. The trainer calculates **Sequence Recovery Rate** (Per-Residue Accuracy), logs to TensorBoard, and auto-generates metric graphs at the end of every run.
 
@@ -204,6 +211,20 @@ mean best validation core recovery across seeds, writes `runs.tsv` and `summary.
 the test partition, and leaves `results/latest` untouched. Set `SWEEP_DIR` to resume. The older
 [`sweep_scratch.sh`](scripts/sweep_scratch.sh) is retained only as provenance for the July pilot; it
 selected among trials on the final holdout and should not be used for the IgLM comparison.
+
+**Completed screen (2026-08-11).** All 32 trials completed on the three-way clustered OAS split
+(16 settings × seeds 42/43). The leading region was shallow rather than decisive:
+
+| LR | warm-up | weight decay | mean validation core recovery | seed SD | mean best epoch |
+|---:|---:|---:|---:|---:|---:|
+| **1e-3** | **0.06** | **0.01** | **0.32305** | 0.00138 | 16.5 |
+| 3e-4 | 0.06 | 0.01 | 0.32269 | 0.00070 | 18.5 |
+| 3e-4 | 0.00 | 0.00 | 0.32238 | 0.00032 | 13.5 |
+
+The top-two gap is only 0.00036 and changes sign between the two seeds, so this screen identifies a
+region, not a conclusive winner. Confirm the top two with additional shared seeds before freezing a
+training config; evaluate the final choice only once on `test`. Full local records are in
+`results/sweeps/h3_20260811_181946/{runs,summary}.tsv`.
 
 ### Step 3: Result Visualization & Comparison
 All three recovery metrics are recorded **every epoch** (`compute_metrics` → `epoch_metrics.csv`:
@@ -579,7 +600,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **Five runs hit their epoch ceiling, all of them context runs.** `h1_SD2_LC`, `h2_OAS_LC`, `h3_OAS_LC`, `l1_OAS_HC`, `l3_OAS_HC` peaked at epoch 19–20 of 20 in the 07-29 batch. Their numbers are lower bounds, so the §4 partner-chain penalty (−0.0102) is an upper bound on the true effect. A scratch-only sweep at 30–40 epochs would settle it (~1 hour; scratch is 60 of the batch's 226 minutes).
 - **Only one comparison has an error bar.** Three seeds of `h3_scratch` ± partner chain put the seed sd of a per-loop Δ at **0.0028** (§4), which already retires two of the six per-loop context numbers as noise. Every *other* number in this README is still single-seed, and any claimed difference below ~0.006 should be treated as unmeasured until it has the same treatment.
 - **Historical batches reused the final holdout for model selection.** The 07-29 runs used their only non-training OAS partition for early stopping, best-checkpoint selection, and reporting. Those numbers remain useful exploratory results but are not an untouched-test estimate. The new opt-in three-way clustered split plus `eval_split=validation` fixes the protocol for future tuning; final test evaluation must occur only after settings are frozen.
-- **Hyperparameter tuning is not complete.** The July scratch-H3 pilot tested LR × epochs × warm-up on one seed and selected on the final holdout; moreover, the 07-29 batch retained `1e-4` rather than the pilot's upper-bound winner near `1e-3`. [`sweep_h3.sh`](scripts/sweep_h3.sh) now provides a validation-only, fixed-horizon, multi-seed screen over LR, warm-up, and weight decay, but its real 32-trial run is still pending.
+- **Hyperparameter selection is not yet frozen.** The validation-safe 32-trial scratch-H3 screen completed on 2026-08-11 and placed `1e-3` / 0.06 warm-up / 0.01 weight decay first at 0.32305 mean validation core recovery. Its margin over the runner-up was only 0.00036 across two seeds and changed sign by seed, so additional shared confirmation seeds are still required before touching the final test split.
 - ~~**Checkpoint selection uses the metric we say is misleading.**~~ **Fixed 2026-07-27.** 44 of 48 configs now set `"metric_for_best_model": "core_accuracy"` (HF resolves it to `eval_core_accuracy`). The four `l2_*` configs deliberately stay on whole-span `accuracy`: L2 core is computed over ~1.4% of eval rows, so selecting checkpoints on it would be selecting on noise — the same exception documented under "How to read the numbers". Runs before this date selected on whole-span and aren't checkpoint-comparable to later ones.
 - ~~**Scratch architecture isn't tunable.**~~ **Fixed 2026-07-27.** `num_attention_heads` and `intermediate_size` are now `ModelArguments` fields forwarded by `build_model` ([`custom/transformer.py`](cdrseqgen/models/custom/transformer.py)). `intermediate_size` defaults to `None` = **4 × hidden_size**, so the FFN ratio tracks width instead of silently drifting (at the old fixed 512, widening to 256 quietly halved the ratio and would have confounded any architecture sweep). Defaults reproduce the old geometry exactly (128 → 512), and a `hidden_size % num_attention_heads` check now fails loudly instead of deep inside `nn.MultiheadAttention`.
 - **Single-seed runs.** Small differences (e.g. light chain hurts scratch ~0.01, neutral for ESM-2) need multiple seeds + error bars before they can be claimed.
@@ -607,6 +628,8 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
+- **2026-08-12** -- Processed-data provenance now preserves species, both chain IDs, and stable source identifiers; preprocessing emits hash-verified metadata sidecars, and benchmark manifests consume rather than guess conditioning metadata
+- **2026-08-12** -- Recorded the completed 32-trial scratch-H3 validation sweep: the leading setting was `1e-3` LR / 0.06 warm-up / 0.01 weight decay (0.32305 mean core recovery over two seeds), with confirmation seeds still required before final test evaluation
 - **2026-08-11** -- Added validation-safe, resumable, multi-seed H3 tuning via `scripts/sweep_h3.sh`; fixed scheduler horizon, validation-only checkpoint selection, aggregated seed statistics, and no generative-eval overhead
 - **2026-08-11** -- OAS preprocessing now supports an opt-in three-way clustered split; historical test membership is preserved exactly while validation is carved from former training clusters
 - **2026-08-11** -- Added `eval_split` so tuning can select `validation` explicitly and final evaluation can select `test`; legacy two-way configs retain their previous behavior
@@ -681,7 +704,8 @@ The comparison must run both methods on the **same frozen examples**, with the s
 - [x] Plumb `num_attention_heads` / `intermediate_size` through `build_model` — `intermediate_size` now defaults to 4 × `hidden_size` (prerequisite for any architecture sweep)
 - [ ] **Per-loop split** — cluster on the *target* CDR, not always heavy CDR3, then re-run the OAS matrix. Everything non-H3 in Findings is retrieval-bounded until this lands (§6)
 - [x] Implement three-way clustered OAS splitting, explicit validation/test selection, full run provenance, and the validation-safe H3 sweep
-- [ ] Run the validation-safe scratch H3 screen ([`sweep_h3.sh`](scripts/sweep_h3.sh)), confirm the selected region with a third seed, then freeze settings before test evaluation
+- [x] Run the 32-trial validation-safe scratch H3 screen ([`sweep_h3.sh`](scripts/sweep_h3.sh)); top region: `1e-3` LR / 0.06 warm-up / 0.01 weight decay at 0.32305 mean validation core recovery (two seeds)
+- [ ] Confirm the top two sweep settings with additional shared seeds, freeze the selected config, then evaluate it once on the untouched test split
 - [ ] Multi-seed the key H3 configs (error bars on the ±0.01 model/context deltas)
 - [ ] Re-run the 07-24 batch under core-based checkpoint selection (those 36 runs predate the fix; their saved weights were picked on whole-span)
 - [ ] Lock the Phase-2 objective + primary metric with advisor

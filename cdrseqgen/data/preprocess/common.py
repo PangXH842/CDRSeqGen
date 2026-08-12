@@ -15,8 +15,10 @@ Notes:
   * dataset/data/ is gitignored, so the output tree never exists on a fresh clone — write_processed
     creates it rather than failing.
 """
-import os
+import hashlib
 import json
+import os
+from pathlib import Path
 
 REGIONS = ["fwr1", "cdr1", "fwr2", "cdr2", "fwr3", "cdr3", "fwr4"]
 CDRS = ("cdr1", "cdr2", "cdr3")
@@ -32,6 +34,19 @@ def valid_regions(region_dict):
 def build_chain(regions, full_aa, numbering):
     """One chain's entry block: the 7 regions plus the full sequence and its IMGT numbering"""
     return {**regions, "full_aa": full_aa, "imgt_numbering": numbering}
+
+
+def optional_text(value):
+    """Return a stripped string or None for pandas/JSON missing values."""
+    if value is None:
+        return None
+    try:
+        if value != value:  # NaN is the common missing value unequal to itself.
+            return None
+    except (TypeError, ValueError):
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def add_io_args(parser, *, input_default, output_default, input_help):
@@ -61,3 +76,25 @@ def write_processed(data, output_file):
     with open(output_file, "w") as f:
         json.dump(data, f)
     print(f"Wrote {len(data)} entries to {output_file}")
+
+
+def write_processed_metadata(output_file, metadata):
+    """Write a provenance sidecar for a processed JSON file."""
+    output_path = Path(output_file)
+    digest = hashlib.sha256()
+    with output_path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+
+    payload = {
+        "schema_version": "cdrseqgen.processed_metadata.v1",
+        "processed_file": output_path.name,
+        "processed_file_sha256": digest.hexdigest(),
+        **metadata,
+    }
+    metadata_path = output_path.with_suffix(".metadata.json")
+    with metadata_path.open("w") as handle:
+        json.dump(payload, handle, indent=2)
+        handle.write("\n")
+    print(f"Wrote preprocessing metadata to {metadata_path}")
+    return metadata_path

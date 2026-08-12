@@ -36,8 +36,10 @@ from cdrseqgen.data.preprocess.common import (
     valid_regions,
     build_chain,
     add_io_args,
+    optional_text,
     print_funnel,
     write_processed,
+    write_processed_metadata,
 )
 
 # Standard IMGT region boundaries (inclusive), same convention the OAS ANARCI columns use.
@@ -125,6 +127,18 @@ def build_entries(csv_path, limit=None):
 
         entry = {
             "sequence_id": row["INSTANCE"],
+            "chain_sequence_ids": {
+                "heavy": optional_text(row["Hchain"]),
+                "light": optional_text(row["Lchain"]),
+            },
+            # This source currently exposes a species column with no populated values. Preserve
+            # unknown as JSON null rather than silently conditioning downstream models as human.
+            "species": optional_text(row["species"]),
+            "source": {
+                "dataset": "SAbDab2",
+                "pdb_id": optional_text(row["PDB_ID"]),
+                "sabdab_id": optional_text(row["SABDAB_ID"]),
+            },
             "heavy": build_chain(heavy_regions, row["VH_numerable_seq"], heavy_imgt),
             "light": build_chain(light_regions, row["VL_numerable_seq"], light_imgt),
             "antigen": {
@@ -151,3 +165,21 @@ if __name__ == "__main__":
 
     data = build_entries(args.input_file, limit=args.limit)
     write_processed(data, args.output_file)
+    species_known = sum(entry["species"] is not None for entry in data)
+    write_processed_metadata(args.output_file, {
+        "dataset": "SAbDab2 antibody-antigen",
+        "source": {"dataset": "SAbDab2", "file": args.input_file},
+        "records": len(data),
+        "species": {
+            "known_records": species_known,
+            "unknown_records": len(data) - species_known,
+        },
+        "preprocessing": {
+            "paired_chains_only": True,
+            "protein_or_peptide_antigen_only": True,
+            "resolved_antigen_only": True,
+            "numbering_scheme": "IMGT",
+            "split": "source ab_ag_split",
+            "limit": args.limit,
+        },
+    })
