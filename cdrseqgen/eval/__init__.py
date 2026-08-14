@@ -9,3 +9,8 @@
 The split matters: a model can score 0.99 recovery while emitting one sequence with total certainty
 (measured on H1), so the two halves can rank models differently. See README Findings.
 """
+
+
+# A core metric represents the dataset only when at least this fraction of examples has residues
+# remaining after anchor trimming. Shared by Trainer warnings and artifact-only reporting.
+MIN_CORE_COVERAGE = 0.5

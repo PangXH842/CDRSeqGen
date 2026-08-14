@@ -51,6 +51,7 @@ import logging
 import os
 import torch
 
+from cdrseqgen.artifacts import RUN_CONFIG_FILENAMES
 from cdrseqgen.train.logging import configure_logging
 configure_logging()
 
@@ -65,7 +66,6 @@ from cdrseqgen.eval.metrics import amino_acid_recovery, calculate
 
 logger = logging.getLogger(__name__)
 
-RUN_CONFIG_NAMES = ("run_config.json", "run_meta.json")
 
 def get_configs(args):
     """Reads configs from run_config.json; if unavailable, build configs from CLI args.
@@ -75,7 +75,7 @@ def get_configs(args):
     be used to check the invocation against (see check_compatibility).
     """
     configs = {}
-    for name in RUN_CONFIG_NAMES:
+    for name in RUN_CONFIG_FILENAMES:
         path = os.path.join(args.model_path, name)
         if os.path.isfile(path):
             try:

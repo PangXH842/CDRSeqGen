@@ -94,10 +94,6 @@ for suite in "${SUITES[@]}"; do
 done
 
 # --- One folder per round ---------------------------------------------------------------------
-# Every run of this invocation lands in results/<batch-timestamp>/ instead of scattering across
-# results/. train.py reads CDRSEQGEN_RESULTS_ROOT and creates its run dir underneath it, so the
-# per-run names are unchanged — only where they live. (This automates the grouping that was
-# previously done by hand afterwards: results/20260710/, results/20260708/, ...)
 BATCH_STAMP=$(date +'%Y%m%d_%H%M%S')
 BATCH_DIR="results/$BATCH_STAMP"
 mkdir -p "$BATCH_DIR"

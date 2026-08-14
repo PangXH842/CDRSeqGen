@@ -28,6 +28,8 @@ from dataclasses import asdict
 
 from transformers import TrainerCallback
 
+from cdrseqgen.artifacts import RUN_CONFIG_FILENAME
+
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 LOG_FILENAME = "train.log"
 
@@ -46,7 +48,6 @@ RESULTS_ROOT_ENV = "CDRSEQGEN_RESULTS_ROOT"
 RUN_SUFFIX_ENV = "CDRSEQGEN_RUN_SUFFIX"
 DEFAULT_RESULTS_ROOT = "./results"
 LATEST_LINK = "latest"
-run_config_FILENAME = "run_config.json"
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +188,7 @@ def write_run_config(output_dir: str, model_args, data_args, gen_args, training_
     for args in (model_args, data_args, gen_args):
         meta.update(asdict(args))
     meta.update(training_args.to_dict())
-    with open(os.path.join(output_dir, run_config_FILENAME), "w") as f:
+    with open(os.path.join(output_dir, RUN_CONFIG_FILENAME), "w") as f:
         json.dump(meta, f, indent=2)
     return meta
 

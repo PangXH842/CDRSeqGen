@@ -16,9 +16,10 @@ import argparse
 import torch
 from transformers import HfArgumentParser, TrainingArguments
 
+from cdrseqgen.artifacts import RUN_CONFIG_FILENAME, RUN_CONFIG_FILENAMES
 from cdrseqgen.train.arguments import ModelArguments, DataArguments, GenerationArguments
 from cdrseqgen.train.pipeline import get_datasets
-from cdrseqgen.train.logging import run_config_FILENAME, configure_logging
+from cdrseqgen.train.logging import configure_logging
 
 # Entrypoints configure their own logging. This used to arrive for free by importing train.py, which
 # ran basicConfig at import — an accident that broke the moment train.py was split.
@@ -30,9 +31,9 @@ from cdrseqgen.eval.generation import run_generative_eval, build_judge
 def read_run_config(model_dir):
     """Load the run_config.json a training run wrote, or None (older runs won't have it)."""
     # run_config.json was run_meta.json before 2026-07-29; older runs still carry the old name.
-    path = next((q for q in (os.path.join(model_dir, run_config_FILENAME),
-                             os.path.join(model_dir, "run_meta.json")) if os.path.exists(q)),
-                os.path.join(model_dir, run_config_FILENAME))
+    path = next((os.path.join(model_dir, name) for name in RUN_CONFIG_FILENAMES
+                 if os.path.exists(os.path.join(model_dir, name))),
+                os.path.join(model_dir, RUN_CONFIG_FILENAME))
     if os.path.exists(path):
         with open(path) as f:
             return json.load(f)
@@ -49,7 +50,7 @@ def check_target_region(model_dir, config_target):
     meta = read_run_config(model_dir)
     trained_for = meta.get("target_region") if meta else None
     if trained_for is None:
-        print(f"ℹ️  No {run_config_FILENAME} in {model_dir} (older run) — can't verify the model's trained loop.")
+        print(f"ℹ️  No {RUN_CONFIG_FILENAME} in {model_dir} (older run) — can't verify the model's trained loop.")
     elif trained_for != config_target:
         print(f"⚠️  LOOP MISMATCH: model was trained for '{trained_for}', but --config targets "
               f"'{config_target}'. Evaluating on the WRONG CDR — metrics will be meaningless.")

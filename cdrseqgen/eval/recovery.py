@@ -10,17 +10,19 @@ Notes:
   * ANCHOR_TRIM residues are trimmed from EACH end of the loop to separate the V/J-gene-determined
     "anchor" residues (recovered ~80-100% by any model) from the hypervariable "core" that is
     actually being designed. Whole-span accuracy is dominated by the anchors: on H3 it reads ~0.46
-    while the core reads ~0.32. Report core — except for L2, below. Override with env ANCHOR_TRIM.
+    while the core reads ~0.32. Override the trim with env ANCHOR_TRIM.
   * A loop of <= 2*ANCHOR_TRIM residues has no core at all, so core_accuracy can be computed over a
     tiny unrepresentative slice while looking like an ordinary score. Every run therefore records
-    `core_coverage`, and a coverage below MIN_CORE_COVERAGE warns once. Known case: light-chain CDR2
-    is 3aa in 98.8% of OAS, leaving ~30 of 2111 rows.
+    `core_coverage`; coverage below MIN_CORE_COVERAGE warns and makes artifact reporting fall back
+    explicitly to whole-span. OAS light-chain CDR2 is one observed case, not a coded exception.
 """
 import os
 import logging
 
 import numpy as np
 from transformers import EvalPrediction
+
+from cdrseqgen.eval import MIN_CORE_COVERAGE
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,6 @@ logger = logging.getLogger(__name__)
 # effect on the core (see README Known Issues). Override with env ANCHOR_TRIM if needed.
 ANCHOR_TRIM = int(os.environ.get("ANCHOR_TRIM", "2"))
 
-MIN_CORE_COVERAGE = 0.5  # below this, core_accuracy is measuring too few rows to mean anything
 _warned_low_core_coverage = False
 
 

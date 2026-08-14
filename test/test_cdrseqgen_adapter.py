@@ -1,7 +1,11 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from benchmark.adapters.cdrseqgen import (
     assert_resume_compatible,
+    load_run_config,
     run_example,
     stable_example_seed,
     validate_checkpoint_contract,
@@ -35,6 +39,30 @@ class FakeSampler:
 
 
 class CDRSeqGenAdapterTests(unittest.TestCase):
+    def test_load_run_config_accepts_legacy_filename(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint = Path(tmp)
+            legacy = checkpoint / "run_meta.json"
+            legacy.write_text(json.dumps({"target_region": "h3"}))
+
+            config, source = load_run_config(checkpoint)
+
+        self.assertEqual(config["target_region"], "h3")
+        self.assertEqual(source, legacy)
+
+    def test_load_run_config_prefers_current_filename(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint = Path(tmp)
+            legacy = checkpoint / "run_meta.json"
+            current = checkpoint / "run_config.json"
+            legacy.write_text(json.dumps({"target_region": "l2"}))
+            current.write_text(json.dumps({"target_region": "h3"}))
+
+            config, source = load_run_config(checkpoint)
+
+        self.assertEqual(config["target_region"], "h3")
+        self.assertEqual(source, current)
+
     def test_records_samples_and_preserves_duplicates(self):
         sampler = FakeSampler(["CCC", "CCC", "DDD"])
         result = run_example(

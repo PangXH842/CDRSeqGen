@@ -22,9 +22,10 @@ if sys.path and Path(sys.path[0]).resolve() == ADAPTER_DIR:
     sys.path.pop(0)
     sys.path.insert(0, str(ADAPTER_DIR.parents[1]))
 
+from cdrseqgen.artifacts import RUN_CONFIG_FILENAMES
+
 SCHEMA_VERSION = "cdrseqgen.adapter_output.v1"
 AMINO_ACIDS = set("ACDEFGHIKLMNPQRSTVWY")
-RUN_CONFIG_FILENAME = "run_config.json"
 
 
 def sha256_file(path: Path) -> str:
@@ -82,9 +83,11 @@ def validate_manifest_record(record: dict[str, Any]) -> None:
 
 
 def load_run_config(checkpoint: Path) -> tuple[dict[str, Any], Path]:
-    path = checkpoint / RUN_CONFIG_FILENAME
-    if not path.exists():
-        raise FileNotFoundError(f"checkpoint lacks {RUN_CONFIG_FILENAME}: {checkpoint}")
+    path = next((checkpoint / name for name in RUN_CONFIG_FILENAMES
+                 if (checkpoint / name).exists()), None)
+    if path is None:
+        accepted = ", ".join(RUN_CONFIG_FILENAMES)
+        raise FileNotFoundError(f"checkpoint lacks a run config ({accepted}): {checkpoint}")
     with path.open() as handle:
         return json.load(handle), path
 
