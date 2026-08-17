@@ -16,7 +16,7 @@ Notes:
   * The run folder is named from the RESOLVED arguments, not the config filename, so a CLI override
     (`--target_region l3` on h3_scratch.json) can't be misfiled. See arguments.setup_args.
   * Logging config is a function, not import-time side effect, because three entrypoints need it
-    (train.py, predict.py, gen_eval.py) and gen_eval.py used to get it only as an accident of
+    (train.py, generate.py, evaluate.py) and evaluate.py used to get it only as an accident of
     importing train.py.
 """
 import os
@@ -181,7 +181,7 @@ def update_latest_link(run_dir: str) -> None:
 def write_run_config(output_dir: str, model_args, data_args, gen_args, training_args) -> dict:
     """Persist every resolved argument so a checkpoint and sweep trial are self-describing.
 
-    The file remains flat for backward compatibility with predict.py and gen_eval.py, which read
+    The file remains flat for backward compatibility with generate.py and evaluate.py, which read
     target_region and context flags directly from the top level.
     """
     meta = {}

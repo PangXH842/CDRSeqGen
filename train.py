@@ -13,10 +13,14 @@ import functools
 from transformers import Trainer, set_seed
 
 from cdrseqgen.data.dataset import collate_fn
-from cdrseqgen.models.registry import resolve
-from cdrseqgen.eval.recovery import compute_metrics
-from cdrseqgen.train.arguments import setup_args
-from cdrseqgen.train.pipeline import get_datasets, post_training_generation, run_training_pipeline
+from cdrseqgen.methods.mlm.arguments import setup_args
+from cdrseqgen.methods.mlm.backbones import resolve
+from cdrseqgen.methods.mlm.recovery import compute_metrics
+from cdrseqgen.methods.mlm.training import (
+    get_datasets,
+    post_training_generation,
+    run_training_pipeline,
+)
 from cdrseqgen.train.logging import LogMetricsCallback, configure_logging
 
 configure_logging()
@@ -70,8 +74,27 @@ def main():
 
     run_training_pipeline(trainer, training_args)
 
+    length_predictor = None
+    if training_args.do_train and data_args.train_length_predictor:
+        from cdrseqgen.methods.mlm.length_predictor import fit_length_predictor
+        length_predictor = fit_length_predictor(
+            trainer.model,
+            tokenizer,
+            train_dataset,
+            eval_dataset,
+            output_dir=training_args.output_dir,
+            device=training_args.device,
+            epochs=data_args.length_predictor_epochs,
+            learning_rate=data_args.length_predictor_learning_rate,
+            batch_size=data_args.length_predictor_batch_size,
+            seed=training_args.seed,
+        )
+
     if gen_args.run_generative_eval:
-        post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_args, training_args)
+        post_training_generation(
+            trainer, tokenizer, eval_dataset, data_args, gen_args, training_args,
+            length_predictor=length_predictor,
+        )
 
 
 if __name__ == "__main__":

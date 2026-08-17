@@ -1,7 +1,7 @@
 """Core script for retrieving generative evaluation metrics from a trained model.
 
 Two callers: `train.py` runs it post-training on the run it just finished (no judge by default),
-and `gen_eval.py` is the standalone entrypoint for re-evaluating an existing checkpoint (where the
+and `evaluate.py` is the standalone entrypoint for re-evaluating an existing checkpoint (where the
 judge is worth setting up).
 
   * run_generative_eval -- master function: load eval dataset, select indices, sample from the
@@ -17,9 +17,8 @@ judge is worth setting up).
 
 Imports:
   * metrics.calculate               -- retrieve dict of sequence-based metrics for generated samples
-  * sampling.sample_independent     -- sampling method: independent per masked position
-  * sampling.sample_iterative       -- sampling method: iterative from most-confident position
-  * sampling.pseudo_log_likelihood  -- calculate pll and pseudo-perplexity of filled loop
+  * generation.sample_masked_span   -- shared independent / iterative decoder dispatch
+  * sampling.pseudo_log_likelihood  -- calculate PLL and pseudo-perplexity of a filled loop
 """
 import os
 import json
@@ -32,11 +31,12 @@ import torch
 
 from cdrseqgen.data.dataset import AntibodyInfillingDataset
 from cdrseqgen.eval.metrics import calculate
-from cdrseqgen.eval.sampling import (
-    sample_independent,
-    sample_iterative,
-    pseudo_log_likelihood,
+from cdrseqgen.methods.mlm.generation import sample_masked_span
+from cdrseqgen.methods.mlm.length import (
+    native_mask_length,
+    resolve_generation_length_policy,
 )
+from cdrseqgen.methods.mlm.sampling import pseudo_log_likelihood
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +49,12 @@ SUMMARY_KEYS = [
     ("diversity_hamming", "diversity"),
     ("per_position_entropy_bits", "entropy(b)"),
     ("unique_fraction", "unique"),
-    ("aar_mean", "recovery"),   
+    ("aar_mean", "recovery"),
+    ("aar_length_matched_mean", "recovery@L"),
     ("novelty_mean", "novelty"),
+    ("length_match_rate", "length-match"),
+    ("length_absolute_error_mean", "length-MAE"),
+    ("edit_similarity_mean", "edit-sim"),
 ]
 
 
@@ -101,26 +105,6 @@ def masked_view(item):
     native_ids = [labels[p] for p in mask_positions]
     return input_ids, mask_positions, native_ids
 
-
-def _decode(model, tokenizer, device, generator, input_ids, mask_positions,
-            decoding, num_samples, temperature, top_k, top_p):
-    # Note: temperature=0 -> greedy algo, details refer to sampling.py
-    if decoding == "independent":
-        return sample_independent(model, input_ids, mask_positions, banned_ids=tokenizer.special_ids,
-                                  device=device, num_samples=num_samples, temperature=temperature,
-                                  top_k=top_k, top_p=top_p, generator=generator)
-    elif decoding == "iterative":
-        return sample_iterative(model, input_ids, mask_positions, banned_ids=tokenizer.special_ids,
-                                mask_id=tokenizer.mask_id, device=device,
-                                num_samples=num_samples, temperature=temperature,
-                                top_k=top_k, top_p=top_p, generator=generator)
-    else: # default to iterative for now
-        return sample_iterative(model, input_ids, mask_positions, banned_ids=tokenizer.special_ids,
-                                mask_id=tokenizer.mask_id, device=device,
-                                num_samples=num_samples, temperature=temperature,
-                                top_k=top_k, top_p=top_p, generator=generator)
-
-
 def aggregate(records, key):
     """(mean, stdev) of a per-example metric across the sweep; (nan, 0) if never present"""
     vals = [r["metrics"][key] for r in records if r["metrics"].get(key) is not None]
@@ -135,7 +119,7 @@ def build_judge(model_type, weights_path=None, *, data_path, max_len, target_reg
 
     Returns (judge_model, judge_tokenizer, judge_dataset).
     """
-    from cdrseqgen.models.registry import resolve  # local: avoids a heavy import at module load
+    from cdrseqgen.methods.mlm.backbones import resolve  # local: avoids a heavy import at module load
 
     judge_backbone = resolve(model_type)
     judge_tokenizer = judge_backbone.build_tokenizer(model_type)
@@ -191,6 +175,9 @@ def log_report(records, title="", judge_name=None):
 def run_generative_eval(model, tokenizer, eval_dataset, *, device,
                         decoding="iterative", num_samples=20,
                         temperature=1.0, top_k=0, top_p=1.0,
+                        length_mode="fixed_native", length_predictor=None,
+                        min_length=None, max_length=None,
+                        length_temperature=1.0,
                         num_examples=200, stratify=False, seed=42,
                         skip_perplexity=False,
                         judge_model=None, judge_tokenizer=None,
@@ -212,6 +199,27 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
     rng = random.Random(seed)
     selected = select_indices(lengths, num_examples, stratify, rng)
 
+    length_policy = resolve_generation_length_policy(
+        length_mode, min_length=min_length, max_length=max_length,
+    )
+    if length_policy is not None:
+        if length_predictor is None:
+            raise FileNotFoundError("variable-length evaluation requires a length predictor")
+        from cdrseqgen.methods.mlm.variable_length_evaluation import run_variable_generative_eval
+        return run_variable_generative_eval(
+            model, tokenizer, eval_dataset,
+            device=device, length_predictor=length_predictor,
+            length_policy=length_policy,
+            length_temperature=length_temperature,
+            decoding=decoding, num_samples=num_samples, temperature=temperature,
+            top_k=top_k, top_p=top_p, selected=selected, seed=seed,
+            skip_perplexity=skip_perplexity,
+            judge_model=judge_model, judge_tokenizer=judge_tokenizer,
+            judge_dataset=judge_dataset, judge_name=judge_name,
+            output_path=output_path, meta=meta, title=title, generator=generator,
+            log_report=log_report, summary_keys=SUMMARY_KEYS,
+        )
+
     # set data iterator, tqdm progress bar in terminal
     try:
         from tqdm import tqdm
@@ -226,16 +234,28 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
         input_ids, mask_positions, native_ids = masked_view(item)
         if not mask_positions:
             continue
+        length_decision = native_mask_length(len(mask_positions))
         native = tokenizer.decode(native_ids).upper().strip()
 
         # generate samples from input_ids using selected model
-        sampled_ids = _decode(model, tokenizer, device, generator, input_ids, mask_positions,
-                              decoding, num_samples, temperature, top_k, top_p)
+        sampled_ids = sample_masked_span(
+            model,
+            tokenizer,
+            device,
+            generator,
+            input_ids,
+            mask_positions,
+            decoding=decoding,
+            num_samples=num_samples,
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
+        )
         seqs = [tokenizer.decode(ids).upper().strip() for ids in sampled_ids]
 
         # calculate sequence based metrics: aar, diversity, novelty, pseudo-ppl/log likelihood
         metrics = calculate(seqs, native)
-        metrics["target_len"] = len(mask_positions)
+        metrics["target_len"] = length_decision.length
 
         if not skip_perplexity:
             ppls = [pseudo_log_likelihood(model, input_ids, mask_positions, ids,
@@ -260,7 +280,8 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
 
         records.append({
             "eval_index": i,
-            "target_len": len(mask_positions),
+            "target_len": length_decision.length,
+            "length_policy": length_decision.as_dict(),
             "native": native,
             "samples": seqs,
             "metrics": metrics,
@@ -271,6 +292,10 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
     payload = dict(meta or {})
     payload.update({
         "judge": judge_name,
+        "length_policy": {
+            "mode": "fixed",
+            "source": "native_mask_count",
+        },
         "decoding": {
             "mode": decoding, "num_samples": num_samples, "temperature": temperature,
             "top_k": top_k, "top_p": top_p, "seed": seed,

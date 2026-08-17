@@ -89,6 +89,19 @@ class IgLMAdapterTests(unittest.TestCase):
         self.assertEqual(result["invalid_attempts"], 2)
         self.assertEqual(result["failures"][-1]["code"], "max_consecutive_errors")
 
+    def test_natural_policy_retains_variable_lengths_without_filtering(self):
+        sampler = FakeSampler(["QQAAAAWW", "QQCCCWW"])
+        sampler.length_policy = "natural"
+        result = run_example(
+            manifest_record(), sampler,
+            num_samples=2, max_attempts=2, temperature=1.0, top_p=0.9,
+            base_seed=42, max_errors=3,
+        )
+        self.assertEqual(result["samples"], ["AAAA", "CCC"])
+        self.assertEqual(result["length_matches"], 1)
+        self.assertEqual(result["length_mismatches"], 1)
+        self.assertEqual(result["length_policy"]["mode"], "inferred")
+
     def test_example_seed_is_stable_and_id_specific(self):
         self.assertEqual(stable_example_seed(42, "a"), stable_example_seed(42, "a"))
         self.assertNotEqual(stable_example_seed(42, "a"), stable_example_seed(42, "b"))

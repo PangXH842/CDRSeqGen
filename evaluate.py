@@ -1,10 +1,11 @@
 """Generative evaluation of a finished checkpoint, on the held-out eval split.
 
 Entrypoint used to evaluate trained model checkpoints, especially CDR generation capabilities.
-Recommended to set up judge to measure perplexity since its not automatically done in train.py.
+Use ``--judge`` to choose the shared reference model explicitly; training-time evaluation uses its
+configured ``gen_judge`` default.
 
 Usage example:
-    python eval_generative.py --config configs/h3_esm2.json \
+    python evaluate.py --config configs/h3_esm2.json \
         --model_dir results/20260710/20260710_184547_h3_OAS_esm2_t12_35M_UR50D \
         --num_examples 150 --stratify --num_samples 20 --top_p 0.9 \
         --judge Exscientia/IgBert
@@ -17,15 +18,16 @@ import torch
 from transformers import HfArgumentParser, TrainingArguments
 
 from cdrseqgen.artifacts import RUN_CONFIG_FILENAME, RUN_CONFIG_FILENAMES
-from cdrseqgen.train.arguments import ModelArguments, DataArguments, GenerationArguments
-from cdrseqgen.train.pipeline import get_datasets
+from cdrseqgen.methods.mlm.arguments import DataArguments, GenerationArguments, ModelArguments
+from cdrseqgen.methods.mlm.training import get_datasets
 from cdrseqgen.train.logging import configure_logging
 
 # Entrypoints configure their own logging. This used to arrive for free by importing train.py, which
 # ran basicConfig at import — an accident that broke the moment train.py was split.
 configure_logging()
-from cdrseqgen.models.registry import resolve
-from cdrseqgen.eval.generation import run_generative_eval, build_judge
+from cdrseqgen.methods.mlm.backbones import resolve
+from cdrseqgen.methods.mlm.evaluation import build_judge, run_generative_eval
+from cdrseqgen.methods.mlm.length import resolve_generation_length_policy
 
 
 def read_run_config(model_dir):
@@ -69,6 +71,11 @@ def main():
     ap.add_argument("--decoding", choices=["independent", "iterative"], default="iterative")
     ap.add_argument("--num_samples", type=int, default=20, help="Candidates per framework.")
     ap.add_argument("--temperature", type=float, default=1.0)
+    ap.add_argument("--length_mode", choices=("fixed_native", "bounded", "inferred"),
+                    default="fixed_native")
+    ap.add_argument("--min_length", type=int, default=None)
+    ap.add_argument("--max_length", type=int, default=None)
+    ap.add_argument("--length_temperature", type=float, default=1.0)
     ap.add_argument("--top_k", type=int, default=0)
     ap.add_argument("--top_p", type=float, default=1.0)
     ap.add_argument("--seed", type=int, default=42)
@@ -81,6 +88,11 @@ def main():
     ap.add_argument("--output", type=str, default=None,
                     help="Results JSON path ('none' to skip writing; default: <model_dir>/generation_eval.json).")
     args = ap.parse_args()
+    resolve_generation_length_policy(
+        args.length_mode,
+        min_length=args.min_length,
+        max_length=args.max_length,
+    )
 
     parser = HfArgumentParser((ModelArguments, DataArguments, GenerationArguments, TrainingArguments))
     model_args, data_args, _gen_args, training_args = parser.parse_json_file(json_file=os.path.abspath(args.config))
@@ -97,6 +109,11 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = backbone.load_pretrained_model(args.model_dir)
     model.to(device)
+
+    length_predictor = None
+    if args.length_mode != "fixed_native":
+        from cdrseqgen.methods.mlm.length_predictor import LengthPredictor
+        length_predictor = LengthPredictor.load(args.model_dir, device=device)
 
     judge_model = judge_tokenizer = judge_dataset = None
     if args.judge:
@@ -116,6 +133,9 @@ def main():
         device=device,
         decoding=args.decoding, num_samples=args.num_samples,
         temperature=args.temperature, top_k=args.top_k, top_p=args.top_p,
+        length_mode=args.length_mode, length_predictor=length_predictor,
+        min_length=args.min_length, max_length=args.max_length,
+        length_temperature=args.length_temperature,
         num_examples=args.num_examples, stratify=args.stratify, seed=args.seed,
         skip_perplexity=args.skip_perplexity,
         judge_model=judge_model, judge_tokenizer=judge_tokenizer,

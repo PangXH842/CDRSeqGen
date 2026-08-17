@@ -42,6 +42,8 @@ SUMMARY_METRICS = (
     "judge_perplexity_mean",
     "valid_generation_rate",
     "length_match_rate",
+    "length_absolute_error_mean",
+    "edit_similarity_mean",
     "fixed_length_acceptance_rate",
     "runtime_seconds_per_retained_sample",
 )
@@ -100,6 +102,21 @@ def hamming_fraction(first: str, second: str) -> float:
     return (mismatches + longest - overlap) / longest
 
 
+def edit_similarity(first: str, second: str) -> float:
+    """One minus normalized Levenshtein distance, defined for unequal lengths."""
+    longest = max(len(first), len(second))
+    if longest == 0:
+        return 1.0
+    previous = list(range(len(second) + 1))
+    for i, left in enumerate(first, start=1):
+        current = [i]
+        for j, right in enumerate(second, start=1):
+            current.append(min(current[-1] + 1, previous[j] + 1,
+                               previous[j - 1] + (left != right)))
+        previous = current
+    return 1.0 - previous[-1] / longest
+
+
 def recovery_at_indices(sample: str, native: str, indices: list[int]) -> float | None:
     if not indices:
         return None
@@ -120,7 +137,8 @@ def position_entropy(samples: list[str]) -> float | None:
     return statistics.mean(entropies)
 
 
-def validate_adapter_record(record: dict[str, Any], manifest_record: dict[str, Any]) -> None:
+def validate_adapter_record(record: dict[str, Any], manifest_record: dict[str, Any],
+                            *, track: str = "fixed_native_length") -> None:
     required = {
         "example_id", "native", "native_length", "samples", "attempts", "valid_attempts",
         "invalid_attempts", "length_matches", "length_mismatches", "runtime_seconds", "complete",
@@ -145,10 +163,10 @@ def validate_adapter_record(record: dict[str, Any], manifest_record: dict[str, A
         raise ValueError(f"{example_id} attempt accounting is inconsistent")
     if record["valid_attempts"] != record["length_matches"] + record["length_mismatches"]:
         raise ValueError(f"{example_id} valid/length accounting is inconsistent")
-    if len(record["samples"]) > record["length_matches"]:
+    if track == "fixed_native_length" and len(record["samples"]) > record["length_matches"]:
         raise ValueError(f"{example_id} retained more samples than matching attempts")
     for sample in record["samples"]:
-        if len(sample) != record["native_length"]:
+        if track == "fixed_native_length" and len(sample) != record["native_length"]:
             raise ValueError(f"{example_id} contains a retained sample with the wrong length")
         invalid = sorted(set(sample) - AMINO_ACIDS)
         if invalid:
@@ -164,13 +182,14 @@ def score_record(
     native = record["native"]
     samples = record["samples"]
     length = len(native)
+    recovery_samples = [sample for sample in samples if len(sample) == length]
     core_indices = list(range(anchor_trim, length - anchor_trim)) if length > 2 * anchor_trim else []
     core_set = set(core_indices)
     anchor_indices = [index for index in range(length) if index not in core_set]
 
-    whole_values = [recovery_at_indices(sample, native, list(range(length))) for sample in samples]
-    core_values = [recovery_at_indices(sample, native, core_indices) for sample in samples]
-    anchor_values = [recovery_at_indices(sample, native, anchor_indices) for sample in samples]
+    whole_values = [recovery_at_indices(sample, native, list(range(length))) for sample in recovery_samples]
+    core_values = [recovery_at_indices(sample, native, core_indices) for sample in recovery_samples]
+    anchor_values = [recovery_at_indices(sample, native, anchor_indices) for sample in recovery_samples]
     pairwise = [hamming_fraction(first, second) for first, second in combinations(samples, 2)]
 
     attempts = record["attempts"]
@@ -182,7 +201,7 @@ def score_record(
             "position": position,
             "relative_position": (position / (length - 1)) if length > 1 else 0.5,
             "recovery": mean_or_none(
-                float(sample[position] == native[position]) for sample in samples
+                float(sample[position] == native[position]) for sample in recovery_samples
             ),
         }
         for position in range(length)
@@ -206,6 +225,8 @@ def score_record(
         "judge_candidates_scored": len(judge_perplexities or []),
         "valid_generation_rate": (valid_attempts / attempts) if attempts else None,
         "length_match_rate": (record["length_matches"] / valid_attempts) if valid_attempts else None,
+        "length_absolute_error_mean": mean_or_none(abs(len(sample) - length) for sample in samples),
+        "edit_similarity_mean": mean_or_none(edit_similarity(sample, native) for sample in samples),
         "fixed_length_acceptance_rate": (record["length_matches"] / attempts) if attempts else None,
         "runtime_seconds": runtime,
         "runtime_seconds_per_attempt": (runtime / attempts) if attempts else None,
@@ -257,8 +278,8 @@ class Judge:
         import torch
 
         from cdrseqgen.data.dataset import assemble_masked_input, inject_context
-        from cdrseqgen.eval.sampling import pseudo_log_likelihood
-        from cdrseqgen.models.registry import resolve
+        from cdrseqgen.methods.mlm.backbones import resolve
+        from cdrseqgen.methods.mlm.sampling import pseudo_log_likelihood
 
         self.torch = torch
         self.inject_context = inject_context
@@ -277,10 +298,10 @@ class Judge:
         self.model.to(self.device)
         self.model.eval()
 
-    def prepare(self, record: dict[str, Any]) -> tuple[list[int], list[int]]:
+    def prepare(self, record: dict[str, Any], target_len: int | None = None) -> tuple[list[int], list[int]]:
         pt1_ids = self.tokenizer.encode(record["pt1"])
         pt2_ids = self.tokenizer.encode(record["pt2"])
-        target_len = record["native_length"]
+        target_len = record["native_length"] if target_len is None else target_len
         pt1_ids, pt2_ids = self.inject_context(
             self.tokenizer, pt1_ids, pt2_ids, target_len, max_len=self.max_len
         )
@@ -294,9 +315,9 @@ class Judge:
         return input_ids, list(range(mask_start, mask_start + target_len))
 
     def score(self, record: dict[str, Any], samples: list[str]) -> list[float]:
-        input_ids, mask_positions = self.prepare(record)
         perplexities = []
         for sample in samples:
+            input_ids, mask_positions = self.prepare(record, len(sample))
             token_ids = self.tokenizer.encode(sample)
             if len(token_ids) != len(mask_positions):
                 raise ValueError(
@@ -368,6 +389,14 @@ def validate_payload(
         raise ValueError(f"{label} benchmark_id differs from manifest")
     if (payload.get("manifest") or {}).get("sha256") != manifest_hash:
         raise ValueError(f"{label} manifest hash differs from supplied manifest")
+    expected_track = (manifest.get("task") or {}).get("track", "fixed_native_length")
+    actual_track = (payload.get("sampling") or {}).get("track", "fixed_native_length")
+    if expected_track not in {"fixed_native_length", "length_free"}:
+        raise ValueError(f"manifest has unsupported benchmark track {expected_track!r}")
+    if actual_track != expected_track:
+        raise ValueError(
+            f"{label} sampling track {actual_track!r} differs from manifest {expected_track!r}"
+        )
     records = payload.get("records") or []
     if not records:
         raise ValueError(f"{label} contains no completed records")
@@ -388,7 +417,8 @@ def assert_comparable(payloads: list[tuple[str, dict[str, Any], list[str]]]) -> 
     if len(payloads) < 2:
         return
     first_label, first, first_ids = payloads[0]
-    matched_sampling = ("num_samples", "temperature", "top_p", "base_seed")
+    matched_sampling = (
+        "track", "num_samples", "temperature", "top_p", "base_seed")
     for label, payload, ids in payloads[1:]:
         if set(ids) != set(first_ids):
             raise ValueError(f"{label} and {first_label} do not contain the same framework IDs")
@@ -408,11 +438,12 @@ def score_payload(
     judge: Judge | None,
 ) -> dict[str, Any]:
     records = []
+    track = (payload.get("sampling") or {}).get("track", "fixed_native_length")
     total = len(payload["records"])
     for index, source_record in enumerate(payload["records"], start=1):
         example_id = source_record["example_id"]
         manifest_record = manifest_by_id[example_id]
-        validate_adapter_record(source_record, manifest_record)
+        validate_adapter_record(source_record, manifest_record, track=track)
         judge_values = None
         if judge is not None:
             print(f"[{label} {index}/{total}] judge {example_id}", flush=True)
@@ -521,9 +552,12 @@ def main() -> None:
         "scoring": {
             "aggregation_unit": "example",
             "anchor_trim_each_end": anchor_trim,
-            "novelty_definition": "one minus whole-span amino-acid recovery to the native loop",
+            "aar_population": "retained candidates whose length matches the native loop",
+            "novelty_definition": "one minus length-matched whole-span amino-acid recovery",
             "diversity_definition": "mean normalized Hamming distance over duplicate-preserved draws",
             "length_match_rate_denominator": "valid generation attempts",
+            "length_error_population": "all retained syntactically valid candidates",
+            "edit_similarity_definition": "one minus Levenshtein distance normalized by longer length",
             **git_state(repo),
         },
         "judge": judge.provenance() if judge else None,

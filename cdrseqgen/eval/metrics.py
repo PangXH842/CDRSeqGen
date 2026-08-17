@@ -5,7 +5,8 @@
   * mean_pairwise_diversity -- calculate mean Hamming distance between each pair of samples
   * unique_fraction         -- fraction of distinct sequences among all samples given
   * per_position_entropy    -- calculate mean Shannon entropy (bits) across loop positions
-  * calculate               -- aggregate all sequence metrics and return as dict
+  * calculate               -- length error/edit similarity plus length-matched AAR when native exists
+                                and aggregate all sequence metrics into one dict
 """
 import math
 from collections import Counter
@@ -69,6 +70,19 @@ def per_position_entropy(samples):
 
 def calculate(samples, native=None):
     """Aggregate the generative-metric block for one test case (native optional)"""
+
+    def edit_similarity(sample, reference):
+        longest = max(len(sample), len(reference))
+        if longest == 0:
+            return 1.0
+        previous = list(range(len(reference) + 1))
+        for i, left in enumerate(sample, start=1):
+            current = [i]
+            for j, right in enumerate(reference, start=1):
+                current.append(min(current[-1] + 1, previous[j] + 1,
+                                   previous[j - 1] + (left != right)))
+            previous = current
+        return 1.0 - previous[-1] / longest
     out = {
         "n_samples": len(samples),
         "n_unique": len(set(samples)),
@@ -77,14 +91,31 @@ def calculate(samples, native=None):
         "per_position_entropy_bits": per_position_entropy(samples),
     }
 
+    lengths = [len(sample) for sample in samples]
+    if lengths:
+        mean_length = sum(lengths) / len(lengths)
+        out["generated_length_mean"] = mean_length
+        out["generated_length_min"] = min(lengths)
+        out["generated_length_max"] = max(lengths)
+
     if native:
-        aars = [amino_acid_recovery(s, native) for s in samples]
-        aars = [r for r in aars if r is not None]
-        if aars:
+        matching = [sample for sample in samples if len(sample) == len(native)]
+        out["length_match_rate"] = len(matching) / len(samples) if samples else None
+        if samples:
+            out["length_absolute_error_mean"] = sum(
+                abs(len(sample) - len(native)) for sample in samples
+            ) / len(samples)
+            out["edit_similarity_mean"] = sum(
+                edit_similarity(sample, native) for sample in samples
+            ) / len(samples)
+        if matching:
+            aars = [amino_acid_recovery(sample, native) for sample in matching]
             mean_aar = sum(aars) / len(aars)
+            out["aar_length_matched_mean"] = mean_aar
             out["aar_mean"] = mean_aar
             out["aar_max"] = max(aars)
             out["aar_min"] = min(aars)
-            out["novelty_mean"] = 1.0 - mean_aar  # mean distance from the native loop
+            # Positional AAR is conditioned on correct length; unequal lengths use edit similarity.
+            out["novelty_mean"] = 1.0 - mean_aar
 
     return out

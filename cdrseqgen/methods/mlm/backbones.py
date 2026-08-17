@@ -1,11 +1,11 @@
-"""Registry for model backbones (currently for PLMs only)
+"""Registry for masked-LM-compatible model backbones.
 
   * Backbone -- one model family's record: match predicate, encoding conventions, three loaders
   * register -- append a Backbone to REGISTRY (order matters, see below)
   * resolve  -- model_type string -> the first Backbone whose predicate matches
 
 Current backbones:
-  * scratch      -- the in-house transformer, custom/transformer.py
+  * scratch      -- the in-house transformer, models/transformer.py
   * esm2         -- Meta ESM-2; the only relative/rotary-position backbone
   * protein_bert -- IgBert / ProtBert / AntiBERTy; needs whitespace-separated residues
   * hf_encoder   -- generic AutoModelForMaskedLM fallback: any other hub id or local dir
@@ -31,7 +31,7 @@ Note:
   * <model_cls>.from_pretrained(path) silently returns a *randomly initialized* model with
     the current transformers version — it builds the config but never loads the checkpoint weights
     (verified: lm_head norm came back at the std-0.02 init value, not the trained value), with no
-    missing/unexpected-key warning. This broke both predict.py and any re-evaluation of scratch
+    missing/unexpected-key warning. This broke both generate.py and any re-evaluation of scratch
     checkpoints. Load the state dict explicitly instead; keys match the freshly built model
     exactly, so strict=True is a hard correctness guard rather than a formality.
 """
@@ -52,7 +52,7 @@ class Backbone:
     uses_special_tokens: bool
     load_tokenizer: Callable[[str, str, bool], TokenizerAdapter]  # (model_type, pos_type, wrap)
     load_training_model: Callable[..., object]                    # fresh model for training
-    load_pretrained_model: Callable[[str], object]               # saved checkpoint for inference
+    load_pretrained_model: Callable[[str], object]               # checkpoint for generation/eval
     fallback: bool = False
 
     def build_tokenizer(self, model_type) -> TokenizerAdapter:
@@ -74,7 +74,7 @@ def resolve(model_type: str) -> Backbone:
             return backbone
     raise ValueError(
         f"No backbone registered for model_type={model_type!r}. "
-        f"Registered backbones: {[b.id for b in REGISTRY]}. Add one in registry.py."
+        f"Registered backbones: {[b.id for b in REGISTRY]}. Add one in backbones.py."
     )
 
 
@@ -91,7 +91,7 @@ def _load_custom_pretrained(path, model_cls, config_cls):
 
 # --- custom from-scratch transformer -------------------------------------------
 def _scratch():
-    from cdrseqgen.models.custom import transformer
+    from cdrseqgen.methods.mlm.models import transformer
     return transformer
 
 

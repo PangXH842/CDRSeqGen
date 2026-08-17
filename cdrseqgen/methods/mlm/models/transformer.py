@@ -1,4 +1,4 @@
-"""Custom model -- build-from-scratch Transformers, bidirectional, encoder-only for masked LM training
+"""Custom bidirectional encoder for from-scratch masked-LM training.
 
   * CustomAntibodyConfig    -- PretrainedConfig subclass: the architecture spec HF saves and reloads
   * CustomAntibodyModel     -- architecture + forward; returns a {"loss", "logits"} DICT, which is
@@ -8,14 +8,14 @@
 Note:
   * Positions are learned and absolute, so the dataset appends antigen context after the target
     so the loop keeps a stable index
-  * Logs via the root logger, configured by corresponding entrypoint (train.py, predict.py,
-    or gen_eval.py by way of train.py)
+  * Logs via the root logger, configured by the corresponding entrypoint
+    (train.py, generate.py, or evaluate.py)
   * CustomAntibodyModel.from_pretrained() returns RANDOMLY INITIALIZED weights with no missing-key
-    warning. Must instead use _load_custom_pretrained from registry.py, which loads the state dict
+    warning. Must instead use _load_custom_pretrained from backbones.py, which loads the state dict
     explicitly with strict=True
   * All four architecture knobs (hidden, layer, head, ffn) come from the config (ModelArguments),
     so an architecture sweep can move any of them without editing this file. Model dispatch lives
-    in registry.py; this is just the scratch builder.
+    in backbones.py; this is just the scratch builder.
   * max_position_embeddings is sized from max_len (never below the 512 default) so a longer max_len
     can't overflow the position-embedding table — the model has one learned vector per slot.
   * intermediate_size=None means 4 x hidden_size, the standard transformer FFN (feed-forward
@@ -82,7 +82,8 @@ class CustomAntibodyModel(PreTrainedModel):
         elif isinstance(module, nn.Embedding):
             module.weight.data.normal_(mean=0.0, std=0.02)
 
-    def forward(self, input_ids, attention_mask=None, labels=None):
+    def forward(self, input_ids, attention_mask=None, labels=None,
+                output_hidden_states=False, return_dict=True, **_kwargs):
         x = self.embedding(input_ids)
         x = x + self.pos_embedding[:, :x.size(1), :]
 
@@ -98,7 +99,10 @@ class CustomAntibodyModel(PreTrainedModel):
             loss_fct = nn.CrossEntropyLoss() # ignore_index=-100 is default
             loss = loss_fct(logits.view(-1, self.config.vocab_size), labels.view(-1))
 
-        return {"loss": loss, "logits": logits}
+        output = {"loss": loss, "logits": logits}
+        if output_hidden_states:
+            output["hidden_states"] = (x,)
+        return output
 
 
 def build_model(vocab_size=25, hidden_size=128, num_layers=4, num_attention_heads=8,

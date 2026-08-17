@@ -9,3 +9,8 @@ RUN_CONFIG_FILENAMES = (
     RUN_CONFIG_FILENAME,
     *RUN_CONFIG_LEGACY_FILENAMES,
 )
+
+# The length predictor is a deliberately separate artifact: old sequence checkpoints remain valid
+# for fixed-length generation, while bounded/inferred generation fails clearly when these are absent.
+LENGTH_CONFIG_FILENAME = "length_config.json"
+LENGTH_HEAD_FILENAME = "length_head.safetensors"

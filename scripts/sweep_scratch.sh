@@ -10,7 +10,7 @@
 # scratch is the model most likely to be under-tuned.
 #
 # NOT swept, on purpose: hidden_size. num_attention_heads (8) and intermediate_size (512) are
-# hardcoded in cdrseqgen/models/custom/transformer.py and never plumbed through build_scratch_model, so
+# hardcoded in cdrseqgen/methods/mlm/models/transformer.py and never plumbed through build_scratch_model, so
 # intermediate_size does NOT follow hidden_size — changing hidden_size silently changes the FFN
 # ratio too (4x at the default 128, 2x at 256), confounding the result. hidden_size must also stay
 # a multiple of 8 or nn.TransformerEncoderLayer throws. Plumb those through before sweeping

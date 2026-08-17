@@ -69,9 +69,28 @@ class BenchmarkScorerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "wrong length"):
             validate_adapter_record({**record, "samples": ["AAA"]}, manifest)
 
+    def test_length_free_scoring_keeps_unequal_lengths_but_conditions_aar(self):
+        record = adapter_record(native="AAAA", samples=["AAAA", "AAA", "AAAAA"])
+        record.update(
+            attempts=3, valid_attempts=3, invalid_attempts=0,
+            length_matches=1, length_mismatches=2,
+        )
+        manifest = {"native": "AAAA", "native_length": 4}
+        validate_adapter_record(record, manifest, track="length_free")
+        metrics = score_record(record, anchor_trim=1)
+        self.assertEqual(metrics["whole_span_aar_mean"], 1.0)
+        self.assertAlmostEqual(metrics["length_match_rate"], 1 / 3)
+        self.assertAlmostEqual(metrics["length_absolute_error_mean"], 2 / 3)
+        self.assertGreater(metrics["edit_similarity_mean"], 0.8)
+        with self.assertRaisesRegex(ValueError, "retained|wrong length"):
+            validate_adapter_record(record, manifest, track="fixed_native_length")
+
     def test_comparison_requires_same_examples_and_sampling_controls(self):
         base = {
-            "sampling": {"num_samples": 5, "temperature": 1.0, "top_p": 0.9, "base_seed": 42}
+            "sampling": {
+                "track": "fixed_native_length", "num_samples": 5,
+                "temperature": 1.0, "top_p": 0.9, "base_seed": 42,
+            }
         }
         assert_comparable([("a", base, ["x"]), ("b", base, ["x"])])
         with self.assertRaisesRegex(ValueError, "framework IDs"):
@@ -86,7 +105,7 @@ class BenchmarkScorerTests(unittest.TestCase):
         second = adapter_record(samples=["TTTTTT", "TTTTTT", "TTTTTT"])
         second.update(attempts=3, valid_attempts=3, invalid_attempts=0, length_matches=3)
         scored = []
-        for index, record in enumerate((first, second)):
+        for record in (first, second):
             metrics = score_record(record, anchor_trim=2)
             scored.append({
                 "metrics": metrics,

@@ -28,6 +28,8 @@ from typing import Tuple
 
 from transformers import HfArgumentParser, TrainingArguments
 
+from cdrseqgen.data.dataset import normalize_masking_policy
+from cdrseqgen.methods.mlm.length import resolve_generation_length_policy
 from cdrseqgen.train.logging import (
     RUN_SUFFIX_ENV,
     attach_file_logging,
@@ -119,6 +121,32 @@ class DataArguments:
                           "(H1/scratch: 0.984->0.261 when context is withheld, 0.997->0.159 when it "
                           "is supplied to a model trained without). Deterministic per example."}
     )
+    masking_policy: str = field(
+        default="full_span",
+        metadata={"help": "Training corruption: 'full_span' preserves the original CDR-infilling "
+                          "objective; 'mixed' combines fully masked loops with partially revealed "
+                          "loops for iterative-decoder conditioning."}
+    )
+    mixed_full_span_probability: float = field(
+        default=0.5,
+        metadata={"help": "Under masking_policy=mixed, probability that a training example still "
+                          "uses the full-span mask. Other examples mask a uniformly sampled proper "
+                          "subset. Evaluation is always full-span."}
+    )
+    train_length_predictor: bool = field(
+        default=True,
+        metadata={"help": "Fit and save the small gap-sentinel length classifier after sequence "
+                          "training. Fixed-length generation does not require this artifact."}
+    )
+    length_predictor_epochs: int = field(
+        default=20, metadata={"help": "Epochs for the frozen-backbone length classifier."}
+    )
+    length_predictor_learning_rate: float = field(
+        default=1e-2, metadata={"help": "Learning rate for the length classifier."}
+    )
+    length_predictor_batch_size: int = field(
+        default=16, metadata={"help": "Feature-extraction/training batch size for length prediction."}
+    )
 
 
 @dataclass
@@ -141,6 +169,19 @@ class GenerationArguments:
     gen_num_samples: int = field(default=20, metadata={"help": "Candidates per framework."})
     gen_decoding: str = field(default="iterative", metadata={"help": "greedy | independent | iterative."})
     gen_temperature: float = field(default=1.0, metadata={"help": "Sampling temperature."})
+    gen_length_mode: str = field(
+        default="fixed_native",
+        metadata={"help": "Length policy for post-training eval: fixed_native, bounded, or inferred."}
+    )
+    gen_min_length: int = field(
+        default=None, metadata={"help": "Optional lower length bound for bounded generation."}
+    )
+    gen_max_length: int = field(
+        default=None, metadata={"help": "Optional upper length bound for bounded generation."}
+    )
+    gen_length_temperature: float = field(
+        default=1.0, metadata={"help": "Temperature for sampling the learned length distribution."}
+    )
     gen_top_k: int = field(default=0, metadata={"help": "Top-k filter (0 = disabled)."})
     gen_top_p: float = field(default=0.9, metadata={"help": "Nucleus cutoff (1.0 = disabled)."})
     gen_stratify: bool = field(default=True, metadata={"help": "Balance the draw across H3 length buckets."})
@@ -176,6 +217,25 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
     else:
         # Case: parse CLI args directly
         model_args, data_args, gen_args, training_args = parser.parse_args_into_dataclasses()
+
+    data_args.masking_policy = normalize_masking_policy(data_args.masking_policy)
+    if not 0.0 <= data_args.mixed_full_span_probability <= 1.0:
+        raise ValueError("mixed_full_span_probability must be between 0 and 1")
+    if (
+        data_args.length_predictor_epochs <= 0
+        or data_args.length_predictor_learning_rate <= 0
+        or data_args.length_predictor_batch_size <= 0
+    ):
+        raise ValueError("length predictor epochs, learning rate, and batch size must be positive")
+    gen_args.gen_length_mode = gen_args.gen_length_mode.strip().lower()
+    resolve_generation_length_policy(
+        gen_args.gen_length_mode,
+        min_length=gen_args.gen_min_length,
+        max_length=gen_args.gen_max_length,
+    )
+    if gen_args.gen_length_temperature < 0:
+        raise ValueError("gen_length_temperature must be non-negative")
+
 
     # Assemble batch dir name
     # Combine: [LOOP][DS_TAG][PARTNER_TAG][AG_TAG]_[MODEL][_SUFFIX]

@@ -112,7 +112,10 @@ def build_manifest(
     sample_size: int | None,
     selection_seed: str,
     benchmark_id: str,
+    track: str = "fixed_native_length",
 ) -> dict:
+    if track not in {"fixed_native_length", "length_free"}:
+        raise ValueError(f"unsupported benchmark track {track!r}")
     with input_path.open() as handle:
         entries = json.load(handle)
 
@@ -161,7 +164,7 @@ def build_manifest(
             "name": "cdr_h3_infilling",
             "target_region": "h3",
             "numbering_scheme": "IMGT",
-            "track": "fixed_native_length",
+            "track": track,
             "anchor_trim_each_end": 2,
             "partner_chain_context": False,
             "antigen_context": False,
@@ -203,6 +206,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--selection-seed", default="oas-h3-test-v1")
     parser.add_argument("--benchmark-id", default="oas_h3_test_v1")
+    parser.add_argument(
+        "--track", choices=("fixed_native_length", "length_free"), default="fixed_native_length"
+    )
     return parser.parse_args()
 
 
@@ -213,6 +219,7 @@ def main() -> None:
         input_path,
         split=args.split,
         sample_size=args.sample_size,
+        track=args.track,
         selection_seed=args.selection_seed,
         benchmark_id=args.benchmark_id,
     )

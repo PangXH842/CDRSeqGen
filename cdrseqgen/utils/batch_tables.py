@@ -10,7 +10,7 @@ Usage:
     python -m cdrseqgen.utils.batch_tables --only regimes,loops
 
 Metrics:
-  * Recovery (whole, core)
+  * AAR / Amino acid recovery (whole, core)
   * Diversity (pairwise Hamming distance)
   * Perplexity (self, judge)
   * Novelty (uniqueness, relative to train set)

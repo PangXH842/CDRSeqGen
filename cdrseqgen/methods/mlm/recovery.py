@@ -1,4 +1,4 @@
-"""Recovery-side metrics — sequence recovery on the masked loop, for the HF Trainer.
+"""MLM Trainer adapter for recovery on supervised mask positions.
 
 The counterpart to metrics.py: this is the *recovery* half of the evaluation (did we reproduce the
 native loop), metrics.py is the *design* half (diversity, novelty, entropy). Passed to Trainer as

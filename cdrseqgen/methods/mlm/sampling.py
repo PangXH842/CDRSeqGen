@@ -1,4 +1,4 @@
-"""Decoding strategies + sequence scoring for masked-LM CDR infilling.
+"""Masked-LM decoding strategies and pseudo-log-likelihood scoring.
 
   * warp_logits           -- apply temperature / top-k / top-p to logits
   * sample_independent    -- sample each masked residue individually

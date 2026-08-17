@@ -73,6 +73,17 @@ class CDRSeqGenAdapterTests(unittest.TestCase):
         self.assertEqual(result["samples"], ["CCC", "CCC", "DDD"])
         self.assertEqual(result["attempts"], 3)
         self.assertEqual(result["length_matches"], 3)
+        self.assertEqual(
+            result["length_policy"],
+            {
+                "mode": "fixed",
+                "source": "native_mask_count",
+                "minimum": 3,
+                "maximum": 3,
+                "selected_length": 3,
+            },
+        )
+
         self.assertTrue(result["complete"])
         self.assertEqual(sampler.prepared, manifest_record()["example_id"])
         self.assertEqual(
@@ -93,6 +104,21 @@ class CDRSeqGenAdapterTests(unittest.TestCase):
         self.assertEqual(result["invalid_attempts"], 1)
         self.assertFalse(result["complete"])
         self.assertEqual({f["code"] for f in result["failures"]}, {"length_mismatch", "invalid_amino_acid"})
+
+    def test_length_free_track_retains_all_valid_lengths(self):
+        sampler = FakeSampler(["CC", "CCC", "CCCC"])
+        sampler.track = "length_free"
+        sampler.length_metadata = {"mode": "inferred", "selected_lengths": [2, 3, 4]}
+        result = run_example(
+            manifest_record(), sampler,
+            num_samples=3, decoding="independent", temperature=1.0,
+            top_k=0, top_p=1.0, base_seed=42,
+        )
+        self.assertEqual(result["samples"], ["CC", "CCC", "CCCC"])
+        self.assertEqual(result["length_matches"], 1)
+        self.assertEqual(result["length_mismatches"], 2)
+        self.assertFalse(any(failure["code"] == "length_mismatch" for failure in result["failures"]))
+        self.assertEqual(result["length_policy"]["mode"], "inferred")
 
     def test_checkpoint_contract_rejects_context_or_dataset_mismatch(self):
         manifest = {

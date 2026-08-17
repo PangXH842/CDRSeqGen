@@ -1,4 +1,4 @@
-"""Inference/showcase tool - Design CDR loops with given antibody frameworks and context.
+"""Candidate-generation showcase for antibody frameworks and optional context.
 
 Usage:
   Select a trained model, provide the protein framework before (pt1) and after (pt2) the selected loop,
@@ -9,22 +9,26 @@ Args:
   * --model_type    -- specify the type of model; defaults to whatever run_config.json says the
                         checkpoint is, so it only needs passing for an external one
   * --test_file     -- read from a json file including test cases
-                        (args to include: pt1, pt2, target_truth*, target_length*, partner_chain**,
-                         antigen**) (*one of either) (**optional)
+                        (args to include: pt1, pt2, target_truth*, min_length*, max_length*,
+                         target_length**, partner_chain***, antigen***)
+                        (*truth or equal bounds; **deprecated exact-length alias; ***optional)
   * --pt1, --pt2    -- framework regions before and after the target CDR
   * --target_loop   -- target CDR (h1/h2/h3/l1/l2/l3) this run is designing; declarative only, and
                         warns on mismatch with the loop in run_config.json
                         (a gap sitting at the wrong offset is warned for either way, from pt1's
                          length, since that needs no declaration)
   * --target_truth  -- optional ground truth
-  * --target_length -- specified CDR length (?)
+  * --min_length, --max_length -- inclusive length bounds; equal values fix the length, unequal or
+                                  one-sided bounds constrain the learned length distribution, and
+                                  omitting both lets the checkpoint infer length
+  * --target_length -- deprecated alias for an exact fixed CDR length
   * --partner_chain -- paired chain context, optional (refused depending on model requirements)
   * --antigen       -- antigen sequence context, optional (refused depending on model requirements)
   * --force         -- run despite the context mismatches above (which block, unlike the loop
                         warnings); recorded in the output json
   * --max_len       -- length cap for the assembled input; match the training config
                         (SAbDab2 antigen runs use 512)
-  * --decoding      -- decoding strategy choice: "independent" for individual position sampling; 
+  * --decoding      -- decoding strategy choice: "independent" for individual position sampling;
                         "iterative" for iterative most-to-least confident sampling, uses more time
                         depending on loop length
   * --num_samples   -- number of CDR loop samples to generate (1 if greedy)
@@ -38,11 +42,11 @@ Args:
 
 Usage examples (results/latest is the newest *batch* — name the config you want under it):
     # design 20 coherent H3 loops for one framework
-    python predict.py --model_path ./results/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... \
-        --target_length 17
+    python generate.py --model_path ./results/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... \
+        --min_length 17 --max_length 17
 
     # a curated batch with nucleus sampling
-    python predict.py --model_path ./results/latest/h3_OAS_scratch --test_file test/test_h3.json \
+    python generate.py --model_path ./results/latest/h3_OAS_scratch --test_file test/test_h3.json \
         --decoding iterative --num_samples 50 --top_p 0.9
 """
 import argparse
@@ -55,13 +59,15 @@ from cdrseqgen.artifacts import RUN_CONFIG_FILENAMES
 from cdrseqgen.train.logging import configure_logging
 configure_logging()
 
-from cdrseqgen.data.dataset import assemble_masked_input, inject_context
-from cdrseqgen.models.registry import resolve
-from cdrseqgen.eval.sampling import (
-    sample_independent,
-    sample_iterative,
-    pseudo_log_likelihood,
+from cdrseqgen.methods.mlm.backbones import resolve
+from cdrseqgen.methods.mlm.generation import (
+    prepare_fixed_length_prompt,
+    sample_length_conditioned_spans,
+    sample_masked_span,
 )
+from cdrseqgen.methods.mlm.length import resolve_length_policy
+from cdrseqgen.methods.mlm.length_predictor import LengthPredictor
+from cdrseqgen.methods.mlm.sampling import pseudo_log_likelihood
 from cdrseqgen.eval.metrics import amino_acid_recovery, calculate
 
 logger = logging.getLogger(__name__)
@@ -130,6 +136,8 @@ def get_test_case(args):
             "pt2": args.pt2,
             "target_truth": args.target_truth,
             "target_length": args.target_length,
+            "min_length": getattr(args, "min_length", None),
+            "max_length": getattr(args, "max_length", None),
         }]
     return test_cases
 
@@ -220,87 +228,58 @@ def check_compatibility(configs, cases, args):
 def build_masked_input(tokenizer, pt1, pt2, target_length, partner_chain=None, antigen=None,
                        max_len=256):
     """Assemble the masked input for one framework. Returns (input_ids, mask_positions)."""
-    pt1_ids, pt2_ids = inject_context(
-        tokenizer, tokenizer.encode(pt1), tokenizer.encode(pt2), target_length,
-        partner_seq=partner_chain, antigen_seq=antigen, max_len=max_len,
+    prompt = prepare_fixed_length_prompt(
+        tokenizer,
+        pt1,
+        pt2,
+        target_length,
+        partner_chain=partner_chain,
+        antigen=antigen,
+        max_len=max_len,
     )
-    input_ids, start = assemble_masked_input(tokenizer, pt1_ids, pt2_ids, target_length)
-    return input_ids, list(range(start, start + target_length))
+    return prompt.input_ids, prompt.mask_positions
 
 
-def decode_case(model, tokenizer, device, args, generator, case):
-    """Generate + score one test case. Returns a JSON-serialisable record."""
-    name = case.get("name", "Unnamed Test")
-    pt1, pt2 = case["pt1"], case["pt2"]
+def resolve_case_length(case, args):
+    """Return normalized native sequence and its independent generation policy.
+
+    Native truth is retained for scoring but reveals its length only when
+    ``use_native_length`` is explicitly requested.
+    """
     native = case.get("target_truth")
     native = native.upper().strip() if native else None
-    target_length = len(native) if native else case.get("target_length", 10)
 
-    input_ids, mask_positions = build_masked_input(
-        tokenizer, pt1, pt2, target_length,
-        partner_chain=case.get("partner_chain") or args.partner_chain,
-        antigen=case.get("antigen") or args.antigen,
-        max_len=args.max_len,
+    def case_value(key):
+        return case[key] if key in case else getattr(args, key, None)
+
+    policy = resolve_length_policy(
+        native_length=len(native) if native else None,
+        use_native_length=bool(case_value("use_native_length")),
+        target_length=case_value("target_length"),
+        min_length=case_value("min_length"),
+        max_length=case_value("max_length"),
     )
-    banned = tokenizer.special_ids
+    return native, policy
 
-    # --- decode ---  (greedy == temperature 0; see sampling.py)
-    if args.decoding == "independent":
-        sampled_ids = sample_independent(
-            model, input_ids, mask_positions, banned, device=device,
-            num_samples=args.num_samples, temperature=args.temperature,
-            top_k=args.top_k, top_p=args.top_p, generator=generator,
-        )
-    else:  # iterative
-        sampled_ids = sample_iterative(
-            model, input_ids, mask_positions, banned, tokenizer.mask_id, device=device,
-            num_samples=args.num_samples, temperature=args.temperature,
-            top_k=args.top_k, top_p=args.top_p, generator=generator,
-        )
 
-    # --- decode ids -> strings + per-sample scores ---
-    samples = []
-    for ids in sampled_ids:
-        seq = tokenizer.decode(ids).upper().strip()
-        entry = {"seq": seq}
-        if native:
-            entry["recovery"] = amino_acid_recovery(seq, native)
-        if not args.skip_perplexity:
-            _, ppl = pseudo_log_likelihood(
-                model, input_ids, mask_positions, ids, banned, tokenizer.mask_id, device
-            )
-            entry["pseudo_perplexity"] = ppl
-        samples.append(entry)
+def generate_case(model, tokenizer, device, args, generator, case, length_predictor=None):
+    """Generate + score one test case. Returns a JSON-serialisable record."""
+    from cdrseqgen.methods.mlm.case_generation import generate_case_record
 
-    # --- aggregate generative metrics over the sample set ---
-    seqs = [s["seq"] for s in samples]
-    metrics = calculate(seqs, native)
-    if not args.skip_perplexity and samples:
-        ppls = [s["pseudo_perplexity"] for s in samples]
-        metrics["pseudo_perplexity_mean"] = sum(ppls) / len(ppls)
-        metrics["pseudo_perplexity_min"] = min(ppls)
-        metrics["pseudo_perplexity_max"] = max(ppls)
-
-    _print_case(name, pt1, pt2, target_length, native, args, samples, metrics)
-
-    return {
-        "name": name,
-        "pt1": pt1,
-        "pt2": pt2,
-        "target_length": target_length,
-        "native": native,
-        "decoding": {
-            "mode": args.decoding,
-            "temperature": args.temperature,
-            "top_k": args.top_k,
-            "top_p": args.top_p,
-            "num_samples": len(samples),
-            "seed": args.seed,
-        },
-        "samples": samples,
-        "metrics": metrics,
-    }
-
+    native, length_policy = resolve_case_length(case, args)
+    return generate_case_record(
+        model,
+        tokenizer,
+        device,
+        args,
+        generator,
+        case,
+        native=native,
+        length_policy=length_policy,
+        length_predictor=length_predictor,
+        sample_masked_span_fn=sample_masked_span,
+        print_callback=_print_case,
+    )
 
 def _print_case(name, pt1, pt2, target_length, native, args, samples, metrics):
     """Human-readable console report for one case."""
@@ -360,6 +339,16 @@ def main(args):
         logger.warning(f"🔓 --force given: continuing despite {len(problems)} problem(s). "
                        f"They are recorded under 'model.compatibility' in the output.")
 
+    # Validate length requests before paying the cost of loading checkpoint weights.
+    length_policies = []
+    for case in test_cases:
+        try:
+            _native, policy = resolve_case_length(case, args)
+            length_policies.append(policy)
+        except ValueError as exc:
+            name = case.get("name", "Unnamed Test")
+            raise SystemExit(f"Invalid length policy for {name!r}: {exc}") from exc
+
     # Load model for inference. model_type comes from configs, not args: --model_type is optional and
     # falls back to whatever the checkpoint says it is.
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -376,7 +365,14 @@ def main(args):
     generator = torch.Generator(device=device)
     generator.manual_seed(args.seed)
 
-    results = [decode_case(model, tokenizer, device, args, generator, case) for case in test_cases]
+    length_predictor = None
+    if any(policy.requires_predictor for policy in length_policies):
+        print("📏 Loading checkpoint length predictor…")
+        length_predictor = LengthPredictor.load(args.model_path, device=device)
+    results = [
+        generate_case(model, tokenizer, device, args, generator, case, length_predictor)
+        for case in test_cases
+    ]
 
     # Persist samples + metrics for downstream analysis (mirrors train.py's per-run CSV habit).
     if args.output != "none":
@@ -408,7 +404,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Design CDR loops for frameworks you provide (qualitative tool; use gen_eval.py for benchmarks)")
+        description="Design CDR loops for frameworks you provide (qualitative tool; use evaluate.py for benchmarks)")
     parser.add_argument("--model_path", type=str, required=True, help="Path to your trained model folder")
     parser.add_argument("--model_type", type=str, default=None,
                         help="Backbone: 'scratch', an ESM-2 id, a protein-BERT id, or any HF masked-LM hub path")
@@ -419,7 +415,15 @@ if __name__ == "__main__":
     # Fallback CLI arguments for a quick single test
     parser.add_argument("--pt1", type=str, default="", help="Sequence BEFORE the missing loop")
     parser.add_argument("--pt2", type=str, default="", help="Sequence AFTER the missing loop")
-    parser.add_argument("--target_length", type=int, default=10, help="Gap length when no ground truth is given")
+    parser.add_argument("--min_length", type=int, default=None,
+                        help="Inclusive minimum CDR length (alone or with --max_length)")
+    parser.add_argument("--max_length", type=int, default=None,
+                        help="Inclusive maximum CDR length (alone or with --min_length)")
+    parser.add_argument("--target_length", type=int, default=None,
+                        help="Deprecated exact-length alias; prefer equal --min_length/--max_length")
+    parser.add_argument("--use_native_length", action="store_true",
+                        help="Explicitly use target_truth length for the fixed track; by default "
+                             "target_truth is scoring-only and omitted bounds are inferred")
     parser.add_argument("--target_truth", type=str, default=None, help="Optional ground-truth loop")
     parser.add_argument("--partner_chain", type=str, default=None,
                         help="Paired partner chain (light for an h* target, heavy for l*). "
@@ -447,6 +451,9 @@ if __name__ == "__main__":
                         help="Candidate loops to sample per framework (collapses to 1 when --temperature 0)")
     parser.add_argument("--show_samples", type=int, default=5, help="How many sampled sequences to print per case")
     parser.add_argument("--temperature", type=float, default=1.0, help="Softmax temperature (>1 flatter, <1 sharper)")
+    parser.add_argument("--length_temperature", type=float, default=1.0,
+                        help="Temperature for sampled length classes; 0 selects the most likely "
+                             "allowed length")
     parser.add_argument("--top_k", type=int, default=0, help="Keep only the top-k logits (0 = disabled)")
     parser.add_argument("--top_p", type=float, default=1.0, help="Nucleus sampling cumulative-prob cutoff (1.0 = disabled)")
     parser.add_argument("--seed", type=int, default=42, help="Seed for reproducible sampling")

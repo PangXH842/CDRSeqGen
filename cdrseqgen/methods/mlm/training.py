@@ -31,6 +31,8 @@ def get_datasets(model_args, data_args, training_args, backbone) -> Tuple[torch.
     """Handles tokenizer selection, dataset loading, and splitting."""
     # Load TokenizerAdapter from dataset.py as tokenizer.
     tokenizer = backbone.build_tokenizer(model_args.model_type)
+    masking_policy = getattr(data_args, "masking_policy", "full_span")
+    mixed_full_span_probability = getattr(data_args, "mixed_full_span_probability", 0.5)
 
     # Dataset Loading
     full_dataset = AntibodyInfillingDataset(
@@ -40,6 +42,8 @@ def get_datasets(model_args, data_args, training_args, backbone) -> Tuple[torch.
         target_region=data_args.target_region,
         include_partner_chain=data_args.include_partner_chain,
         include_antigen=data_args.include_antigen,
+        masking_policy=masking_policy,
+        mixed_full_span_probability=mixed_full_span_probability,
         context_dropout=data_args.context_dropout,
         context_dropout_seed=training_args.seed,
     )
@@ -70,12 +74,18 @@ def get_datasets(model_args, data_args, training_args, backbone) -> Tuple[torch.
             random_state=training_args.seed
         )
 
+    # These lightweight views share parsed records/tokenizer but not masking behavior. Training may
+    # reveal native residues; validation must always begin with the entire loop masked or recovery
+    # would leak the answer.
+    eval_full_dataset = full_dataset.masking_view("full_span")
     train_ds = torch.utils.data.Subset(full_dataset, train_idx)
-    eval_ds = torch.utils.data.Subset(full_dataset, val_idx)
+    eval_ds = torch.utils.data.Subset(eval_full_dataset, val_idx)
 
     eval_label = selected_eval_split or "all non-train"
-    logger.info(f"📊 Data loaded: {len(train_ds)} train, {len(eval_ds)} eval "
-                f"(eval split: {eval_label}).")
+    masking_note = f", full-span probability={mixed_full_span_probability:.2f}" \
+        if masking_policy == "mixed" else ""
+    logger.info(f"📊 Data loaded: {len(train_ds)} train ({masking_policy}{masking_note}), "
+                f"{len(eval_ds)} eval (full_span; split: {eval_label}).")
     return train_ds, eval_ds, tokenizer
 
 
@@ -98,9 +108,10 @@ def run_training_pipeline(trainer: Trainer, training_args: TrainingArguments):
     plot_training_curves(training_args.output_dir)
 
 
-def post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_args, training_args):
+def post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_args, training_args,
+                             *, length_predictor=None):
     """Sample designs from the finished model, produces generation_eval.json."""
-    from cdrseqgen.eval.generation import run_generative_eval, build_judge
+    from cdrseqgen.methods.mlm.evaluation import build_judge, run_generative_eval
 
     try:
         judge_model = judge_tokenizer = judge_dataset = None
@@ -123,6 +134,11 @@ def post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_ar
             decoding=gen_args.gen_decoding,
             num_samples=gen_args.gen_num_samples,
             temperature=gen_args.gen_temperature,
+            length_mode=gen_args.gen_length_mode,
+            length_predictor=length_predictor,
+            min_length=gen_args.gen_min_length,
+            max_length=gen_args.gen_max_length,
+            length_temperature=gen_args.gen_length_temperature,
             top_k=gen_args.gen_top_k,
             top_p=gen_args.gen_top_p,
             num_examples=gen_args.gen_num_examples,

@@ -124,12 +124,14 @@ class IgLMSampler:
     def prepare(self, record: dict[str, Any]) -> None:
         """Validate and cache one example's prompt before its attempt loop."""
         self.starting_tokens = self._starting_tokens(record)
-        self.target_total_length = self.starting_tokens.shape[-1] + record["native_length"] + 1
-        if self.target_total_length > self.max_length:
-            raise ValueError(
-                f"{record['example_id']} needs generation length {self.target_total_length}, "
-                f"above --max-length {self.max_length}"
-            )
+        self.target_total_length = None
+        if self.length_policy == "constrain":
+            self.target_total_length = self.starting_tokens.shape[-1] + record["native_length"] + 1
+            if self.target_total_length > self.max_length:
+                raise ValueError(
+                    f"{record['example_id']} needs generation length {self.target_total_length}, "
+                    f"above --max-length {self.max_length}"
+                )
 
     def draw(self, *, temperature: float, top_p: float) -> str:
         """Return exactly one decoded full-sequence draw or raise InvalidGeneration."""
@@ -223,7 +225,8 @@ def run_example(
                 "valid_generation": True,
                 "length_match": length_match,
             })
-            if length_match:
+            retain_natural = getattr(sampler, "length_policy", None) == "natural"
+            if length_match or retain_natural:
                 # Keep raw draws, including duplicates. Diversity belongs in the scorer.
                 samples.append(loop)
             consecutive_errors = 0
@@ -252,6 +255,21 @@ def run_example(
         "example_id": record["example_id"],
         "native": record["native"],
         "native_length": record["native_length"],
+        "length_policy": (
+            {
+                "mode": "inferred", "source": "iglm_eos",
+                "minimum": None, "maximum": None,
+            }
+            if getattr(sampler, "length_policy", None) == "natural"
+            else {
+                "mode": "fixed",
+                "source": "native_length_constraint"
+                          if getattr(sampler, "length_policy", None) == "constrain"
+                          else "native_length_filter",
+                "minimum": record["native_length"], "maximum": record["native_length"],
+                "selected_length": record["native_length"],
+            }
+        ),
         "samples": samples,
         "attempts": attempts,
         "valid_attempts": valid_attempts,
@@ -309,6 +327,7 @@ def build_payload(args, manifest: dict[str, Any], manifest_hash: str, sampler) -
     except Exception as exc:
         raise RuntimeError(f"could not collect IgLM provenance: {exc}") from exc
 
+    track = (manifest.get("task") or {}).get("track", "fixed_native_length")
     return {
         "schema_version": SCHEMA_VERSION,
         "adapter": "iglm",
@@ -320,7 +339,7 @@ def build_payload(args, manifest: dict[str, Any], manifest_hash: str, sampler) -
         },
         "model": {"name": args.model_name, **provenance},
         "sampling": {
-            "track": "fixed_native_length",
+            "track": track,
             "length_policy": args.length_policy,
             "num_samples": args.num_samples,
             "max_attempts": args.max_attempts,
@@ -356,9 +375,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-length", type=int, default=150)
     parser.add_argument(
         "--length-policy",
-        choices=("constrain", "filter"),
+        choices=("constrain", "filter", "natural"),
         default="constrain",
-        help="Constrain EOS to native length, or sample variable lengths and filter matches",
+        help="Constrain/filter for fixed track, or retain natural EOS lengths for length-free track",
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max-errors", type=int, default=5)
@@ -385,6 +404,13 @@ def main() -> None:
     with args.manifest.open() as handle:
         manifest = json.load(handle)
     records = manifest.get("records") or []
+    track = (manifest.get("task") or {}).get("track", "fixed_native_length")
+    if track == "length_free" and args.length_policy != "natural":
+        raise ValueError("length_free manifests require --length-policy natural")
+    if track == "fixed_native_length" and args.length_policy == "natural":
+        raise ValueError("fixed_native_length manifests require constrain or filter")
+    if track not in {"fixed_native_length", "length_free"}:
+        raise ValueError(f"unsupported manifest track {track!r}")
     if args.limit is not None:
         if args.limit <= 0:
             raise ValueError("--limit must be positive")

@@ -22,7 +22,11 @@ if sys.path and Path(sys.path[0]).resolve() == ADAPTER_DIR:
     sys.path.pop(0)
     sys.path.insert(0, str(ADAPTER_DIR.parents[1]))
 
-from cdrseqgen.artifacts import RUN_CONFIG_FILENAMES
+from cdrseqgen.artifacts import (
+    LENGTH_CONFIG_FILENAME,
+    LENGTH_HEAD_FILENAME,
+    RUN_CONFIG_FILENAMES,
+)
 
 SCHEMA_VERSION = "cdrseqgen.adapter_output.v1"
 AMINO_ACIDS = set("ACDEFGHIKLMNPQRSTVWY")
@@ -100,8 +104,8 @@ def validate_checkpoint_contract(run_config: dict[str, Any], manifest: dict[str,
             f"checkpoint targets {run_config.get('target_region')!r}, manifest targets "
             f"{expected_target!r}"
         )
-    if task.get("track") != "fixed_native_length":
-        raise ValueError("CDRSeqGen adapter currently supports only fixed_native_length manifests")
+    if task.get("track") not in {"fixed_native_length", "length_free"}:
+        raise ValueError("manifest track must be fixed_native_length or length_free")
     for config_key, task_key in (
         ("include_partner_chain", "partner_chain_context"),
         ("include_antigen", "antigen_context"),
@@ -120,18 +124,26 @@ def validate_checkpoint_contract(run_config: dict[str, Any], manifest: dict[str,
 
 
 class CDRSeqGenSampler:
-    def __init__(self, checkpoint: Path, run_config: dict[str, Any], device: str):
+    def __init__(self, checkpoint: Path, run_config: dict[str, Any], device: str,
+                 track: str = "fixed_native_length"):
         import torch
 
-        from cdrseqgen.data.dataset import assemble_masked_input, inject_context
-        from cdrseqgen.eval.sampling import sample_independent, sample_iterative
-        from cdrseqgen.models.registry import resolve
+        from cdrseqgen.methods.mlm.generation import (
+            prepare_fixed_length_prompt,
+            sample_length_conditioned_spans,
+            sample_masked_span,
+        )
+        from cdrseqgen.methods.mlm.backbones import resolve
+        from cdrseqgen.methods.mlm.length import native_mask_length, resolve_length_policy
+        from cdrseqgen.methods.mlm.length_predictor import LengthPredictor
 
         self.torch = torch
-        self.assemble_masked_input = assemble_masked_input
-        self.inject_context = inject_context
-        self.sample_independent = sample_independent
-        self.sample_iterative = sample_iterative
+        self.prepare_fixed_length_prompt = prepare_fixed_length_prompt
+        self.sample_length_conditioned_spans = sample_length_conditioned_spans
+        self.resolve_length_policy = resolve_length_policy
+        self.track = track
+        self.sample_masked_span = sample_masked_span
+        self.native_mask_length = native_mask_length
         self.run_config = run_config
         self.max_len = int(run_config["max_len"])
 
@@ -146,32 +158,30 @@ class CDRSeqGenSampler:
         self.device = selected_device
         self.model.to(self.device)
         self.model.eval()
+        self.length_predictor = (
+            LengthPredictor.load(checkpoint, device=self.device)
+            if track == "length_free" else None
+        )
 
     def prepare(self, record: dict[str, Any]) -> None:
-        pt1_ids = self.tokenizer.encode(record["pt1"])
-        pt2_ids = self.tokenizer.encode(record["pt2"])
-        original_pt1_len = len(pt1_ids)
-        original_pt2_len = len(pt2_ids)
-        target_len = record["native_length"]
-        pt1_ids, pt2_ids = self.inject_context(
+        self.record = record
+        if self.track == "length_free":
+            self.length_policy = self.resolve_length_policy()
+            self.length_metadata = self.length_policy.as_dict()
+            self.prompt_info = None
+            return
+        self.length_decision = self.native_mask_length(record["native_length"])
+        target_len = self.length_decision.length
+        prompt = self.prepare_fixed_length_prompt(
             self.tokenizer,
-            pt1_ids,
-            pt2_ids,
+            record["pt1"],
+            record["pt2"],
             target_len,
             max_len=self.max_len,
         )
-        self.input_ids, mask_start = self.assemble_masked_input(
-            self.tokenizer, pt1_ids, pt2_ids, target_len
-        )
-        self.mask_positions = list(range(mask_start, mask_start + target_len))
-        self.prompt_info = {
-            "max_len": self.max_len,
-            "input_tokens": len(self.input_ids),
-            "pt1_tokens": len(pt1_ids),
-            "pt2_tokens": len(pt2_ids),
-            "pt1_truncated_tokens": original_pt1_len - len(pt1_ids),
-            "pt2_truncated_tokens": original_pt2_len - len(pt2_ids),
-        }
+        self.input_ids = prompt.input_ids
+        self.mask_positions = prompt.mask_positions
+        self.prompt_info = prompt.metadata()
         if len(self.input_ids) > self.max_len:
             raise ValueError(
                 f"{record['example_id']} assembled length {len(self.input_ids)} exceeds "
@@ -186,6 +196,7 @@ class CDRSeqGenSampler:
         temperature: float,
         top_k: int,
         top_p: float,
+        length_temperature: float,
         seed: int,
     ) -> list[str]:
         self.torch.manual_seed(seed)
@@ -194,25 +205,42 @@ class CDRSeqGenSampler:
         generator = self.torch.Generator(device=self.device)
         generator.manual_seed(seed)
 
-        kwargs = dict(
+        if self.track == "length_free":
+            generated, self.length_metadata = self.sample_length_conditioned_spans(
+                self.model,
+                self.tokenizer,
+                self.device,
+                generator,
+                pt1=self.record["pt1"],
+                pt2=self.record["pt2"],
+                policy=self.length_policy,
+                length_predictor=self.length_predictor,
+                max_len=self.max_len,
+                decoding=decoding,
+                num_samples=num_samples,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+                length_temperature=length_temperature,
+            )
+            self.prompt_info = self.length_metadata.get("prompts_by_length")
+            return [
+                self.tokenizer.decode(span.token_ids).upper().strip()
+                for span in generated
+            ]
+        sampled_ids = self.sample_masked_span(
             model=self.model,
+            tokenizer=self.tokenizer,
+            device=self.device,
+            generator=generator,
             input_ids=self.input_ids,
             mask_positions=self.mask_positions,
-            banned_ids=self.tokenizer.special_ids,
-            device=self.device,
+            decoding=decoding,
             num_samples=num_samples,
             temperature=temperature,
             top_k=top_k,
             top_p=top_p,
-            generator=generator,
         )
-        if decoding == "independent":
-            sampled_ids = self.sample_independent(**kwargs)
-        else:
-            sampled_ids = self.sample_iterative(
-                **kwargs,
-                mask_id=self.tokenizer.mask_id,
-            )
         return [self.tokenizer.decode(ids).upper().strip() for ids in sampled_ids]
 
 
@@ -226,6 +254,7 @@ def run_example(
     top_k: int,
     top_p: float,
     base_seed: int,
+    length_temperature: float = 1.0,
 ) -> dict[str, Any]:
     validate_manifest_record(record)
     seed = stable_example_seed(base_seed, record["example_id"])
@@ -239,6 +268,7 @@ def run_example(
             temperature=temperature,
             top_k=top_k,
             top_p=top_p,
+            length_temperature=length_temperature,
             seed=seed,
         )
     except Exception as exc:
@@ -268,13 +298,14 @@ def run_example(
                 "code": "invalid_amino_acid",
                 "detail": f"generated loop contains unsupported residues: {invalid}",
             })
-        elif not length_match:
+        elif not length_match and getattr(sampler, "track", "fixed_native_length") == "fixed_native_length":
             failures.append({
                 "attempt": attempt,
                 "code": "length_mismatch",
                 "detail": f"generated {len(loop)} residues, expected {record['native_length']}",
             })
-        if valid_generation and length_match:
+        retain = length_match or getattr(sampler, "track", "fixed_native_length") == "length_free"
+        if valid_generation and retain:
             valid_samples.append(loop)
 
     attempts = len(samples)
@@ -282,17 +313,27 @@ def run_example(
     length_matches = sum(
         item["valid_generation"] and item["length_match"] for item in raw_generations
     )
+    length_policy = getattr(sampler, "length_metadata", None)
+    if length_policy is None:
+        length_policy = {
+            "mode": "fixed",
+            "source": "native_mask_count",
+            "minimum": record["native_length"],
+            "maximum": record["native_length"],
+            "selected_length": record["native_length"],
+        }
     return {
         "example_id": record["example_id"],
         "native": record["native"],
         "native_length": record["native_length"],
+        "length_policy": length_policy,
         "samples": valid_samples,
         "attempts": attempts,
         "valid_attempts": valid_attempts,
         "invalid_attempts": attempts - valid_attempts,
         "length_matches": length_matches,
         "length_mismatches": valid_attempts - length_matches,
-        "fixed_length_acceptance_rate": (len(valid_samples) / attempts) if attempts else 0.0,
+        "fixed_length_acceptance_rate": (length_matches / attempts) if attempts else 0.0,
         "complete": len(valid_samples) == num_samples,
         "raw_generations": raw_generations,
         "failures": failures,
@@ -317,6 +358,15 @@ def build_payload(
     config_path = args.checkpoint / "config.json"
     if not weights_path.exists() or not config_path.exists():
         raise FileNotFoundError(f"checkpoint lacks model.safetensors/config.json: {args.checkpoint}")
+    track = (manifest.get("task") or {}).get("track", "fixed_native_length")
+    length_artifacts = None
+    if track == "length_free":
+        length_config_path = args.checkpoint / LENGTH_CONFIG_FILENAME
+        length_weights_path = args.checkpoint / LENGTH_HEAD_FILENAME
+        length_artifacts = {
+            "config_sha256": sha256_file(length_config_path),
+            "weights_sha256": sha256_file(length_weights_path),
+        }
     repo = Path(__file__).resolve().parents[2]
     return {
         "schema_version": SCHEMA_VERSION,
@@ -338,14 +388,16 @@ def build_payload(
             "torch_version": torch.__version__,
             "transformers_version": transformers.__version__,
             "device": str(sampler.device),
+            "length_predictor": length_artifacts,
             **git_state(repo),
         },
         "sampling": {
-            "track": "fixed_native_length",
-            "length_policy": "native_mask_count",
+            "track": track,
+            "length_policy": "native_mask_count" if track == "fixed_native_length" else "learned",
             "num_samples": args.num_samples,
             "decoding": args.decoding,
             "temperature": args.temperature,
+            "length_temperature": args.length_temperature,
             "top_k": args.top_k,
             "top_p": args.top_p,
             "base_seed": args.seed,
@@ -373,6 +425,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-samples", type=int, default=20)
     parser.add_argument("--decoding", choices=("independent", "iterative"), default="iterative")
     parser.add_argument("--temperature", type=float, default=1.0)
+    parser.add_argument("--length-temperature", type=float, default=1.0)
     parser.add_argument("--top-k", type=int, default=0)
     parser.add_argument("--top-p", type=float, default=0.9)
     parser.add_argument("--seed", type=int, default=42)
@@ -400,6 +453,8 @@ def main() -> None:
     with args.manifest.open() as handle:
         manifest = json.load(handle)
     records = manifest.get("records") or []
+    if args.length_temperature < 0:
+        raise ValueError("--length-temperature must be non-negative")
     if args.limit is not None:
         if args.limit <= 0:
             raise ValueError("--limit must be positive")
@@ -409,7 +464,8 @@ def main() -> None:
 
     run_config, run_config_path = load_run_config(args.checkpoint)
     validate_checkpoint_contract(run_config, manifest)
-    sampler = CDRSeqGenSampler(args.checkpoint, run_config, args.device)
+    track = (manifest.get("task") or {}).get("track", "fixed_native_length")
+    sampler = CDRSeqGenSampler(args.checkpoint, run_config, args.device, track=track)
     expected = build_payload(
         args, manifest, manifest_hash, run_config, run_config_path, sampler
     )
@@ -437,6 +493,7 @@ def main() -> None:
             temperature=args.temperature,
             top_k=args.top_k,
             top_p=args.top_p,
+            length_temperature=args.length_temperature,
             base_seed=args.seed,
         )
         payload["records"].append(result)
