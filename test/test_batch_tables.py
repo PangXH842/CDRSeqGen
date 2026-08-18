@@ -39,6 +39,10 @@ class CoverageAwareReportingTests(unittest.TestCase):
                  "eval_anchor_accuracy": 0.95, "eval_core_coverage": 0.80},
                 {"epoch": 2, "eval_accuracy": 0.80, "eval_core_accuracy": 0.40,
                  "eval_anchor_accuracy": 0.90, "eval_core_coverage": 0.80},
+                # Overfitting tail: the last row must NOT be the reported one (README: "read
+                # best-epoch, not last-epoch"). Without it, idxmax and "take the last row" agree.
+                {"epoch": 3, "eval_accuracy": 0.75, "eval_core_accuracy": 0.31,
+                 "eval_anchor_accuracy": 0.88, "eval_core_coverage": 0.80},
             ])
             summary = recovery_summary(str(run))
 
@@ -57,6 +61,8 @@ class CoverageAwareReportingTests(unittest.TestCase):
                  "eval_anchor_accuracy": 0.70, "eval_core_coverage": 0.10},
                 {"epoch": 2, "eval_accuracy": 0.80, "eval_core_accuracy": 0.10,
                  "eval_anchor_accuracy": 0.80, "eval_core_coverage": 0.10},
+                {"epoch": 3, "eval_accuracy": 0.72, "eval_core_accuracy": 0.05,
+                 "eval_anchor_accuracy": 0.75, "eval_core_coverage": 0.10},
             ])
             summary = recovery_summary(str(run))
 
@@ -75,6 +81,8 @@ class CoverageAwareReportingTests(unittest.TestCase):
                  "eval_anchor_accuracy": 0.60, "eval_core_coverage": 1.0},
                 {"epoch": 2, "eval_accuracy": 0.70, "eval_core_accuracy": 0.10,
                  "eval_anchor_accuracy": 0.70, "eval_core_coverage": 1.0},
+                {"epoch": 3, "eval_accuracy": 0.65, "eval_core_accuracy": 0.08,
+                 "eval_anchor_accuracy": 0.66, "eval_core_coverage": 1.0},
             ], include_coverage=False)
             summary = recovery_summary(str(run))
 

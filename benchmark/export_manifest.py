@@ -15,8 +15,18 @@ Example:
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
 
+
+# Direct execution puts benchmark/ rather than the repository root on sys.path, where the shared
+# helper package would be invisible. Normalize before importing it.
+BENCHMARK_DIR = Path(__file__).resolve().parent
+if sys.path and Path(sys.path[0]).resolve() == BENCHMARK_DIR:
+    sys.path.pop(0)
+    sys.path.insert(0, str(BENCHMARK_DIR.parent))
+
+from benchmark._common import sha256_file
 
 SCHEMA_VERSION = "cdrseqgen.benchmark_manifest.v1"
 REGION_ORDER = ("fwr1", "cdr1", "fwr2", "cdr2", "fwr3", "cdr3", "fwr4")
@@ -28,14 +38,6 @@ IGLM_SPECIES_TOKENS = {
     "rhesus": "[RHESUS]",
     "camel": "[CAMEL]",
 }
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def h3_record(entry: dict, source_index: int) -> dict:

@@ -6,6 +6,7 @@
     "hidden_size": 128,
     "num_layers": 4,
     "data_path": "dataset/data/processed/processed_sabdab2_data.json",
+    "eval_split": "test",
     "max_len": 512,
     "output_dir": "./results",
     "do_train": true,

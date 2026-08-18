@@ -62,11 +62,12 @@ def save_training_csv(trainer, output_dir):
 
 def plot_training_curves(output_dir):
     """Generate multi-line graph comparing AAR metrics (whole, core, anchor)"""
-    # Loss curve 
+    # One chart per metric. The combined breakdown below spans ~0.3-0.9, which compresses
+    # within-line movement, so the individual curves stay the readable view of a single trend.
     for metric, title in [
         ("eval_loss", "Evaluation Loss"),
-        # ("eval_accuracy", "Sequence Recovery — whole-span (anchor-inflated)"),
-        # ("eval_core_accuracy", "Sequence Recovery — CORE (anchor-excluded)"),
+        ("eval_accuracy", "Sequence Recovery — whole-span (anchor-inflated)"),
+        ("eval_core_accuracy", "Sequence Recovery — CORE (anchor-excluded)"),
     ]:
         plot_epoch_curves(
             [(output_dir, metric, "Current Run")],

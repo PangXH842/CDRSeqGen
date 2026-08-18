@@ -2,27 +2,17 @@ import unittest
 
 from cdrseqgen.methods.mlm.length import (
     LengthConstraints,
-    UnsupportedLengthPolicy,
     native_mask_length,
-    resolve_fixed_length,
     resolve_length_policy,
 )
 
 
 class LengthPolicyTest(unittest.TestCase):
     def test_equal_bounds_are_an_explicit_fixed_length(self):
-        decision = resolve_fixed_length(min_length=12, max_length=12)
-        self.assertEqual(decision.length, 12)
-        self.assertEqual(
-            decision.as_dict(),
-            {
-                "mode": "fixed",
-                "source": "explicit_bounds",
-                "minimum": 12,
-                "maximum": 12,
-                "selected_length": 12,
-            },
-        )
+        policy = resolve_length_policy(min_length=12, max_length=12)
+        self.assertEqual(policy.mode, "fixed")
+        self.assertEqual(policy.length, 12)
+        self.assertEqual(policy.source, "explicit_bounds")
 
     def test_native_length_preserves_current_evaluation_policy(self):
         decision = native_mask_length(9)
@@ -30,33 +20,16 @@ class LengthPolicyTest(unittest.TestCase):
         self.assertEqual(decision.source, "native_mask_count")
 
     def test_native_truth_takes_precedence_when_request_agrees(self):
-        decision = resolve_fixed_length(
-            native_length=11, min_length=11, max_length=11
+        policy = resolve_length_policy(
+            native_length=11, use_native_length=True, min_length=11, max_length=11
         )
-        self.assertEqual(decision.length, 11)
-        self.assertEqual(decision.source, "native_truth")
+        self.assertEqual(policy.length, 11)
+        self.assertEqual(policy.source, "native_truth")
 
     def test_deprecated_target_length_remains_supported(self):
-        decision = resolve_fixed_length(target_length=10)
-        self.assertEqual(decision.length, 10)
-        self.assertEqual(decision.source, "legacy_target_length")
-
-    def test_legacy_default_remains_supported(self):
-        decision = resolve_fixed_length(fallback_length=10)
-        self.assertEqual(decision.length, 10)
-        self.assertEqual(decision.source, "legacy_default")
-
-    def test_real_ranges_are_reserved_for_stage_three(self):
-        for kwargs in (
-            {"min_length": 11, "max_length": 15},
-            {"min_length": 11},
-            {"max_length": 15},
-        ):
-            with self.subTest(kwargs=kwargs):
-                with self.assertRaisesRegex(
-                    UnsupportedLengthPolicy, "variable-length generation"
-                ):
-                    resolve_fixed_length(**kwargs)
+        policy = resolve_length_policy(target_length=10)
+        self.assertEqual(policy.length, 10)
+        self.assertEqual(policy.source, "legacy_target_length")
 
     def test_ranges_are_general_policies_with_inclusive_bounds(self):
         policies = [
@@ -65,6 +38,7 @@ class LengthPolicyTest(unittest.TestCase):
             resolve_length_policy(max_length=15),
         ]
         self.assertTrue(all(policy.mode == "bounded" for policy in policies))
+        self.assertTrue(all(policy.requires_predictor for policy in policies))
         self.assertEqual(policies[0].constraints.as_dict(), {"minimum": 11, "maximum": 15})
         self.assertTrue(policies[0].constraints.contains(11))
         self.assertTrue(policies[0].constraints.contains(15))
@@ -78,17 +52,17 @@ class LengthPolicyTest(unittest.TestCase):
         self.assertEqual(fixed.length, 12)
         self.assertEqual(fixed.source, "native_truth")
 
-    def test_missing_length_without_fallback_is_not_inferred_yet(self):
-        with self.assertRaisesRegex(UnsupportedLengthPolicy, "inferred-length"):
-            resolve_fixed_length()
+    def test_use_native_length_without_a_native_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "requires a native length"):
+            resolve_length_policy(use_native_length=True)
 
     def test_conflicting_inputs_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "cannot be combined"):
-            resolve_fixed_length(
-                target_length=12, min_length=12, max_length=12
-            )
+            resolve_length_policy(target_length=12, min_length=12, max_length=12)
         with self.assertRaisesRegex(ValueError, "conflicts with native"):
-            resolve_fixed_length(native_length=10, min_length=12, max_length=12)
+            resolve_length_policy(
+                native_length=10, use_native_length=True, min_length=12, max_length=12
+            )
 
     def test_invalid_constraints_are_rejected(self):
         for kwargs in (

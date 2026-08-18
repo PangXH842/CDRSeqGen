@@ -237,6 +237,15 @@ attempts. Runtime per retained candidate covers generation only, not judge scori
 outputs are rejected by default; `--allow-partial` exists only for development diagnostics, and two
 inputs must still contain the same framework IDs.
 
+**A crashed example is refused, not averaged around.** If generation throws, the CDRSeqGen adapter
+records the example with `generation_failed: true` and `attempts: 0` rather than aborting the run.
+Such a record is internally consistent (`0 == 0 + 0`), so it would otherwise pass validation, drop
+out of every macro-average, and still be counted in `micro_accounting.examples` — a run where half
+the examples died would score and plot as if it were complete. The scorer therefore refuses any
+input where more than 5% of examples have zero attempts; `--allow-dead-records` overrides it for
+diagnostics, and `micro_accounting.examples_without_attempts` always reports the count. The adapter
+prints the same total in its `summary.records_with_generation_failure` and on stderr.
+
 The verified five-draw, 25-framework validation smoke comparison produced the following development
 numbers with the same IgBert revision for both runs:
 

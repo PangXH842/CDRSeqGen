@@ -61,8 +61,18 @@ def get_datasets(model_args, data_args, training_args, backbone) -> Tuple[torch.
                 )
             val_idx = [i for i, entry in enumerate(full_dataset.data)
                        if entry['split'] == selected_eval_split]
+        elif 'test' in available:
+            # Early stopping and load_best_model_at_end both read this split, so an unset
+            # eval_split used to select checkpoints on the final holdout without saying so.
+            raise ValueError(
+                f"eval_split is unset and {data_args.data_path} carries a 'test' split, so every "
+                "non-train entry — the test partition — would drive early stopping and "
+                "best-checkpoint selection. Declare it: 'validation' while tuning, 'test' only "
+                "once the settings are frozen. Available non-training splits: "
+                f"{[s for s in available if s != 'train']}"
+            )
         else:
-            # Backward compatibility for existing two-way datasets/configs.
+            # No test partition to protect: every non-train entry is the evaluation set.
             val_idx = [i for i, entry in enumerate(full_dataset.data) if entry['split'] != 'train']
     else:
         if selected_eval_split:
@@ -158,5 +168,8 @@ def post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_ar
                 "include_antigen": bool(data_args.include_antigen),
             },
         )
-    except Exception as e:
-        logger.warning(f"⚠️ Generative eval failed: {e}")
+    except (RuntimeError, OSError, ValueError, FileNotFoundError, ImportError) as e:
+        # Guarded so a generation failure cannot destroy a finished training run, but logged with a
+        # traceback: a missing length head raises FileNotFoundError here, and "{e}" alone left no
+        # way to tell that from an OOM when reading train.log afterwards.
+        logger.exception(f"⚠️ Generative eval failed ({type(e).__name__}); the trained model is saved: {e}")

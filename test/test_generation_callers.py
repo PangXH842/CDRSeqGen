@@ -18,7 +18,7 @@ class SharedGenerationCallerTests(unittest.TestCase):
     def setUp(self):
         self.tokenizer = TokenizerAdapter.from_custom(AntibodyTokenizer())
 
-    @patch("generate.sample_masked_span")
+    @patch("cdrseqgen.methods.mlm.generation.sample_masked_span")
     def test_generate_uses_shared_decoder_without_changing_fixed_length(self, shared_decode):
         shared_decode.return_value = [
             self.tokenizer.encode("WY"),

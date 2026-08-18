@@ -5,12 +5,19 @@
   * mean_pairwise_diversity -- calculate mean Hamming distance between each pair of samples
   * unique_fraction         -- fraction of distinct sequences among all samples given
   * per_position_entropy    -- calculate mean Shannon entropy (bits) across loop positions
+  * edit_similarity         -- 1 - normalised Levenshtein, for candidates of any length
   * calculate               -- length error/edit similarity plus length-matched AAR when native exists
                                 and aggregate all sequence metrics into one dict
 """
 import math
+import statistics
 from collections import Counter
 from itertools import combinations
+
+
+# Reporting buckets for loop length. Shared by native evaluation and the benchmark scorer so a
+# "long" loop means the same thing on both sides of a matched comparison.
+LENGTH_BUCKETS = (("short", 0, 11), ("medium", 12, 17), ("long", 18, 10**6))
 
 
 def amino_acid_recovery(pred, native):
@@ -27,7 +34,7 @@ def amino_acid_recovery(pred, native):
     return correct / len(native)
 
 
-def _hamming_fraction(a, b):
+def hamming_fraction(a, b):
     """Normalised Hamming distance; a length mismatch counts the extra residues as differences"""
     longest = max(len(a), len(b))
     if longest == 0:
@@ -43,7 +50,7 @@ def mean_pairwise_diversity(samples):
     if len(samples) < 2:
         return 0.0
 
-    dists = [_hamming_fraction(a, b) for a, b in combinations(samples, 2)]
+    dists = [hamming_fraction(a, b) for a, b in combinations(samples, 2)]
     return sum(dists) / len(dists)
 
 
@@ -60,29 +67,36 @@ def per_position_entropy(samples):
     if length == 0 or any(len(s) != length for s in samples):
         return None
 
-    total = 0.0
+    entropies = []
     for i in range(length):
         counts = Counter(s[i] for s in samples)
         n = sum(counts.values())
-        total += -sum((c / n) * math.log2(c / n) for c in counts.values())
-    return total / length
+        entropies.append(-sum((c / n) * math.log2(c / n) for c in counts.values()))
+    # statistics.mean sums exactly; a running total drifted from the benchmark scorer's copy of
+    # this function in the last ULP, which is precisely the kind of "same metric, two answers"
+    # this module exists to prevent.
+    return statistics.mean(entropies)
+
+
+def edit_similarity(sample, reference):
+    """One minus normalised Levenshtein distance; defined for unequal lengths, so it is the
+    length-free counterpart to positional recovery."""
+    longest = max(len(sample), len(reference))
+    if longest == 0:
+        return 1.0
+    previous = list(range(len(reference) + 1))
+    for i, left in enumerate(sample, start=1):
+        current = [i]
+        for j, right in enumerate(reference, start=1):
+            current.append(min(current[-1] + 1, previous[j] + 1,
+                               previous[j - 1] + (left != right)))
+        previous = current
+    return 1.0 - previous[-1] / longest
 
 
 def calculate(samples, native=None):
     """Aggregate the generative-metric block for one test case (native optional)"""
 
-    def edit_similarity(sample, reference):
-        longest = max(len(sample), len(reference))
-        if longest == 0:
-            return 1.0
-        previous = list(range(len(reference) + 1))
-        for i, left in enumerate(sample, start=1):
-            current = [i]
-            for j, right in enumerate(reference, start=1):
-                current.append(min(current[-1] + 1, previous[j] + 1,
-                                   previous[j - 1] + (left != right)))
-            previous = current
-        return 1.0 - previous[-1] / longest
     out = {
         "n_samples": len(samples),
         "n_unique": len(set(samples)),

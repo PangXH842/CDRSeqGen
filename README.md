@@ -1,8 +1,8 @@
 <!-- Note to AI: Edits allowed OUTSIDE of MANUAL PROTECTION ZONES and INSIDE of AI ACCESS ZONES -->
 # CDRSeqGen: Modular Antibody Infilling Framework
 
-**Date Updated:** 2026-08-17
-**Status:** CDRSeqGen length-free validation complete; matched IgLM natural-EOS generation and scoring pending
+**Date Updated:** 2026-08-18
+**Status:** Matched length-free CDRSeqGen–IgLM validation scored — **IgLM leads on every quality axis** (Findings §11). Paired confidence intervals and a clean-tree rescore pending
 
 ## Project Overview
 CDRSeqGen is a computational immunology framework designed to predict antibody loop sequences given the surrounding framework context. 
@@ -68,9 +68,10 @@ CDRSeqGen/
 ├── benchmark/                  # Frozen-manifest comparisons against external baselines
 │   ├── adapters/               # CDRSeqGen and IgLM generation under one output contract
 │   ├── manifests/              # Versioned validation/test inputs plus SHA-256 sidecars
+│   ├── _common.py              # Hashing, seeding, atomic writes, git state, resume checks
 │   ├── export_manifest.py      # Processed OAS split -> model-independent manifest
 │   ├── scorer.py               # Shared validation, metrics, accounting, and judge scoring
-│   ├── plot_comparison.py       # Matched recovery, length, position, and diversity dashboard
+│   ├── plot_comparison.py      # Matched recovery, length, position, and diversity dashboard
 │   └── README.md               # End-to-end benchmark commands and protocol
 ├── dataset/data/               # THE DATA — gitignored, ~4.4GB (raw + processed OAS/SAbDab2).
 │                               #   Deliberately outside the package; configs' data_path points here.
@@ -88,7 +89,8 @@ CDRSeqGen/
 ├── scripts/
 │   ├── run.sh                  # Unified runner: ./scripts/run.sh <gpu> [oas|antigen|lcdr|igbert|protbert|plm|all ...]
 │   ├── sweep_h3.sh             # Validation-safe, multi-seed H3 hyperparameter screen
-│   └── sweep_scratch.sh        # Legacy 2026-07 pilot sweep (kept for provenance)
+│   ├── sweep_scratch.sh        # Legacy 2026-07 pilot sweep (kept for provenance)
+│   └── test.sh                 # Unit test runner (sets PYTHONPATH; no GPU or data needed)
 ├── env.sh
 └── README.md
 ```
@@ -107,6 +109,14 @@ This project uses Conda for strict CUDA handling and pip for Hugging Face tools.
    ```bash
    conda activate cdrprj
    ```
+3. Run the tests to check the environment:
+   ```bash
+   ./scripts/test.sh                      # whole suite, a few seconds
+   ./scripts/test.sh test_length_policy   # one module
+   ```
+   The suite is `unittest`-based and stubs every model, so it needs no GPU, no downloaded weights,
+   and no processed dataset. `PYTHONPATH=.` is required (there is no `test/__init__.py`), which is
+   why the runner exists rather than a bare `python -m unittest`.
 
 ---
 
@@ -155,6 +165,15 @@ source details, filters, numbering convention, and split parameters.
 
 ### Step 2: Training & Batch Experimentation
 We use `.json` configuration files to manage hyperparameters cleanly. The trainer calculates **Sequence Recovery Rate** (Per-Residue Accuracy), logs to TensorBoard, and auto-generates metric graphs at the end of every run.
+
+> **⚠️ Every config must declare `eval_split`.** The split named here drives early stopping,
+> `load_best_model_at_end`, and every reported `eval_*` number, so leaving it implicit means
+> selecting checkpoints on whichever partition happens to be non-train — which, on a two-way file,
+> is the final test set. `get_datasets` now **refuses** to start when `eval_split` is unset and the
+> dataset carries a `test` split. The 36 OAS configs declare
+> `processed_oas_tuning.json` + `"eval_split": "validation"`; the 12 SAbDab2 configs declare
+> `"eval_split": "test"` because that dataset ships no validation partition (an open problem, not
+> an endorsement). Use `test` only after the settings are frozen.
 
 **Run a Single Experiment:**
 ```bash
@@ -487,12 +506,22 @@ trim `gen_num_examples` for cheap runs. Cost is ~80s of sampling + ~15s to load 
 
 Both evaluation paths share the MLM evaluation implementation
 ([`cdrseqgen/methods/mlm/evaluation.py`](cdrseqgen/methods/mlm/evaluation.py)); they differ only in
-where the model comes from. Length policy, checkpoint-specific classification, mask expansion, and
-independent-versus-iterative decoder dispatch live in
-[`cdrseqgen/methods/mlm/`](cdrseqgen/methods/mlm/). Future autoregressive and encoder-decoder methods
-can be added beside `mlm/` without inheriting its mask-token, pseudo-perplexity, or length-expansion
-assumptions. The MLM primitives are shared by `generate.py`, both held-out evaluation paths, and the
-CDRSeqGen benchmark adapter, so the callers cannot silently use different variable-length behavior.
+where the model comes from. **Both length tracks also share one loop**: `run_eval_loop` owns example
+selection, scoring, judging, reporting, and writing, while a *strategy* owns the one thing that must
+not be shared — turning an eval index into candidates. `FixedNativeStrategy` reads the dataset's own
+masked view (so the mask count is the native one and the context is exactly what training used);
+`VariableLengthStrategy` ([`variable_length_evaluation.py`](cdrseqgen/methods/mlm/variable_length_evaluation.py))
+rebuilds the framework and lets the checkpoint's length head decide. Before this, the two tracks were
+separate 130-line functions that had already drifted apart in four ways (progress bar, write guard,
+summary statistic, empty-mask guard) — differences that make two tracks quietly incomparable.
+
+Length policy, checkpoint-specific classification, mask expansion, and independent-versus-iterative
+decoder dispatch live in [`cdrseqgen/methods/mlm/`](cdrseqgen/methods/mlm/). Future autoregressive
+and encoder-decoder methods can be added beside `mlm/` without inheriting its mask-token,
+pseudo-perplexity, or length-expansion assumptions. The MLM primitives are shared by `generate.py`,
+both held-out evaluation paths, and the CDRSeqGen benchmark adapter — all of which now reach the
+decoder through the single `sample_length_conditioned_spans` entry point, so a fixed length is
+simply the case where the length is known before the prompt is built rather than predicted from it.
 `evaluate.py` stays the tool of choice for
 scoring checkpoints you already trained, or re-sweeping temperature / top-p / judge without
 retraining.
@@ -559,7 +588,7 @@ Pretraining buys ~nothing when the answer can be looked up, **+0.12–0.24** whe
 
 The biology is right — heavy CDR3 gets D-gene + junctional diversity, the rest is germline-templated — but the ~0.99s are **not** evidence the model generalises; under the current split they are largely retrieval (§6). Only H3 is measured on entirely unseen loops.
 
-**3. The standard metric misleads (anchor inflation).** Whole-span `eval_accuracy` (~0.46 on H3) is dominated by the 2-3 V/J-gene-determined anchor residues at each loop end (~0.90 recovery, any model); the hypervariable middle actually being "designed" is ~0.32. The gap is **H3-specific** (H1/H2/L core ≈ whole-span). Measured via `core_accuracy`/`anchor_accuracy` ([`compute_metrics`](cdrseqgen/eval/recovery.py), passed to the Trainer by `train.py`); the position-resolved breakdown below is from the standalone re-scorer `eval_recovery.py` (archived in `old/`). Illustrative (`h3_esm2`):
+**3. The standard metric misleads (anchor inflation).** Whole-span `eval_accuracy` (~0.46 on H3) is dominated by the 2-3 V/J-gene-determined anchor residues at each loop end (~0.90 recovery, any model); the hypervariable middle actually being "designed" is ~0.32. The gap is **H3-specific** (H1/H2/L core ≈ whole-span). Measured via `core_accuracy`/`anchor_accuracy` ([`compute_metrics`](cdrseqgen/methods/mlm/recovery.py), passed to the Trainer by `train.py`); the position-resolved breakdown below is from the standalone re-scorer `eval_recovery.py` (archived in the gitignored `old/`, so it is not in a fresh clone). Illustrative (`h3_esm2`):
 
 | Position from start | 0 | 1 | 2 | 3 | 4 | 5 |
 |---|---|---|---|---|---|---|
@@ -682,15 +711,49 @@ matches. That 6.0% is a sampled-candidate rate on a small manifest, whereas the 
 argmax decision per example over the full validation split, so they should not be equated.
 
 This is a useful negative result: the current representation/head does not extract more length
-information from the framework than a trivial global guess. It does **not** yet quantify the effect
-on sequence quality or establish an IgLM comparison—the matched IgLM natural-EOS run and shared
-scoring remain pending. Fixed-native and length-free results must therefore remain separate tracks.
+information from the framework than a trivial global guess. Fixed-native and length-free results
+must remain separate tracks; §11 scores the length-free track against IgLM.
+
+**11. Matched length-free comparison: IgLM leads on every quality axis.** Both models ran the frozen
+`oas_h3_validation_length_free_v1` manifest — 25 validation frameworks × 20 candidates, one scorer,
+one IgBert judge. CDRSeqGen predicts a length from its gap sentinel; IgLM terminates on its own EOS.
+Neither receives the native length.
+
+| metric | CDRSeqGen (tuned scratch) | IgLM | better |
+|---|---:|---:|---|
+| whole-span AAR | 0.3324 | **0.3532** | IgLM |
+| core AAR | 0.1576 | **0.1838** | IgLM |
+| anchor AAR | **0.8611** | 0.8260 | CDRSeqGen |
+| length match rate | 6.0% | **8.4%** | IgLM |
+| length MAE | 4.51 | **3.69** | IgLM |
+| edit similarity | 0.3596 | **0.3890** | IgLM |
+| judge perplexity | 9.74 | **4.07** | IgLM (2.4×) |
+| diversity (Hamming) | **0.8047** | 0.7784 | CDRSeqGen |
+| valid generation rate | 1.00 | 1.00 | tie |
+| runtime / retained sample | **0.078 s** | 0.164 s | CDRSeqGen |
+
+**This inverts the fixed-length result, and the inversion is the finding.** On the fixed-native
+smoke manifest CDRSeqGen wins recovery outright (0.3318 vs 0.2155 whole-span, 0.1491 vs 0.1080 core)
+— but that track forces IgLM's end-of-span to a length it did not choose, and the damage is visible
+in its anchors: IgLM's anchor AAR collapses to **0.552** there against its natural-EOS 0.826, while
+CDRSeqGen's holds at ~0.9 either way. The fixed-length win therefore measures the constraint as much
+as the model. Once both models choose their own length, CDRSeqGen's only remaining edges are
+diversity and speed, and its candidates are 2.4× less plausible to an independent judge.
+
+*Caveats, all of which must be resolved before this number is quoted outside the repo:* n = 25
+examples (AAR is conditioned on length matches, so it rests on 18 CDRSeqGen / 17 IgLM examples);
+no confidence intervals yet — the paired bootstrap is the next roadmap item; and the scores were
+produced from a **dirty working tree at the previous commit** (`repository_commit: 0e7e499`,
+`repository_dirty: true` in `validation_length_free_scores_v1.json`), so a clean-tree rescore is
+required. IgLM was also pretrained on OAS, so this holdout is not a leakage-free estimate for it
+(roadmap: overlap audit).
 
 > **Bottom line:** fixed-native sequence-only CDR-H3 infilling saturates at ~0.32 core / ~0.46
 > whole-span regardless of model, context, dataset, or decoder; length inference is not solved by the
-> first gap-sentinel head; and the non-H3 loops are not yet measured on a split that tests
-> generalisation. Together these motivate both the matched IgLM audit and the eventual shift to a
-> **structure objective** (see Roadmap).
+> first gap-sentinel head, and against a published baseline that picks its own length the current
+> method loses on recovery, length, edit distance, and judged plausibility alike; and the non-H3
+> loops are not yet measured on a split that tests generalisation. Together these motivate the
+> eventual shift to a **structure objective** (see Roadmap).
 
 ---
 
@@ -725,14 +788,14 @@ The recurring rule: **a new capability is added in one place, and the rest of th
 - **New masked-LM backbone** → one `Backbone` entry in [`backbones.py`](cdrseqgen/methods/mlm/backbones.py) (§2) — the entrypoints and `dataset.py` never learn about it.
 - **New target loop** → change the `target_region` string (§1); masking logic is untouched.
 - **New context** → one boolean flag (`include_partner_chain`, `include_antigen`), resolved symmetrically (§3–4).
-- **New dataset source** → one `(substring, tag)` pair in `train.py`'s `DATASET_TAGS` registry (`oas → OAS`, `sabdab2 → SD2`), so every run's output-dir name states its source explicitly instead of leaving it silently implied; an unrecognised path is tagged `DS` **with a logged warning** rather than left blank.
+- **New dataset source** → one `(substring, tag)` pair in the `DATASET_TAGS` registry ([`train/logging.py`](cdrseqgen/train/logging.py)) (`oas → OAS`, `sabdab2 → SD2`), so every run's output-dir name states its source explicitly instead of leaving it silently implied; an unrecognised path is tagged `DS` **with a logged warning** rather than left blank.
 
 The guiding constraint: **conventions are declared explicitly, never inferred.** The predecessor overloaded a single `is_esm` boolean to mean three different things and silently mishandled non-ESM models; each backbone now states its `position_type` and `uses_special_tokens` up front. This isn't free — protein-BERT models (IgBert/ProtBert) still needed their own entry for residue-spacing and tokenizer/loader quirks (§2) — but the cost is paid once, in the registry, not scattered across the pipeline.
 
 ---
 
 ## ⚠️ Current Issues 
-*(current as of 2026-08-17; update per commit)*
+*(current as of 2026-08-18; update per commit)*
 
 ### Open problems
 - **The split only controls the loop it clusters on.** `add_split_field` clusters heavy CDR3, so the holdout is leakage-safe for H3 and **not** for H1/H2/L1/L2/L3 — 98% of OAS test H1s appear verbatim in train (Findings §6). Every non-H3 number in this README is therefore retrieval-bounded and should not be read as generalisation. Fix: cluster on the *target* CDR (per-loop split), a contained change to `add_split_field`; then re-run the OAS matrix.
@@ -743,11 +806,13 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **Sampler is marginal-based, not learned-joint — now measured.** The `iterative` (Mask-Predict) decoder approximates the loop joint by conditioning on committed residues, but the model is still a masked-LM trained on independent-position recovery. As of 2026-07-28 this is no longer a suspicion: iterative and `independent` are **within noise on every metric** on H3/OAS/ESM-2 (recovery 0.4057 vs 0.4072; judge-ppl 7.14 vs 7.23) at ~15× the compute. The conditioning buys nothing because the learned marginals are already near-independent — true joint/generative *training* (autoregressive or diffusion) is Phase-2 territory.
 - **Five runs hit their epoch ceiling, all of them context runs.** `h1_SD2_LC`, `h2_OAS_LC`, `h3_OAS_LC`, `l1_OAS_HC`, `l3_OAS_HC` peaked at epoch 19–20 of 20 in the 07-29 batch. Their numbers are lower bounds, so the §4 partner-chain penalty (−0.0102) is an upper bound on the true effect. A scratch-only sweep at 30–40 epochs would settle it (~1 hour; scratch is 60 of the batch's 226 minutes).
 - **Only one comparison has an error bar.** Three seeds of `h3_scratch` ± partner chain put the seed sd of a per-loop Δ at **0.0028** (§4), which already retires two of the six per-loop context numbers as noise. Every *other* number in this README is still single-seed, and any claimed difference below ~0.006 should be treated as unmeasured until it has the same treatment.
-- **Historical batches reused the final holdout for model selection.** The 07-29 runs used their only non-training OAS partition for early stopping, best-checkpoint selection, and reporting. Those numbers remain useful exploratory results but are not an untouched-test estimate. The new opt-in three-way clustered split plus `eval_split=validation` fixes the protocol for future tuning; final test evaluation must occur only after settings are frozen.
+- **Every batch through 2026-08-17 selected checkpoints on the test split.** Not just the 07-29 runs: `eval_split` defaulted to empty, which fell back to "every non-train entry", and `processed_oas_data.json` has only `train`/`test` — so early stopping, `load_best_model_at_end`, the reported `eval_*` metrics, and `generation_eval.json` all read the final holdout. The 08-17 post-refactor batch (`results/20260817_200051`) is affected too; its logs read `2111 eval (split: all non-train)`. **Fixed 2026-08-18**: `get_datasets` now refuses an unset `eval_split` whenever a `test` split exists, and the 36 OAS configs declare `processed_oas_tuning.json` + `eval_split: validation`. Every pre-08-18 number in this README is an exploratory result, not an untouched-test estimate, and the OAS matrix needs re-running before any of it is reported.
+- **SAbDab2 has no validation partition.** Its split comes from the source `ab_ag_split` column, which is `train`/`test` only, so its 12 configs now declare `eval_split: test` — honest, but still selection on the holdout. A three-way SAbDab2 split (or a fixed validation carve-out of its train partition) is needed before any SAbDab2 comparison is reportable.
 - **Hyperparameter selection is not yet frozen.** The validation-safe 32-trial scratch-H3 screen completed on 2026-08-11 and placed `1e-3` / 0.06 warm-up / 0.01 weight decay first at 0.32305 mean validation core recovery. Its margin over the runner-up was only 0.00036 across two seeds and changed sign by seed, so additional shared confirmation seeds are still required before touching the final test split.
 - **Checkpoint-selection policy is still config-declared.** The current configs select core recovery except the four OAS-L2 configs, which select whole-span because those runs have only 1.4% core coverage. Artifact reporting no longer hard-codes that loop name: it derives the metric from recorded coverage. Training should eventually validate or derive `metric_for_best_model` from the dataset before a run, so a future dataset cannot inherit an obsolete L2 exception.
 - ~~**Scratch architecture isn't tunable.**~~ **Fixed 2026-07-27.** `num_attention_heads` and `intermediate_size` are now `ModelArguments` fields forwarded by `build_model` ([`transformer.py`](cdrseqgen/methods/mlm/models/transformer.py)). `intermediate_size` defaults to `None` = **4 × hidden_size**, so the FFN ratio tracks width instead of silently drifting (at the old fixed 512, widening to 256 quietly halved the ratio and would have confounded any architecture sweep). Defaults reproduce the old geometry exactly (128 → 512), and a `hidden_size % num_attention_heads` check now fails loudly instead of deep inside `nn.MultiheadAttention`.
 - **Single-seed runs.** Small differences (e.g. light chain hurts scratch ~0.01, neutral for ESM-2) need multiple seeds + error bars before they can be claimed.
+- **The tests stub every model.** All 105 run in ~3s with no GPU, weights, or processed data, which is why they are cheap to run on every change — but nothing in the suite would catch a shape, dtype, or device error against a real backbone. A mutation audit (2026-08-18) confirmed they do catch the science-critical defects: native-length leakage, a non-full-span eval view, core/anchor off-by-one, attempt-accounting drift, flank-mangling in the IgLM adapter, and resume-seed collapse. `arguments.py` and the `train.py`/`evaluate.py` entrypoints remain untested.
 - **Structure not yet available.** SAbDab2 preprocessing parses *sequences* only; the Phase-2 structure objective needs a coordinate-parsing step (or predicted structures via IgFold/ABlooper).
 
 ### How to read the numbers 
@@ -766,16 +831,18 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 
   On H3 that's ~4 bits handed over per example — roughly 10% of the loop's total information content (a 15-mer at the measured ~2.45 bits/position ≈ 37 bits). On L2 it's nothing: guess 3 and you're right 98.8% of the time. So **H3 recovery is the number most flattered by this**, and cross-loop comparisons of AAR partly compare how much length information each loop gave away. Length-free results are therefore a separate track with length/edit metrics, not a replacement value in these tables.
 - **Read best-epoch, not last-epoch** — ESM-2 overfits on SAbDab2/H3; `load_best_model_at_end` saves the peak, but the last CSV row can sit well below it.
-- **Never plot OAS and SAbDab2 on shared axes** — different test sets; the `_OAS`/`_SD2` run tags enforce it, and per-dataset charts live in `results/pngs/*_{oas,sd2}_*.png`.
+- **Never plot OAS and SAbDab2 on shared axes** — different test sets; the `_OAS`/`_SD2` run tags enforce it, and per-dataset charts live under `results/pngs/<batch>/*_{oas,sd2}*.png`.
 - **`epoch_metrics.csv` and `*_results.json` measure different models — they're *supposed* to disagree.** The CSV is the per-epoch **trajectory** (the model as it stood at each epoch); `eval_results.json`/`all_results.json` come from the post-training `trainer.evaluate()`, which with `load_best_model_at_end` runs on the **best** checkpoint while still being stamped with the final epoch number. On `h3_esm2` the CSV's epoch-10 row reads core **0.3063** (the actual last model) while `eval_results.json` reads **0.3209** (the epoch-4 best model). `save_training_csv` de-duplicates on epoch and **keeps the first** occurrence precisely so the curve keeps the real last-epoch point — keeping the last would silently redraw the best model at x=10 and erase the overfitting decay entirely.
 
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
+<!-- AI ACCESS ZONE ENDS -->
+- **2026-08-18** -- project wide claude fix
 - **2026-08-17** -- Produced IgLM benchmark results
+- **2026-08-17** -- Numerous `test/` scripts
 - **2026-08-17** -- [RECLAIM] Code restructure, progress reset
 - **2026-08-17** -- Enabled variable-length generation
-<!-- AI ACCESS ZONE ENDS -->
 - **2026-08-14** -- Flowchart updated in `misc/`
 - **2026-08-14** -- `artifacts.py`[new]: stores current and legacy filenames as global constants
 - **2026-08-14** -- [RECLAIM] `batch_tables.py`[`report_findings.py`]: reworked - auto detect core AAR availability, merged separate table functions into unified function
@@ -822,7 +889,7 @@ The comparison must run both methods on the **same frozen examples**, with the s
 - [x] Add a checkpoint-specific CDRSeqGen length head, bounded/inferred generation, and migration tooling for old sequence checkpoints without changing the backbone architecture.
 - [x] Add a separate `length_free` manifest/adapter/scorer contract: retain all valid lengths, condition positional AAR on length matches, and score every candidate with length error, edit similarity, diversity, and the shared judge.
 - [x] Fit the tuned scratch checkpoint's first length head and run its 25-framework × 20-candidate length-free validation output; preserve the below-mode-baseline result rather than hiding it.
-- [ ] Run the matched IgLM natural-EOS validation output, score both adapters together, and render the length-free comparison dashboard.
+- [x] Run the matched IgLM natural-EOS validation output, score both adapters together, and render the length-free comparison dashboard. **Result: IgLM leads on recovery, length error, edit similarity, and judge perplexity (Findings §11).** Rescore on a clean tree before quoting — the stored scores carry `repository_dirty: true` at commit `0e7e499`.
 - [ ] Add paired uncertainty: bootstrap test examples and report the CDRSeqGen-minus-IgLM difference with a 95% confidence interval. The example, not each generated candidate, is the statistical unit.
 - [ ] Produce side-by-side evaluation curves: recovery by H3-length bucket, accuracy by relative H3 position, and the recovery--diversity frontier across matched sampling settings. Do not compare CDRSeqGen training curves with a frozen pretrained IgLM checkpoint; training curves become meaningful only if IgLM is retrained on the same corpus and should then use tokens/examples seen rather than epoch number.
 - [x] Reproduce the official IgLM infill example and validate the adapter on 25 frozen validation frameworks (125/125 constrained draws valid and length-matched; zero adapter failures). Reproducing a reported paper-scale benchmark remains pending.

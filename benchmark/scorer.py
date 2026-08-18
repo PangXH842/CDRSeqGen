@@ -4,33 +4,45 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import importlib.metadata
 import json
-import math
-import os
 import statistics
-import subprocess
 import sys
-from collections import Counter
 from datetime import datetime, timezone
 from itertools import combinations
 from pathlib import Path
 from typing import Any, Iterable
 
 
-# Direct execution puts benchmark/ rather than the repository root on sys.path. The sequence-only
-# scorer has no project imports, but the optional judge does, so normalize the path up front.
+# Direct execution puts benchmark/ rather than the repository root on sys.path, where neither the
+# cdrseqgen package nor benchmark._common is importable. Normalize it before those imports.
 BENCHMARK_DIR = Path(__file__).resolve().parent
 if sys.path and Path(sys.path[0]).resolve() == BENCHMARK_DIR:
     sys.path.pop(0)
     sys.path.insert(0, str(BENCHMARK_DIR.parent))
 
 
+# The sequence metrics come from the project rather than a private copy: a matched benchmark that
+# defines "diversity" twice can report two different numbers for the same candidates. (The judge in
+# this file already imports cdrseqgen, so the old "no project imports" rationale no longer held.)
+from cdrseqgen.eval.metrics import (
+    LENGTH_BUCKETS,
+    edit_similarity,
+    hamming_fraction,
+    per_position_entropy as position_entropy,
+)
+from benchmark._common import (
+    ADAPTER_SCHEMA_VERSION,
+    AMINO_ACIDS,
+    atomic_write_json,
+    git_state,
+    sha256_file,
+)
+
 SCHEMA_VERSION = "cdrseqgen.benchmark_scores.v1"
-ADAPTER_SCHEMA_VERSION = "cdrseqgen.adapter_output.v1"
-AMINO_ACIDS = set("ACDEFGHIKLMNPQRSTVWY")
-LENGTH_BUCKETS = (("short", 0, 11), ("medium", 12, 17), ("long", 18, 10**6))
+# Above this share of examples with zero generation attempts, the run is a failed run rather than a
+# result with gaps, and scoring it would report metrics over a silently reduced population.
+MAX_DEAD_RECORD_FRACTION = 0.05
 SUMMARY_METRICS = (
     "whole_span_aar_mean",
     "core_aar_mean",
@@ -49,36 +61,9 @@ SUMMARY_METRICS = (
 )
 
 
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    with temporary.open("w") as handle:
-        json.dump(payload, handle, indent=2, allow_nan=False)
-        handle.write("\n")
-    os.replace(temporary, path)
-
-
-def git_state(repo: Path) -> dict[str, Any]:
-    try:
-        commit = subprocess.check_output(
-            ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
-        ).strip()
-        dirty = bool(
-            subprocess.check_output(
-                ["git", "-C", str(repo), "status", "--porcelain"], text=True
-            ).strip()
-        )
-        return {"repository_commit": commit, "repository_dirty": dirty}
-    except (OSError, subprocess.CalledProcessError):
-        return {"repository_commit": None, "repository_dirty": None}
+def write_scores_json(path: Path, payload: dict[str, Any]) -> None:
+    """Scores are the published artifact, so a NaN is a write-time error, not a bare NaN literal."""
+    atomic_write_json(path, payload, allow_nan=False)
 
 
 def mean_or_none(values: Iterable[float | None]) -> float | None:
@@ -93,48 +78,10 @@ def population_sd_or_none(values: Iterable[float | None]) -> float | None:
     return statistics.pstdev(present) if len(present) > 1 else 0.0
 
 
-def hamming_fraction(first: str, second: str) -> float:
-    longest = max(len(first), len(second))
-    if longest == 0:
-        return 0.0
-    overlap = min(len(first), len(second))
-    mismatches = sum(first[i] != second[i] for i in range(overlap))
-    return (mismatches + longest - overlap) / longest
-
-
-def edit_similarity(first: str, second: str) -> float:
-    """One minus normalized Levenshtein distance, defined for unequal lengths."""
-    longest = max(len(first), len(second))
-    if longest == 0:
-        return 1.0
-    previous = list(range(len(second) + 1))
-    for i, left in enumerate(first, start=1):
-        current = [i]
-        for j, right in enumerate(second, start=1):
-            current.append(min(current[-1] + 1, previous[j] + 1,
-                               previous[j - 1] + (left != right)))
-        previous = current
-    return 1.0 - previous[-1] / longest
-
-
 def recovery_at_indices(sample: str, native: str, indices: list[int]) -> float | None:
     if not indices:
         return None
     return sum(sample[index] == native[index] for index in indices) / len(indices)
-
-
-def position_entropy(samples: list[str]) -> float | None:
-    if not samples:
-        return None
-    length = len(samples[0])
-    if length == 0 or any(len(sample) != length for sample in samples):
-        return None
-    entropies = []
-    for position in range(length):
-        counts = Counter(sample[position] for sample in samples)
-        total = len(samples)
-        entropies.append(-sum((count / total) * math.log2(count / total) for count in counts.values()))
-    return statistics.mean(entropies)
 
 
 def validate_adapter_record(record: dict[str, Any], manifest_record: dict[str, Any],
@@ -257,6 +204,11 @@ def aggregate_records(records: list[dict[str, Any]]) -> dict[str, Any]:
     runtime = sum(record["metrics"]["runtime_seconds"] for record in records)
     summary["micro_accounting"] = {
         "examples": len(records),
+        # Examples that generated nothing still count above but enter no metric, so report them
+        # alongside rather than leaving the gap to be inferred from per-metric "examples" counts.
+        "examples_without_attempts": sum(
+            1 for record in records if not record["accounting"]["attempts"]
+        ),
         "attempts": attempts,
         "valid_attempts": valid,
         "length_matches": matches,
@@ -382,6 +334,7 @@ def validate_payload(
     manifest: dict[str, Any],
     manifest_hash: str,
     allow_partial: bool,
+    allow_dead_records: bool = False,
 ) -> list[str]:
     if payload.get("schema_version") != ADAPTER_SCHEMA_VERSION:
         raise ValueError(f"{label} has unsupported adapter schema {payload.get('schema_version')!r}")
@@ -410,6 +363,24 @@ def validate_payload(
     if not allow_partial and set(ids) != set(manifest_ids):
         missing = sorted(set(manifest_ids) - set(ids))
         raise ValueError(f"{label} is partial; missing {len(missing)} manifest records")
+    # A record whose generation crashed carries attempts == 0, which is self-consistent and so
+    # survives validate_adapter_record. It then contributes None to every macro mean while still
+    # counting toward micro_accounting.examples, making a half-dead run look complete.
+    # An absent 'attempts' is a schema problem for validate_adapter_record to report; only an
+    # explicit zero means the adapter ran this example and got nothing back.
+    dead = [record["example_id"] for record in records if record.get("attempts") == 0]
+    if dead and not allow_dead_records and len(dead) / len(records) > MAX_DEAD_RECORD_FRACTION:
+        raise ValueError(
+            f"{label} has {len(dead)}/{len(records)} examples with zero generation attempts "
+            f"(limit {MAX_DEAD_RECORD_FRACTION:.0%}): {dead[:5]}. Re-run those examples or pass "
+            "--allow-dead-records to score the survivors only."
+        )
+    if dead:
+        print(
+            f"WARNING: {label} has {len(dead)}/{len(records)} examples with zero generation "
+            f"attempts; they contribute to no metric: {dead[:5]}",
+            file=sys.stderr,
+        )
     return ids
 
 
@@ -491,6 +462,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--allow-partial", action="store_true")
+    parser.add_argument(
+        # argparse interpolates '%' in help text, so the threshold is spelled as a fraction.
+        "--allow-dead-records", action="store_true",
+        help="Score a run even when more than a "
+             f"{MAX_DEAD_RECORD_FRACTION:g} fraction of its examples produced no generation "
+             "attempts.",
+    )
     parser.add_argument("--judge", default=None, help="Independent masked-LM model, e.g. Exscientia/IgBert")
     parser.add_argument("--judge-path", default=None)
     parser.add_argument("--judge-max-len", type=int, default=128)
@@ -526,6 +504,7 @@ def main() -> None:
             manifest=manifest,
             manifest_hash=manifest_hash,
             allow_partial=args.allow_partial,
+            allow_dead_records=args.allow_dead_records,
         )
         loaded.append((label, path, payload, ids))
     assert_comparable([(label, payload, ids) for label, _, payload, ids in loaded])
@@ -563,7 +542,7 @@ def main() -> None:
         "judge": judge.provenance() if judge else None,
         "runs": runs,
     }
-    atomic_write_json(args.output, output)
+    write_scores_json(args.output, output)
     print(f"Saved {len(runs)} scored run(s) to {args.output}")
     for run in runs:
         aggregate = run["aggregate"]

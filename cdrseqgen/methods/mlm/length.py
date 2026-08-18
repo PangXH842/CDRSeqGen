@@ -180,7 +180,6 @@ def resolve_length_policy(
     target_length: Optional[int] = None,
     min_length: Optional[int] = None,
     max_length: Optional[int] = None,
-    fallback_length: Optional[int] = None,
 ) -> LengthPolicy:
     """Resolve user inputs without consulting the learned length predictor.
 
@@ -190,7 +189,6 @@ def resolve_length_policy(
     """
     native_length = _validate_length("native_length", native_length)
     target_length = _validate_length("target_length", target_length)
-    fallback_length = _validate_length("fallback_length", fallback_length)
     constraints = LengthConstraints(minimum=min_length, maximum=max_length)
 
     if target_length is not None and not constraints.is_empty:
@@ -221,37 +219,7 @@ def resolve_length_policy(
             else "explicit_maximum"
         )
         return LengthPolicy("bounded", source, constraints)
-    if fallback_length is not None:
-        return fixed_policy(fallback_length, source="legacy_default")
     return LengthPolicy("inferred", "length_predictor", constraints)
-
-
-def resolve_fixed_length(
-    *,
-    native_length: Optional[int] = None,
-    target_length: Optional[int] = None,
-    min_length: Optional[int] = None,
-    max_length: Optional[int] = None,
-    fallback_length: Optional[int] = None,
-) -> LengthDecision:
-    """Compatibility resolver for code paths that explicitly require fixed length."""
-    policy = resolve_length_policy(
-        native_length=native_length,
-        use_native_length=native_length is not None,
-        target_length=target_length,
-        min_length=min_length,
-        max_length=max_length,
-        fallback_length=fallback_length,
-    )
-    if policy.requires_predictor:
-        description = (
-            "variable-length generation" if policy.mode == "bounded"
-            else "inferred-length generation"
-        )
-        raise UnsupportedLengthPolicy(
-            f"{description} requires resolve_length_policy and a trained length predictor"
-        )
-    return fixed_length(policy.length, source=policy.source)
 
 
 def resolve_generation_length_policy(

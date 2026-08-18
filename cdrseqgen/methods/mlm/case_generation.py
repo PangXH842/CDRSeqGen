@@ -1,11 +1,7 @@
 """Generate and score one framework case with the masked-LM method."""
 
 from cdrseqgen.eval.metrics import amino_acid_recovery, calculate
-from cdrseqgen.methods.mlm.generation import (
-    GeneratedSpan,
-    prepare_fixed_length_prompt,
-    sample_length_conditioned_spans,
-)
+from cdrseqgen.methods.mlm.generation import sample_length_conditioned_spans
 from cdrseqgen.methods.mlm.sampling import pseudo_log_likelihood
 
 
@@ -20,7 +16,6 @@ def generate_case_record(
     native,
     length_policy,
     length_predictor,
-    sample_masked_span_fn,
     print_callback,
 ):
     """Generate, score, and serialize one fixed, bounded, or inferred-length case."""
@@ -29,60 +24,28 @@ def generate_case_record(
     partner = case.get("partner_chain") or args.partner_chain
     antigen = case.get("antigen") or args.antigen
 
-    if length_policy.requires_predictor:
-        generated, length_metadata = sample_length_conditioned_spans(
-            model,
-            tokenizer,
-            device,
-            generator,
-            pt1=pt1,
-            pt2=pt2,
-            policy=length_policy,
-            length_predictor=length_predictor,
-            partner_chain=partner,
-            antigen=antigen,
-            max_len=args.max_len,
-            decoding=args.decoding,
-            num_samples=args.num_samples,
-            temperature=args.temperature,
-            top_k=args.top_k,
-            top_p=args.top_p,
-            length_temperature=getattr(args, "length_temperature", 1.0),
-        )
-    else:
-        prompt = prepare_fixed_length_prompt(
-            tokenizer,
-            pt1,
-            pt2,
-            length_policy.length,
-            partner_chain=partner,
-            antigen=antigen,
-            max_len=args.max_len,
-        )
-        sampled = sample_masked_span_fn(
-            model,
-            tokenizer,
-            device,
-            generator,
-            prompt.input_ids,
-            prompt.mask_positions,
-            decoding=args.decoding,
-            num_samples=args.num_samples,
-            temperature=args.temperature,
-            top_k=args.top_k,
-            top_p=args.top_p,
-        )
-        generated = [
-            GeneratedSpan(ids, length_policy.length, prompt.input_ids,
-                          prompt.mask_positions, prompt.metadata())
-            for ids in sampled
-        ]
-        length_metadata = length_policy.as_dict(
-            selected_lengths=[length_policy.length] * len(generated)
-        )
-        length_metadata["prompts_by_length"] = {
-            str(length_policy.length): prompt.metadata()
-        }
+    # One call for every policy: sample_length_conditioned_spans already branches on
+    # policy.requires_predictor, so a fixed length is just the case where the length is known
+    # before the prompt is built rather than predicted from it.
+    generated, length_metadata = sample_length_conditioned_spans(
+        model,
+        tokenizer,
+        device,
+        generator,
+        pt1=pt1,
+        pt2=pt2,
+        policy=length_policy,
+        length_predictor=length_predictor,
+        partner_chain=partner,
+        antigen=antigen,
+        max_len=args.max_len,
+        decoding=args.decoding,
+        num_samples=args.num_samples,
+        temperature=args.temperature,
+        top_k=args.top_k,
+        top_p=args.top_p,
+        length_temperature=getattr(args, "length_temperature", 1.0),
+    )
 
     samples = []
     for generated_span in generated:

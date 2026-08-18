@@ -142,6 +142,45 @@ class CDRSeqGenAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "data file"):
             validate_checkpoint_contract({**config, "data_path": "other.json"}, manifest)
 
+    def test_a_failing_example_is_recorded_rather_than_aborting_the_run(self):
+        class ExplodingSampler(FakeSampler):
+            def prepare(self, record):
+                raise ValueError("assembled length 700 exceeds checkpoint max_len 512")
+
+        result = run_example(
+            manifest_record(), ExplodingSampler([]),
+            num_samples=3, decoding="iterative", temperature=1.0,
+            top_k=0, top_p=0.9, base_seed=42,
+        )
+        self.assertTrue(result["generation_failed"])
+        self.assertEqual(result["samples"], [])
+        self.assertEqual(result["attempts"], 0)
+        self.assertEqual(result["failures"][0]["code"], "generation_exception")
+        self.assertEqual(result["length_policy"]["source"], "generation_failed")
+
+    def test_a_failed_example_does_not_inherit_the_previous_length_policy(self):
+        """length_metadata is sampler state; a failure must not report the last example's."""
+        class StatefulSampler(FakeSampler):
+            def __init__(self, samples):
+                super().__init__(samples)
+                self.calls = 0
+
+            def prepare(self, record):
+                self.length_metadata = None
+                self.calls += 1
+                if self.calls > 1:
+                    raise RuntimeError("CUDA out of memory")
+                self.length_metadata = {"mode": "inferred", "selected_length": 3}
+
+        sampler = StatefulSampler(["CCC"])
+        kwargs = dict(num_samples=1, decoding="iterative", temperature=1.0,
+                      top_k=0, top_p=0.9, base_seed=42)
+        first = run_example(manifest_record(), sampler, **kwargs)
+        second = run_example(manifest_record(), sampler, **kwargs)
+
+        self.assertEqual(first["length_policy"]["mode"], "inferred")
+        self.assertEqual(second["length_policy"]["mode"], "unavailable")
+
     def test_resume_rejects_changed_checkpoint_or_sampling(self):
         expected = {
             "schema_version": "v1", "adapter": "cdrseqgen", "benchmark_id": "b",

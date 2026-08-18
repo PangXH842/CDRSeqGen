@@ -4,10 +4,7 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -26,74 +23,23 @@ from cdrseqgen.artifacts import (
     LENGTH_CONFIG_FILENAME,
     LENGTH_HEAD_FILENAME,
     RUN_CONFIG_FILENAMES,
+    load_run_config as shared_load_run_config,
 )
-
-SCHEMA_VERSION = "cdrseqgen.adapter_output.v1"
-AMINO_ACIDS = set("ACDEFGHIKLMNPQRSTVWY")
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def stable_example_seed(base_seed: int, example_id: str) -> int:
-    digest = hashlib.sha256(f"{base_seed}:{example_id}".encode("utf-8")).digest()
-    return int.from_bytes(digest[:8], "big") % (2**31)
-
-
-def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    with temporary.open("w") as handle:
-        json.dump(payload, handle, indent=2)
-        handle.write("\n")
-    os.replace(temporary, path)
-
-
-def git_state(repo: Path) -> dict[str, Any]:
-    try:
-        commit = subprocess.check_output(
-            ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
-        ).strip()
-        dirty = bool(
-            subprocess.check_output(
-                ["git", "-C", str(repo), "status", "--porcelain"], text=True
-            ).strip()
-        )
-        return {"repository_commit": commit, "repository_dirty": dirty}
-    except (OSError, subprocess.CalledProcessError):
-        return {"repository_commit": None, "repository_dirty": None}
-
-
-def validate_manifest_record(record: dict[str, Any]) -> None:
-    required = {
-        "example_id", "parent_sequence", "pt1", "native", "pt2", "native_length",
-        "infill_range",
-    }
-    missing = sorted(required - record.keys())
-    if missing:
-        raise ValueError(f"manifest record is missing fields: {missing}")
-    if record["parent_sequence"] != record["pt1"] + record["native"] + record["pt2"]:
-        raise ValueError(f"{record['example_id']} fails parent-sequence reconstruction")
-    if record["native_length"] != len(record["native"]):
-        raise ValueError(f"{record['example_id']} has an incorrect native_length")
-    expected_range = [len(record["pt1"]), len(record["pt1"]) + len(record["native"])]
-    if record["infill_range"] != expected_range:
-        raise ValueError(f"{record['example_id']} has an incorrect infill_range")
+from benchmark._common import (
+    ADAPTER_SCHEMA_VERSION as SCHEMA_VERSION,
+    AMINO_ACIDS,
+    assert_resume_compatible,
+    atomic_write_json,
+    git_state,
+    sha256_file,
+    stable_example_seed,
+    validate_manifest_record,
+)
 
 
 def load_run_config(checkpoint: Path) -> tuple[dict[str, Any], Path]:
-    path = next((checkpoint / name for name in RUN_CONFIG_FILENAMES
-                 if (checkpoint / name).exists()), None)
-    if path is None:
-        accepted = ", ".join(RUN_CONFIG_FILENAMES)
-        raise FileNotFoundError(f"checkpoint lacks a run config ({accepted}): {checkpoint}")
-    with path.open() as handle:
-        return json.load(handle), path
+    """Adapter-side alias so the benchmark reads checkpoints exactly as the entrypoints do."""
+    return shared_load_run_config(checkpoint)
 
 
 def validate_checkpoint_contract(run_config: dict[str, Any], manifest: dict[str, Any]) -> None:
@@ -131,18 +77,21 @@ class CDRSeqGenSampler:
         from cdrseqgen.methods.mlm.generation import (
             prepare_fixed_length_prompt,
             sample_length_conditioned_spans,
-            sample_masked_span,
         )
         from cdrseqgen.methods.mlm.backbones import resolve
-        from cdrseqgen.methods.mlm.length import native_mask_length, resolve_length_policy
+        from cdrseqgen.methods.mlm.length import (
+            fixed_policy,
+            native_mask_length,
+            resolve_length_policy,
+        )
         from cdrseqgen.methods.mlm.length_predictor import LengthPredictor
 
         self.torch = torch
         self.prepare_fixed_length_prompt = prepare_fixed_length_prompt
         self.sample_length_conditioned_spans = sample_length_conditioned_spans
         self.resolve_length_policy = resolve_length_policy
+        self.fixed_policy = fixed_policy
         self.track = track
-        self.sample_masked_span = sample_masked_span
         self.native_mask_length = native_mask_length
         self.run_config = run_config
         self.max_len = int(run_config["max_len"])
@@ -164,19 +113,33 @@ class CDRSeqGenSampler:
         )
 
     def prepare(self, record: dict[str, Any]) -> None:
+        # Clear per-example state before anything can raise: run_example reads length_metadata and
+        # prompt_info even when this call fails, and the previous example's values would then be
+        # recorded against this one.
         self.record = record
+        self.length_metadata = None
+        self.length_policy = None
+        self.length_decision = None
+        self.prompt_info = None
+        self.input_ids = None
+        self.mask_positions = None
         if self.track == "length_free":
             self.length_policy = self.resolve_length_policy()
             self.length_metadata = self.length_policy.as_dict()
-            self.prompt_info = None
             return
+        # The native mask count is a length that is known rather than predicted, so it becomes an
+        # ordinary fixed policy and takes the same generation path as the length-free track.
         self.length_decision = self.native_mask_length(record["native_length"])
-        target_len = self.length_decision.length
+        self.length_policy = self.fixed_policy(
+            self.length_decision.length, source=self.length_decision.source
+        )
+        # Built once here purely to enforce the checkpoint's max_len before any GPU work; the
+        # prompt used for sampling is rebuilt inside sample_length_conditioned_spans.
         prompt = self.prepare_fixed_length_prompt(
             self.tokenizer,
             record["pt1"],
             record["pt2"],
-            target_len,
+            self.length_decision.length,
             max_len=self.max_len,
         )
         self.input_ids = prompt.input_ids
@@ -205,43 +168,28 @@ class CDRSeqGenSampler:
         generator = self.torch.Generator(device=self.device)
         generator.manual_seed(seed)
 
-        if self.track == "length_free":
-            generated, self.length_metadata = self.sample_length_conditioned_spans(
-                self.model,
-                self.tokenizer,
-                self.device,
-                generator,
-                pt1=self.record["pt1"],
-                pt2=self.record["pt2"],
-                policy=self.length_policy,
-                length_predictor=self.length_predictor,
-                max_len=self.max_len,
-                decoding=decoding,
-                num_samples=num_samples,
-                temperature=temperature,
-                top_k=top_k,
-                top_p=top_p,
-                length_temperature=length_temperature,
-            )
-            self.prompt_info = self.length_metadata.get("prompts_by_length")
-            return [
-                self.tokenizer.decode(span.token_ids).upper().strip()
-                for span in generated
-            ]
-        sampled_ids = self.sample_masked_span(
-            model=self.model,
-            tokenizer=self.tokenizer,
-            device=self.device,
-            generator=generator,
-            input_ids=self.input_ids,
-            mask_positions=self.mask_positions,
+        generated, self.length_metadata = self.sample_length_conditioned_spans(
+            self.model,
+            self.tokenizer,
+            self.device,
+            generator,
+            pt1=self.record["pt1"],
+            pt2=self.record["pt2"],
+            policy=self.length_policy,
+            length_predictor=self.length_predictor,
+            max_len=self.max_len,
             decoding=decoding,
             num_samples=num_samples,
             temperature=temperature,
             top_k=top_k,
             top_p=top_p,
+            length_temperature=length_temperature,
         )
-        return [self.tokenizer.decode(ids).upper().strip() for ids in sampled_ids]
+        self.prompt_info = self.length_metadata.get("prompts_by_length")
+        return [
+            self.tokenizer.decode(span.token_ids).upper().strip()
+            for span in generated
+        ]
 
 
 def run_example(
@@ -258,10 +206,13 @@ def run_example(
 ) -> dict[str, Any]:
     validate_manifest_record(record)
     seed = stable_example_seed(base_seed, record["example_id"])
-    sampler.prepare(record)
     started = time.perf_counter()
     failures: list[dict[str, Any]] = []
+    generation_failed = False
     try:
+        # prepare() is inside the guard so an over-long prompt is recorded as one failed example
+        # rather than aborting the whole benchmark run.
+        sampler.prepare(record)
         samples = sampler.draw_many(
             num_samples=num_samples,
             decoding=decoding,
@@ -273,6 +224,7 @@ def run_example(
         )
     except Exception as exc:
         samples = []
+        generation_failed = True
         failures.append({
             "code": "generation_exception",
             "detail": f"{type(exc).__name__}: {exc}",
@@ -314,7 +266,9 @@ def run_example(
         item["valid_generation"] and item["length_match"] for item in raw_generations
     )
     length_policy = getattr(sampler, "length_metadata", None)
-    if length_policy is None:
+    if generation_failed:
+        length_policy = {"mode": "unavailable", "source": "generation_failed"}
+    elif length_policy is None:
         length_policy = {
             "mode": "fixed",
             "source": "native_mask_count",
@@ -327,6 +281,7 @@ def run_example(
         "native": record["native"],
         "native_length": record["native_length"],
         "length_policy": length_policy,
+        "generation_failed": generation_failed,
         "samples": valid_samples,
         "attempts": attempts,
         "valid_attempts": valid_attempts,
@@ -409,12 +364,6 @@ def build_payload(
         "finished_at": None,
         "records": [],
     }
-
-
-def assert_resume_compatible(payload: dict[str, Any], expected: dict[str, Any]) -> None:
-    for key in ("schema_version", "adapter", "benchmark_id", "manifest", "model", "sampling"):
-        if payload.get(key) != expected.get(key):
-            raise ValueError(f"existing output is incompatible for resume: {key} differs")
 
 
 def parse_args() -> argparse.Namespace:
@@ -505,10 +454,13 @@ def main() -> None:
         )
 
     payload["finished_at"] = datetime.now(timezone.utc).isoformat()
+    failed_records = [r for r in payload["records"] if r.get("generation_failed")]
     payload["summary"] = {
         "records_requested": total,
         "records_completed": len(payload["records"]),
         "records_with_full_sample_count": sum(r["complete"] for r in payload["records"]),
+        "records_with_generation_failure": len(failed_records),
+        "failed_example_ids": [r["example_id"] for r in failed_records],
         "total_attempts": sum(r["attempts"] for r in payload["records"]),
         "total_valid_attempts": sum(r["valid_attempts"] for r in payload["records"]),
         "total_invalid_attempts": sum(r["invalid_attempts"] for r in payload["records"]),
@@ -518,6 +470,12 @@ def main() -> None:
     }
     atomic_write_json(args.output, payload)
     print(f"Saved {len(payload['records'])} records to {args.output}")
+    if failed_records:
+        print(
+            f"WARNING: {len(failed_records)}/{len(payload['records'])} examples produced no "
+            f"candidates: {[r['example_id'] for r in failed_records][:5]}",
+            file=sys.stderr,
+        )
 
 
 if __name__ == "__main__":

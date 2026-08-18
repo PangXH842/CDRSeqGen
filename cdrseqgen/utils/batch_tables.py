@@ -54,7 +54,7 @@ from collections import Counter, defaultdict
 
 import pandas as pd
 
-from cdrseqgen.artifacts import RUN_CONFIG_FILENAMES
+from cdrseqgen.artifacts import find_run_config
 from cdrseqgen.eval import MIN_CORE_COVERAGE
 
 # <loop>_<DS>[_LC|_HC][_AG]_<model>, e.g. h3_OAS_LC_esm2_t12_35M_UR50D, h1_SD2_LC_AG_scratch
@@ -185,13 +185,11 @@ def data_path_for(runs, ds):
         if d != ds:
             continue
         # run_config.json was run_meta.json before 2026-07-29; older batches still use the old name.
-        for name in RUN_CONFIG_FILENAMES:
-            meta = os.path.join(run_dir, name)
-            if os.path.exists(meta):
-                p = _load(meta).get("data_path")
-                if p and os.path.exists(p):
-                    return p
-                break
+        meta = find_run_config(run_dir)
+        if meta is not None:
+            p = _load(str(meta)).get("data_path")
+            if p and os.path.exists(p):
+                return p
     return DEFAULT_DATA.get(ds)
 
 

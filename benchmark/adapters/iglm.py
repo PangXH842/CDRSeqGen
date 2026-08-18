@@ -4,11 +4,8 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import importlib.metadata
 import json
-import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -23,8 +20,16 @@ if sys.path and Path(sys.path[0]).resolve() == ADAPTER_DIR:
     sys.path.pop(0)
     sys.path.insert(0, str(ADAPTER_DIR.parents[1]))
 
-SCHEMA_VERSION = "cdrseqgen.adapter_output.v1"
-AMINO_ACIDS = set("ACDEFGHIKLMNPQRSTVWY")
+from benchmark._common import (
+    ADAPTER_SCHEMA_VERSION as SCHEMA_VERSION,
+    AMINO_ACIDS,
+    assert_resume_compatible,
+    atomic_write_json,
+    repository_commit,
+    sha256_file,
+    stable_example_seed,
+    validate_manifest_record as validate_shared_manifest_record,
+)
 
 
 class InvalidGeneration(ValueError):
@@ -34,20 +39,6 @@ class InvalidGeneration(ValueError):
         super().__init__(detail)
         self.code = code
         self.detail = detail
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def stable_example_seed(base_seed: int, example_id: str) -> int:
-    """Derive a resume-safe seed that is stable for each example."""
-    digest = hashlib.sha256(f"{base_seed}:{example_id}".encode("utf-8")).digest()
-    return int.from_bytes(digest[:8], "big") % (2**31)
 
 
 def extract_infilled_loop(generated: str, pt1: str, pt2: str) -> str:
@@ -164,27 +155,10 @@ class IgLMSampler:
 
 
 def validate_manifest_record(record: dict[str, Any]) -> None:
-    required = {
-        "example_id",
-        "parent_sequence",
-        "pt1",
-        "native",
-        "pt2",
-        "native_length",
-        "infill_range",
-        "chain_token",
-        "species_token",
-    }
-    missing = sorted(required - record.keys())
-    if missing:
-        raise ValueError(f"manifest record is missing fields: {missing}")
-    if record["parent_sequence"] != record["pt1"] + record["native"] + record["pt2"]:
-        raise ValueError(f"{record['example_id']} fails parent-sequence reconstruction")
-    if record["native_length"] != len(record["native"]):
-        raise ValueError(f"{record['example_id']} has an incorrect native_length")
-    expected_range = [len(record["pt1"]), len(record["pt1"]) + len(record["native"])]
-    if record["infill_range"] != expected_range:
-        raise ValueError(f"{record['example_id']} has an incorrect infill_range")
+    """Shared contract plus the conditioning tokens only IgLM consumes."""
+    validate_shared_manifest_record(
+        record, extra_required=("chain_token", "species_token")
+    )
 
 
 def run_example(
@@ -285,26 +259,6 @@ def run_example(
     }
 
 
-def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    with temporary.open("w") as handle:
-        json.dump(payload, handle, indent=2)
-        handle.write("\n")
-    os.replace(temporary, path)
-
-
-def repository_commit(path: Path | None) -> str | None:
-    if path is None or not (path / ".git").exists():
-        return None
-    try:
-        return subprocess.check_output(
-            ["git", "-C", str(path), "rev-parse", "HEAD"], text=True
-        ).strip()
-    except (OSError, subprocess.CalledProcessError):
-        return None
-
-
 def build_payload(args, manifest: dict[str, Any], manifest_hash: str, sampler) -> dict[str, Any]:
     try:
         import iglm
@@ -355,12 +309,6 @@ def build_payload(args, manifest: dict[str, Any], manifest_hash: str, sampler) -
         "finished_at": None,
         "records": [],
     }
-
-
-def assert_resume_compatible(payload: dict[str, Any], expected: dict[str, Any]) -> None:
-    for key in ("schema_version", "adapter", "benchmark_id", "manifest", "model", "sampling"):
-        if payload.get(key) != expected.get(key):
-            raise ValueError(f"existing output is incompatible for resume: {key} differs")
 
 
 def parse_args() -> argparse.Namespace:

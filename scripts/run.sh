@@ -128,5 +128,5 @@ for config in "${CONFIGS[@]}"; do
 done
 
 echo ""
-echo "🎉 Done (${#CONFIGS[@]} runs). Results in $BATCH_DIR/ ; comparison plots via 'python -m cdrseqgen.eval.linegraph_plotter'."
+echo "🎉 Done (${#CONFIGS[@]} runs). Results in $BATCH_DIR/ ; comparison plots via 'python -m cdrseqgen.utils.linegraph_plotter'."
 echo "   $(find "$BATCH_DIR" -maxdepth 1 -mindepth 1 -type d | wc -l) run dir(s) written."

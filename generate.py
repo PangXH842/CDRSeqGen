@@ -55,20 +55,13 @@ import logging
 import os
 import torch
 
-from cdrseqgen.artifacts import RUN_CONFIG_FILENAMES
+from cdrseqgen.artifacts import load_run_config
 from cdrseqgen.train.logging import configure_logging
 configure_logging()
 
 from cdrseqgen.methods.mlm.backbones import resolve
-from cdrseqgen.methods.mlm.generation import (
-    prepare_fixed_length_prompt,
-    sample_length_conditioned_spans,
-    sample_masked_span,
-)
 from cdrseqgen.methods.mlm.length import resolve_length_policy
 from cdrseqgen.methods.mlm.length_predictor import LengthPredictor
-from cdrseqgen.methods.mlm.sampling import pseudo_log_likelihood
-from cdrseqgen.eval.metrics import amino_acid_recovery, calculate
 
 logger = logging.getLogger(__name__)
 
@@ -80,16 +73,13 @@ def get_configs(args):
     difference matters downstream: a CLI-built config only restates this invocation, so it cannot
     be used to check the invocation against (see check_compatibility).
     """
-    configs = {}
-    for name in RUN_CONFIG_FILENAMES:
-        path = os.path.join(args.model_path, name)
-        if os.path.isfile(path):
-            try:
-                with open(path) as f:
-                    configs = json.load(f)
-            except (OSError, json.JSONDecodeError) as e:
-                logger.warning(f"⚠️  Error reading from {path}: {e}")
-            break       # first name that exists wins, readable or not
+    # A corrupt run config is deliberately fatal. Falling back to CLI args would set
+    # source="cli", which makes check_compatibility skip both context checks — the failure mode
+    # that costs 0.98 -> 0.26 recovery — so an unreadable file must stop the run, not soften it.
+    try:
+        configs, _ = load_run_config(args.model_path)
+    except FileNotFoundError:
+        configs = {}
 
     if configs:
         configs["source"] = "run_config"
@@ -225,21 +215,6 @@ def check_compatibility(configs, cases, args):
     return problems, warnings
 
 
-def build_masked_input(tokenizer, pt1, pt2, target_length, partner_chain=None, antigen=None,
-                       max_len=256):
-    """Assemble the masked input for one framework. Returns (input_ids, mask_positions)."""
-    prompt = prepare_fixed_length_prompt(
-        tokenizer,
-        pt1,
-        pt2,
-        target_length,
-        partner_chain=partner_chain,
-        antigen=antigen,
-        max_len=max_len,
-    )
-    return prompt.input_ids, prompt.mask_positions
-
-
 def resolve_case_length(case, args):
     """Return normalized native sequence and its independent generation policy.
 
@@ -277,7 +252,6 @@ def generate_case(model, tokenizer, device, args, generator, case, length_predic
         native=native,
         length_policy=length_policy,
         length_predictor=length_predictor,
-        sample_masked_span_fn=sample_masked_span,
         print_callback=_print_case,
     )
 
@@ -309,9 +283,9 @@ def _print_case(name, pt1, pt2, target_length, native, args, samples, metrics):
     if metrics.get("per_position_entropy_bits") is not None:
         line += f"  entropy={metrics['per_position_entropy_bits']:.2f}b"
     print(line)
-    if "recovery_mean" in metrics:
-        print(f"   recovery : mean={metrics['recovery_mean'] * 100:.1f}%  "
-              f"max={metrics['recovery_max'] * 100:.1f}%  min={metrics['recovery_min'] * 100:.1f}%  "
+    if "aar_mean" in metrics:
+        print(f"   recovery : mean={metrics['aar_mean'] * 100:.1f}%  "
+              f"max={metrics['aar_max'] * 100:.1f}%  min={metrics['aar_min'] * 100:.1f}%  "
               f"novelty={metrics['novelty_mean']:.3f}")
     if "pseudo_perplexity_mean" in metrics:
         print(f"   pseudo-ppl: mean={metrics['pseudo_perplexity_mean']:.2f}  "

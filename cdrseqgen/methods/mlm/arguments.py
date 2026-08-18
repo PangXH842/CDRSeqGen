@@ -16,8 +16,9 @@ Notes:
   * The run folder is named from the RESOLVED arguments, not the config filename — `h3_scratch.json
     --target_region l3` produces an `l3_OAS_HC_scratch` folder, so an override can't be misfiled.
   * setup_args is where a run becomes a directory on disk: it names the run, creates it, attaches
-    the file log, updates results/latest, and writes run_config.json. Everything after it can assume
-    training_args.output_dir exists.
+    the file log, and writes run_config.json. Everything after it can assume training_args.output_dir
+    exists. It does NOT update results/latest — train.py does that once the datasets have loaded, so
+    a config rejected by get_datasets cannot take the pointer from the last usable batch.
 """
 import os
 import sys
@@ -36,7 +37,6 @@ from cdrseqgen.train.logging import (
     dataset_tag,
     results_root,
     unique_run_dir,
-    update_latest_link,
     write_run_config,
 )
 
@@ -96,9 +96,10 @@ class DataArguments:
     )
     eval_split: str = field(
         default="",
-        metadata={"help": "Named split used for evaluation/checkpoint selection. Empty preserves the "
-                          "legacy behavior of using every non-train entry; use 'validation' for tuning "
-                          "and 'test' only after hyperparameters are frozen."}
+        metadata={"help": "Named split used for evaluation/checkpoint selection. Required whenever the "
+                          "dataset carries a 'test' split: use 'validation' for tuning and 'test' only "
+                          "after hyperparameters are frozen. Empty is accepted only for datasets with "
+                          "no test partition, where every non-train entry is the evaluation set."}
     )
     target_region: str = field(
         default="h3",
@@ -151,7 +152,7 @@ class DataArguments:
 
 @dataclass
 class GenerationArguments:
-    """Post-training generative evaluation (see cdrseqgen/eval/generation.py). ON by default.
+    """Post-training generative evaluation (see cdrseqgen/methods/mlm/evaluation.py). ON by default.
 
     On gen_judge: pseudo-perplexity under a model's OWN distribution measures self-consistency, not
     quality — an overconfident model rates its own samples highly regardless. Comparing self-ppl
@@ -167,7 +168,10 @@ class GenerationArguments:
     )
     gen_num_examples: int = field(default=150, metadata={"help": "Eval frameworks to sample (-1 = all)."})
     gen_num_samples: int = field(default=20, metadata={"help": "Candidates per framework."})
-    gen_decoding: str = field(default="iterative", metadata={"help": "greedy | independent | iterative."})
+    gen_decoding: str = field(
+        default="iterative",
+        metadata={"help": "independent | iterative. Set gen_temperature to 0 for greedy decoding."}
+    )
     gen_temperature: float = field(default=1.0, metadata={"help": "Sampling temperature."})
     gen_length_mode: str = field(
         default="fixed_native",
@@ -262,7 +266,9 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
 
     os.makedirs(training_args.output_dir, exist_ok=True)
     log_path = attach_file_logging(training_args.output_dir)
-    update_latest_link(training_args.output_dir)
+    # results/latest is deliberately NOT updated here. Everything above can succeed for a config
+    # that get_datasets then rejects, and repointing at that dead run would take results/latest
+    # away from the last usable batch. train.py links it once the datasets have loaded.
     write_run_config(training_args.output_dir, model_args, data_args, gen_args, training_args)
     logger.info(f"📁 Workspace initialized at: {training_args.output_dir}")
     logger.info(f"📝 Logging this run to: {log_path}")

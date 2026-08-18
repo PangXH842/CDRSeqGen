@@ -1,152 +1,104 @@
-"""Held-out evaluation for bounded or inferred-length MLM generation."""
+"""Bounded / inferred-length candidate production for held-out evaluation.
 
-import json
+Only the generation strategy lives here. Example selection, scoring, judging, reporting, and
+writing are shared with the fixed-native track in ``evaluation.py`` — they were duplicated once and
+had already drifted apart in four places (progress bar, write guard, summary statistic, empty-mask
+guard), which is exactly the kind of difference that makes two tracks quietly incomparable.
+
+The invariant this module exists to protect: the native loop reaches ``calculate`` for scoring and
+nothing else. No native length is passed to generation, so the checkpoint's own length head decides
+how many residues to fill.
+"""
+
 import logging
-import statistics
 
 from cdrseqgen.data.dataset import framework_for_dataset
-from cdrseqgen.eval.metrics import calculate
+from cdrseqgen.methods.mlm.evaluation import Draw
 from cdrseqgen.methods.mlm.generation import (
     prepare_fixed_length_prompt,
     sample_length_conditioned_spans,
 )
-from cdrseqgen.methods.mlm.sampling import pseudo_log_likelihood
 
 logger = logging.getLogger(__name__)
 
 
-def _aggregate(records, key):
-    values = [record["metrics"].get(key) for record in records]
-    values = [value for value in values if value is not None]
-    return statistics.mean(values) if values else float("nan")
+class VariableLengthStrategy:
+    """Generate without the native mask count, keeping the native for scoring only."""
 
+    supplies_native_length = False
 
-def run_variable_generative_eval(
-    model,
-    tokenizer,
-    eval_dataset,
-    *,
-    device,
-    length_predictor,
-    length_policy,
-    length_temperature,
-    decoding,
-    num_samples,
-    temperature,
-    top_k,
-    top_p,
-    selected,
-    seed,
-    skip_perplexity,
-    judge_model,
-    judge_tokenizer,
-    judge_dataset,
-    judge_name,
-    output_path,
-    meta,
-    title,
-    generator,
-    log_report,
-    summary_keys,
-):
-    """Generate without native mask count while keeping truth for scoring only."""
-    records = []
-    for i in selected:
-        framework = framework_for_dataset(eval_dataset, i)
+    def __init__(self, *, model, tokenizer, device, generator, eval_dataset, judge_dataset,
+                 judge_tokenizer, length_predictor, length_policy, length_temperature,
+                 decoding, num_samples, temperature, top_k, top_p):
+        self.model, self.tokenizer, self.device = model, tokenizer, device
+        self.generator = generator
+        self.eval_dataset, self.judge_dataset = eval_dataset, judge_dataset
+        self.judge_tokenizer = judge_tokenizer
+        self.length_predictor = length_predictor
+        self.length_policy = length_policy
+        self.length_temperature = length_temperature
+        self.decoding, self.num_samples = decoding, num_samples
+        self.temperature, self.top_k, self.top_p = temperature, top_k, top_p
+        self._judge_framework_cache = (None, None)
+
+    def payload_length_policy(self):
+        return {**self.length_policy.as_dict(), "length_temperature": self.length_temperature}
+
+    def draw(self, i):
+        framework = framework_for_dataset(self.eval_dataset, i)
         native = framework["target"].upper().strip()
         generated, length_metadata = sample_length_conditioned_spans(
-            model,
-            tokenizer,
-            device,
-            generator,
+            self.model,
+            self.tokenizer,
+            self.device,
+            self.generator,
             pt1=framework["pt1"],
             pt2=framework["pt2"],
-            policy=length_policy,
-            length_predictor=length_predictor,
+            policy=self.length_policy,
+            length_predictor=self.length_predictor,
             partner_chain=framework.get("partner_chain"),
             antigen=framework.get("antigen"),
             max_len=framework["max_len"],
-            decoding=decoding,
-            num_samples=num_samples,
-            temperature=temperature,
-            top_k=top_k,
-            top_p=top_p,
-            length_temperature=length_temperature,
+            decoding=self.decoding,
+            num_samples=self.num_samples,
+            temperature=self.temperature,
+            top_k=self.top_k,
+            top_p=self.top_p,
+            length_temperature=self.length_temperature,
         )
-        seqs = [tokenizer.decode(span.token_ids).upper().strip() for span in generated]
-        metrics = calculate(seqs, native)
-        metrics["target_len"] = len(native)
+        seqs = [self.tokenizer.decode(span.token_ids).upper().strip() for span in generated]
+        return Draw(
+            native=native,
+            seqs=seqs,
+            spans=[(span.input_ids, span.mask_positions, span.token_ids) for span in generated],
+            # The native length labels and buckets the example; generation never received it.
+            target_len=len(native),
+            length_policy=length_metadata,
+            record_extra={"generated_lengths": [len(sequence) for sequence in seqs]},
+        )
 
-        if not skip_perplexity:
-            perplexities = [
-                pseudo_log_likelihood(
-                    model, span.input_ids, span.mask_positions, span.token_ids,
-                    tokenizer.special_ids, tokenizer.mask_id, device,
-                )[1]
-                for span in generated
-            ]
-            if perplexities:
-                metrics["self_perplexity_mean"] = sum(perplexities) / len(perplexities)
+    def judge_inputs(self, i, seq):
+        """Rebuild the judge's prompt at this candidate's own length, not the native one.
 
-        if judge_model is not None:
-            full_index = eval_dataset.indices[i] if hasattr(eval_dataset, "indices") else i
-            judge_framework = framework_for_dataset(judge_dataset, full_index)
-            judge_perplexities = []
-            for sequence in seqs:
-                prompt = prepare_fixed_length_prompt(
-                    judge_tokenizer,
-                    judge_framework["pt1"],
-                    judge_framework["pt2"],
-                    len(sequence),
-                    partner_chain=judge_framework.get("partner_chain"),
-                    antigen=judge_framework.get("antigen"),
-                    max_len=judge_framework["max_len"],
-                )
-                candidate = judge_tokenizer.encode(sequence)
-                if len(candidate) != len(prompt.mask_positions):
-                    continue
-                judge_perplexities.append(pseudo_log_likelihood(
-                    judge_model, prompt.input_ids, prompt.mask_positions, candidate,
-                    judge_tokenizer.special_ids, judge_tokenizer.mask_id, device,
-                )[1])
-            if judge_perplexities:
-                metrics["judge_perplexity_mean"] = (
-                    sum(judge_perplexities) / len(judge_perplexities)
-                )
-
-        records.append({
-            "eval_index": i,
-            "target_len": len(native),
-            "generated_lengths": [len(sequence) for sequence in seqs],
-            "length_policy": length_metadata,
-            "native": native,
-            "samples": seqs,
-            "metrics": metrics,
-        })
-
-    log_report(records, title=title, judge_name=judge_name)
-    payload = dict(meta or {})
-    payload.update({
-        "judge": judge_name,
-        "length_policy": {
-            **length_policy.as_dict(),
-            "length_temperature": length_temperature,
-        },
-        "decoding": {
-            "mode": decoding,
-            "num_samples": num_samples,
-            "temperature": temperature,
-            "top_k": top_k,
-            "top_p": top_p,
-            "seed": seed,
-        },
-        "n_eval_total": len(eval_dataset),
-        "n_generated": len(records),
-        "summary": {key: _aggregate(records, key) for key, _label in summary_keys},
-        "records": records,
-    })
-    if output_path:
-        with open(output_path, "w") as handle:
-            json.dump(payload, handle, indent=2)
-        logger.info("💾 Saved %d framework records to: %s", len(records), output_path)
-    return payload
+        The framework is fixed per example and only the mask count varies, so it is cached while
+        the prompt itself is rebuilt for every candidate length.
+        """
+        cached_index, cached_framework = self._judge_framework_cache
+        if cached_index == i:
+            framework = cached_framework
+        else:
+            full_index = (
+                self.eval_dataset.indices[i] if hasattr(self.eval_dataset, "indices") else i
+            )
+            framework = framework_for_dataset(self.judge_dataset, full_index)
+            self._judge_framework_cache = (i, framework)
+        prompt = prepare_fixed_length_prompt(
+            self.judge_tokenizer,
+            framework["pt1"],
+            framework["pt2"],
+            len(seq),
+            partner_chain=framework.get("partner_chain"),
+            antigen=framework.get("antigen"),
+            max_len=framework["max_len"],
+        )
+        return prompt.input_ids, prompt.mask_positions

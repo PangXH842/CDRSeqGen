@@ -17,7 +17,7 @@ import argparse
 import torch
 from transformers import HfArgumentParser, TrainingArguments
 
-from cdrseqgen.artifacts import RUN_CONFIG_FILENAME, RUN_CONFIG_FILENAMES
+from cdrseqgen.artifacts import RUN_CONFIG_FILENAME, load_run_config
 from cdrseqgen.methods.mlm.arguments import DataArguments, GenerationArguments, ModelArguments
 from cdrseqgen.methods.mlm.training import get_datasets
 from cdrseqgen.train.logging import configure_logging
@@ -32,14 +32,11 @@ from cdrseqgen.methods.mlm.length import resolve_generation_length_policy
 
 def read_run_config(model_dir):
     """Load the run_config.json a training run wrote, or None (older runs won't have it)."""
-    # run_config.json was run_meta.json before 2026-07-29; older runs still carry the old name.
-    path = next((os.path.join(model_dir, name) for name in RUN_CONFIG_FILENAMES
-                 if os.path.exists(os.path.join(model_dir, name))),
-                os.path.join(model_dir, RUN_CONFIG_FILENAME))
-    if os.path.exists(path):
-        with open(path) as f:
-            return json.load(f)
-    return None
+    try:
+        config, _ = load_run_config(model_dir)
+    except FileNotFoundError:
+        return None
+    return config
 
 
 def check_target_region(model_dir, config_target):

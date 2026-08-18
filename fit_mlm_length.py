@@ -11,7 +11,7 @@ from pathlib import Path
 import torch
 from transformers import HfArgumentParser, TrainingArguments
 
-from cdrseqgen.artifacts import RUN_CONFIG_FILENAMES
+from cdrseqgen.artifacts import RUN_CONFIG_FILENAMES, find_run_config
 from cdrseqgen.methods.mlm.arguments import DataArguments, GenerationArguments, ModelArguments
 from cdrseqgen.methods.mlm.backbones import resolve
 from cdrseqgen.methods.mlm.length_predictor import fit_length_predictor
@@ -26,16 +26,14 @@ def resolve_config_path(model_dir: str, config: str | None = None) -> Path:
             raise FileNotFoundError(f"training config not found: {path}")
         return path.resolve()
 
-    checkpoint = Path(model_dir)
-    for filename in RUN_CONFIG_FILENAMES:
-        path = checkpoint / filename
-        if path.is_file():
-            return path.resolve()
-    expected = ", ".join(RUN_CONFIG_FILENAMES)
-    raise FileNotFoundError(
-        f"no saved training config found in {checkpoint} (expected one of: {expected}); "
-        "pass --config explicitly"
-    )
+    path = find_run_config(model_dir)
+    if path is None:
+        expected = ", ".join(RUN_CONFIG_FILENAMES)
+        raise FileNotFoundError(
+            f"no saved training config found in {model_dir} (expected one of: {expected}); "
+            "pass --config explicitly"
+        )
+    return path.resolve()
 
 
 def main():
