@@ -1,5 +1,6 @@
 """Dataset class script, preprocessed jsons -> torch tensors for training (MLM infilling).
 
+Functions:
   * AntibodyTokenizer        -- custom 25-token vocab (20 amino acids + 5 special)
   * TokenizerAdapter         -- uniform tokenizer interface (custom, HF)
   * assemble_masked_input    -- the [cls] pt1 [mask x L] pt2 [end] layout

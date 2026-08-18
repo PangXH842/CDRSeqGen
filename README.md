@@ -838,6 +838,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-08-18** -- [RECLAIM] `dataset.py`, `preprocess/common.py`
 - **2026-08-18** -- project wide claude fix
 - **2026-08-17** -- Produced IgLM benchmark results
 - **2026-08-17** -- Numerous `test/` scripts
@@ -845,7 +846,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **2026-08-17** -- Enabled variable-length generation
 - **2026-08-14** -- Flowchart updated in `misc/`
 - **2026-08-14** -- `artifacts.py`[new]: stores current and legacy filenames as global constants
-- **2026-08-14** -- [RECLAIM] `batch_tables.py`[`report_findings.py`]: reworked - auto detect core AAR availability, merged separate table functions into unified function
+- **2026-08-14** -- `batch_tables.py`: reworked - auto detect core AAR availability, merged separate table functions into unified function
 - **2026-08-12** -- IgLM benchmark - benchmark manifest (`species` field added); local (cdrseqgen) and IgLM adapters; smoke test run
 - **2026-08-11** -- `scripts/sweep_h3.sh` [new]: hyperparameter sweep script. Result: `1e-3` LR / 0.06 warm-up / 0.01 weight decay
 - **2026-08-11** -- Changed dataset split to train:val:test = 8:1:1 (old: train:test = 9:1)
@@ -853,7 +854,6 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **2026-07-29** -- `dataset.py`: added `context_dropout` variable to train a fraction of examples without paired chain/antigen context
 - **2026-07-29** -- Split `train.py` into `cdrseqgen/train/{arguments,logging,pipeline,record_results}.py`
 - **2026-07-29** -- `train.py`: fixed `train.log`, records per epoch (used to only have "Starting Training.../Starting Evaluation...") (pending verification)
-- **2026-07-29** -- [RECLAIM] `dataset.py`: extracted `assemble_masked_input` and `inject_context` (partner/antigen injection + length capping) functions to be used in training and inference (`dataset.py` still under control)
 - **2026-07-27** -- Fixed print/logging issues in `models.py`, `generation.py`
 - **2026-07-27** -- `data/preprocess/common.py`[new]: common scaffolding for csv -> json data preprocessing scripts
 - **2026-07-27** -- moved and renamed preprocessing scripts to `data/preprocess/`, removed separate dataset README file
@@ -910,11 +910,12 @@ The comparison must run both methods on the **same frozen examples**, with the s
 - [ ] Lock the Phase-2 objective + primary metric with advisor
 <!-- AI ACCESS ZONE ENDS -->
 
-- [x] Project flowchart (0814)
-- [ ] Refresh the flowchart for the 0817 method-package refactor and renamed entrypoints
+- [ ] Project flowchart (0814, outdated)
 
 - **Operation Reclamation** -- Manual code cleaning: Comprehend and rewrite the project content in my own terms - previous work handled by AI resulted in the project almost becoming a "black box" for the developer himself 
-  - [ ] `data/` scripts (`dataset.py`, `preprocess/`)
+  - [ ] `data/` scripts 
+    - [x] `dataset.py`, `common.py` (0818)
+    - [ ] `preprocess/` scripts
   - [ ] `cdrseqgen/methods/mlm/` 
     - [ ] arguments, backbones
     - [ ] training

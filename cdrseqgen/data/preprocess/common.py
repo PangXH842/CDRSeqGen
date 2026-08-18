@@ -3,9 +3,9 @@
 Entities:
   * REGIONS         -- the 7 IMGT region names, in order
   * CDRS            -- the 3 CDR keys
-  * valid_regions   -- reject a chain with a malformed region or an empty CDR
-  * build_chain     -- assemble one chain's entry block (regions + full_aa + imgt_numbering)
-  * add_io_args     -- the --input_file / --output_file / --limit CLI trio
+  * valid_regions   -- filter out invalid regions (empty, NaN, etc)
+  * build_chain     -- assemble full aa sequence and H/L chain numbering with 7 regions dict
+  * add_io_args     -- --input_file / --output_file / --limit
   * print_funnel    -- one-line "N raw -> ... -> N kept (skipped ...)" summary
   * write_processed -- create the output tree and write the JSON
 
@@ -32,7 +32,8 @@ def valid_regions(region_dict):
 
 
 def build_chain(regions, full_aa, numbering):
-    """One chain's entry block: the 7 regions plus the full sequence and its IMGT numbering"""
+    """Takes the region dict (the 7 regions) and add the full aa sequence and the corresponding
+    IMGT numbering (heavy/light) to the dict"""
     return {**regions, "full_aa": full_aa, "imgt_numbering": numbering}
 
 
@@ -59,12 +60,7 @@ def add_io_args(parser, *, input_default, output_default, input_help):
 
 
 def print_funnel(stages, skipped, kept):
-    """One-line row funnel: 'Rows: 100 raw -> 80 productive -> 78 kept (skipped 1 x, 1 y).'
-
-    `stages` is [(count, label), ...] from the raw row count down through each dataframe filter;
-    `skipped` maps a reason to how many rows the per-row loop dropped for it. Printed by every run
-    so an unexpected collapse is visible instead of silent.
-    """
+    """One-line row funnel: 'Rows: 100 raw -> 80 productive -> 78 kept (skipped 1 x, 1 y).'"""
     chain = " -> ".join(f"{n} {label}" for n, label in stages)
     detail = ", ".join(f"{n} {label}" for label, n in skipped.items())
     print(f"Rows: {chain} -> {kept} kept" + (f" (skipped {detail})." if detail else "."))
