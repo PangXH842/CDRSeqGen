@@ -5,7 +5,7 @@
   * LogMetricsCallback  -- route the Trainer's metric dicts through logging so train.log records them
   * results_root        -- the batch directory this run's folder is created inside
   * unique_run_dir      -- <batch>/<run_name>, suffixed _2, _3 ... rather than overwriting
-  * update_latest_link  -- point results/latest at the newest batch
+  * update_latest_link  -- point results/runs/latest at the newest batch
   * write_run_config      -- persist data/model provenance so a checkpoint is self-describing
   * dataset_tag         -- data path -> short dataset tag (OAS / SD2)
 
@@ -46,7 +46,7 @@ UNKNOWN_DATASET_TAG = "DS"
 
 RESULTS_ROOT_ENV = "CDRSEQGEN_RESULTS_ROOT"
 RUN_SUFFIX_ENV = "CDRSEQGEN_RUN_SUFFIX"
-DEFAULT_RESULTS_ROOT = "./results"
+DEFAULT_RESULTS_ROOT = "./results/runs"
 LATEST_LINK = "latest"
 
 logger = logging.getLogger(__name__)
@@ -120,7 +120,7 @@ def unique_run_dir(root: str, run_name: str) -> str:
 
     Run folders carry no timestamp (the batch folder has one), which is only safe if a name clash
     can never silently overwrite an earlier run. Two cases genuinely clash:
-      * sweep_scratch.sh reuses ONE base config for its whole grid — every grid point resolves to
+      * sweep.sh reuses ONE base config for its whole grid — every grid point resolves to
         the same name (mitigated further by CDRSEQGEN_RUN_SUFFIX, which names the grid point);
       * re-running a config into an existing batch folder, e.g. retrying a failed run.
     Both would otherwise land on an existing directory and overwrite real results, so the clash is
@@ -147,20 +147,20 @@ def results_root() -> str:
 
 
 def update_latest_link(run_dir: str) -> None:
-    """Point results/latest at the newest batch unless a batch runner explicitly opts out.
+    """Point results/runs/latest at the newest batch unless a batch runner explicitly opts out.
 
     A run.sh round trains many configs into one results/<batch-timestamp>/ folder; latest tracks that
-    whole round, so results/latest/<config>/ addresses any run in it. Sweeps set
+    whole round, so results/runs/latest/<config>/ addresses any run in it. Sweeps set
     CDRSEQGEN_SKIP_LATEST=1 because their trial folders should not replace the main usable batch.
 
-    Refuses to touch results/latest if it is a real directory rather than a symlink — that would
+    Refuses to touch results/runs/latest if it is a real directory rather than a symlink — that would
     mean deleting real results, which is never worth a convenience shortcut.
     """
     if os.environ.get("CDRSEQGEN_SKIP_LATEST", "").strip().lower() in {"1", "true", "yes"}:
-        logger.info("Skipping results/latest update (CDRSEQGEN_SKIP_LATEST is set).")
+        logger.info("Skipping results/runs/latest update (CDRSEQGEN_SKIP_LATEST is set).")
         return
     batch_dir = os.path.dirname(os.path.abspath(run_dir))
-    # Never self-link results/latest -> results (would happen only if a run dir sat directly in
+    # Never self-link results/runs/latest -> results (would happen only if a run dir sat directly in
     # results/ with no batch folder; results_root() always interposes one, so this is a guard).
     if batch_dir == os.path.abspath(DEFAULT_RESULTS_ROOT):
         return

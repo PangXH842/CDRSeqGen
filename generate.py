@@ -40,13 +40,13 @@ Args:
   * --skip_perplexity -- skip pseudo-perplexity scoring (the compute-heavy per-candidate part)
   * --output        -- path to store result json
 
-Usage examples (results/latest is the newest *batch* — name the config you want under it):
+Usage examples (results/runs/latest is the newest *batch* — name the config you want under it):
     # design 20 coherent H3 loops for one framework
-    python generate.py --model_path ./results/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... \
+    python generate.py --model_path ./results/runs/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... \
         --min_length 17 --max_length 17
 
     # a curated batch with nucleus sampling
-    python generate.py --model_path ./results/latest/h3_OAS_scratch --test_file test/test_h3.json \
+    python generate.py --model_path ./results/runs/latest/h3_OAS_scratch --test_file test/test_h3.json \
         --decoding iterative --num_samples 50 --top_p 0.9
 """
 import argparse

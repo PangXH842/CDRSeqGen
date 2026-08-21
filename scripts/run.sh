@@ -95,7 +95,7 @@ done
 
 # --- One folder per round ---------------------------------------------------------------------
 BATCH_STAMP=$(date +'%Y%m%d_%H%M%S')
-BATCH_DIR="results/$BATCH_STAMP"
+BATCH_DIR="results/runs/$BATCH_STAMP"
 mkdir -p "$BATCH_DIR"
 export CDRSEQGEN_RESULTS_ROOT="$BATCH_DIR"
 

@@ -1,6 +1,6 @@
 dataset/data/
 *.token
-results/
+/results/
 old/
 */old/
 __pycache__/

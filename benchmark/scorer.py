@@ -209,6 +209,12 @@ def aggregate_records(records: list[dict[str, Any]]) -> dict[str, Any]:
         "examples_without_attempts": sum(
             1 for record in records if not record["accounting"]["attempts"]
         ),
+        # Attempted but retained nothing — e.g. IgLM's `filter` policy exhausting its budget
+        # without ever matching the native length. These enter no metric either, but for a
+        # different reason, and they silently shrink the population a macro mean is taken over.
+        "examples_without_samples": sum(
+            1 for record in records if not record["metrics"]["n_samples"]
+        ),
         "attempts": attempts,
         "valid_attempts": valid,
         "length_matches": matches,
@@ -390,9 +396,27 @@ def assert_comparable(payloads: list[tuple[str, dict[str, Any], list[str]]]) -> 
     first_label, first, first_ids = payloads[0]
     matched_sampling = (
         "track", "num_samples", "temperature", "top_p", "base_seed")
+    def scored_ids(payload):
+        return {r["example_id"] for r in (payload.get("records") or []) if r.get("samples")}
+
+    first_scored = scored_ids(first)
     for label, payload, ids in payloads[1:]:
         if set(ids) != set(first_ids):
             raise ValueError(f"{label} and {first_label} do not contain the same framework IDs")
+        # Containing the same IDs is not the same as scoring them. A run that attempted an
+        # example and retained nothing contributes to no macro mean, so two runs can silently
+        # be averaged over different populations while appearing matched.
+        other_scored = scored_ids(payload)
+        if other_scored != first_scored:
+            only_first = sorted(first_scored - other_scored)
+            only_other = sorted(other_scored - first_scored)
+            print(
+                f"WARNING: {label} and {first_label} score different populations — "
+                f"{len(first_scored)} vs {len(other_scored)} examples with retained samples. "
+                f"Macro means are NOT over the same frameworks. "
+                f"Only {first_label}: {only_first[:3]}; only {label}: {only_other[:3]}",
+                file=sys.stderr,
+            )
         for field in matched_sampling:
             if (payload.get("sampling") or {}).get(field) != (first.get("sampling") or {}).get(field):
                 raise ValueError(

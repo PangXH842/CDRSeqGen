@@ -55,10 +55,20 @@ adapter uses the pretrained checkpoint's underlying generation API to prevent en
 native length and force it at that length. It does not change model weights. Raw draws and duplicates
 are preserved so the shared scorer, rather than the sampler, measures diversity.
 
+> **⚠️ `constrain` corrupts IgLM's loop endings — prefer `filter` for any reported comparison.**
+> Preventing end-of-span before the native length means IgLM cannot stop where it would naturally
+> stop, so it keeps generating into FR4 and those framework residues are counted as loop residues.
+> Measured on the 25-framework smoke run: only **2%** of constrained loops end in the J-gene motif
+> (`…DV`) against **20%** under natural EOS and 20% in the natives, and only **14%** reproduce the
+> native's final two residues against **76%** naturally. This drops IgLM's anchor AAR to 0.552 from
+> its natural 0.826 and is why it scores *worse* given the native length (0.2155 whole-span) than
+> choosing freely (0.3532). `constrain` remains useful as a mechanism check; `filter` is the fair
+> protocol for a fixed-length comparison.
+
 ```bash
 conda run -n iglm python benchmark/adapters/iglm.py \
   --manifest benchmark/manifests/oas_h3_validation_smoke_v1.json \
-  --output benchmark/results/iglm_validation_smoke.json \
+  --output results/benchmark/iglm_validation_smoke.json \
   --num-samples 20 \
   --max-attempts 25 \
   --length-policy constrain \
@@ -74,8 +84,22 @@ Completed examples are written atomically after each framework, and the same com
 continues a compatible interrupted run.
 
 The verified 25-framework constrained smoke run produced 125/125 valid, length-matched draws with no
-adapter failures. Results live under ignored `benchmark/results/`; they are local run artifacts, not
+adapter failures — "length-matched" here means the constraint was applied successfully, not that the
+draws were naturally that length; see the warning above. Results live under ignored `results/benchmark/`; they are local run artifacts, not
 frozen benchmark inputs.
+
+### Matched-population scoring
+
+`filter` retains only naturally length-matched draws, so a framework the baseline never matches
+contributes no samples and therefore enters no macro mean — while the other run still scores it.
+Two runs can then appear matched (same manifest, same IDs) while their averages cover different
+frameworks. `scorer.py` warns when this happens; `assert_comparable` compares the *scored*
+populations, not just the ID sets.
+
+For a reportable comparison, restrict both runs to the frameworks every run scored and re-aggregate.
+`results/benchmark/oas_h3_validation_smoke_v1/scores/filter_matched.json` is that artifact for the
+2026-08-21 fixed-length re-run (20 of 25 frameworks; the 5 dropped are recorded under
+`scoring.population.dropped`).
 
 ## CDRSeqGen adapter
 
@@ -84,8 +108,8 @@ Run CDRSeqGen in its own environment and point the adapter at a self-describing 
 ```bash
 conda run -n cdrprj python benchmark/adapters/cdrseqgen.py \
   --manifest benchmark/manifests/oas_h3_validation_smoke_v1.json \
-  --checkpoint results/sweeps/h3_20260811_181946/h3_OAS_scratch_lr1e-3_wu0.06_wd0.01_s42 \
-  --output benchmark/results/cdrseqgen_validation_smoke.json \
+  --checkpoint results/runs/20260811_181946_sweep_h3/h3_OAS_scratch_lr1e-3_wu0.06_wd0.01_s42 \
+  --output results/benchmark/cdrseqgen_validation_smoke.json \
   --num-samples 20 \
   --decoding iterative \
   --temperature 1.0 \
@@ -138,7 +162,7 @@ Generate CDRSeqGen candidates from its learned length distribution:
 conda run -n cdrprj python benchmark/adapters/cdrseqgen.py \
   --manifest benchmark/manifests/oas_h3_validation_length_free_v1.json \
   --checkpoint results/path/to/checkpoint \
-  --output benchmark/results/cdrseqgen_validation_length_free_v1.json \
+  --output results/benchmark/oas_h3_validation_length_free_v1/generations/cdrseqgen.json \
   --num-samples 20 --decoding iterative \
   --temperature 1.0 --length-temperature 1.0 --top-p 0.9 --seed 42
 ```
@@ -148,7 +172,7 @@ Generate IgLM candidates with its natural EOS stopping rule:
 ```bash
 conda run -n iglm python benchmark/adapters/iglm.py \
   --manifest benchmark/manifests/oas_h3_validation_length_free_v1.json \
-  --output benchmark/results/iglm_validation_length_free_v1.json \
+  --output results/benchmark/oas_h3_validation_length_free_v1/generations/iglm.json \
   --num-samples 20 --max-attempts 25 --length-policy natural \
   --temperature 1.0 --top-p 0.9 --seed 42
 ```
@@ -158,9 +182,9 @@ Then score both outputs together:
 ```bash
 conda run -n cdrprj python benchmark/scorer.py \
   --manifest benchmark/manifests/oas_h3_validation_length_free_v1.json \
-  --input cdrseqgen=benchmark/results/cdrseqgen_validation_length_free_v1.json \
-  --input iglm=benchmark/results/iglm_validation_length_free_v1.json \
-  --output benchmark/results/validation_length_free_scores_v1.json \
+  --input cdrseqgen=results/benchmark/oas_h3_validation_length_free_v1/generations/cdrseqgen.json \
+  --input iglm=results/benchmark/oas_h3_validation_length_free_v1/generations/iglm.json \
+  --output results/benchmark/oas_h3_validation_length_free_v1/scores/length_free.json \
   --judge Exscientia/IgBert --judge-max-len 128
 ```
 
@@ -169,8 +193,8 @@ fixed-length-only panels automatically):
 
 ```bash
 conda run -n cdrprj python benchmark/plot_comparison.py \
-  --scores benchmark/results/validation_length_free_scores_v1.json \
-  --output benchmark/results/validation_length_free_comparison_v1.png
+  --scores results/benchmark/oas_h3_validation_length_free_v1/scores/length_free.json \
+  --output results/benchmark/validation_length_free_comparison_v1.png
 ```
 
 No length-free smoke result is claimed until these commands have been run. Keep its score artifact
@@ -216,9 +240,9 @@ manifest records, requested sample count, temperature, `top_p`, and base seed:
 ```bash
 conda run -n cdrprj python benchmark/scorer.py \
   --manifest benchmark/manifests/oas_h3_validation_smoke_v1.json \
-  --input cdrseqgen=benchmark/results/cdrseqgen_validation_smoke.json \
-  --input iglm=benchmark/results/iglm_validation_smoke.json \
-  --output benchmark/results/validation_smoke_scores.json \
+  --input cdrseqgen=results/benchmark/cdrseqgen_validation_smoke.json \
+  --input iglm=results/benchmark/iglm_validation_smoke.json \
+  --output results/benchmark/validation_smoke_scores.json \
   --judge Exscientia/IgBert \
   --judge-max-len 128
 ```
@@ -265,8 +289,8 @@ recovery--diversity dashboard:
 
 ```bash
 conda run -n cdrprj python benchmark/plot_comparison.py \
-  --scores benchmark/results/validation_smoke_scores_igbert_v1.json \
-  --output benchmark/results/validation_smoke_comparison_v1.png
+  --scores results/benchmark/validation_smoke_scores_igbert_v1.json \
+  --output results/benchmark/validation_smoke_comparison_v1.png
 ```
 
 The plotter consumes only shared-scorer output; it never scores adapter records independently.

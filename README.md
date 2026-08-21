@@ -1,7 +1,7 @@
 <!-- Note to AI: Edits allowed OUTSIDE of MANUAL PROTECTION ZONES and INSIDE of AI ACCESS ZONES -->
 # CDRSeqGen: Modular Antibody Infilling Framework
 
-**Date Updated:** 2026-08-18
+**Date Updated:** 2026-08-20
 **Status:** Matched length-free CDRSeqGen–IgLM validation scored — **IgLM leads on every quality axis** (Findings §11). Paired confidence intervals and a clean-tree rescore pending
 
 ## Project Overview
@@ -75,8 +75,10 @@ CDRSeqGen/
 │   └── README.md               # End-to-end benchmark commands and protocol
 ├── dataset/data/               # THE DATA — gitignored, ~4.4GB (raw + processed OAS/SAbDab2).
 │                               #   Deliberately outside the package; configs' data_path points here.
-├── results/                    # Ignored in git. Always results/<batch>/<run>/ (two levels);
-│                               #   results/latest -> newest batch dir.
+├── results/                    # Ignored in git. Three tiers, by cost to regenerate:
+│   ├── runs/                   #   hours of GPU — <timestamp>[_name]/<run>/, latest -> newest
+│   ├── benchmark/              #   GPU minutes — <benchmark_id>/{generations,scores}/
+│   └── figures/                #   seconds, disposable — training/<batch>/ and benchmark/<id>/
 ├── test/                       # Unit tests plus curated qualitative JSON cases for generate.py
 │   ├── test_*.py
 │   └── test_{h1,h3,h3_lc,h3_ag}.json
@@ -88,8 +90,7 @@ CDRSeqGen/
 ├── fit_mlm_length.py           # Add MLM length artifacts to an older checkpoint
 ├── scripts/
 │   ├── run.sh                  # Unified runner: ./scripts/run.sh <gpu> [oas|antigen|lcdr|igbert|protbert|plm|all ...]
-│   ├── sweep_h3.sh             # Validation-safe, multi-seed H3 hyperparameter screen
-│   ├── sweep_scratch.sh        # Legacy 2026-07 pilot sweep (kept for provenance)
+│   ├── sweep.sh                # Unified hyperparameter sweep: h3 | pilot | arch | quick presets
 │   └── test.sh                 # Unit test runner (sets PYTHONPATH; no GPU or data needed)
 ├── env.sh
 └── README.md
@@ -195,23 +196,26 @@ CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_scratch.json
 ./scripts/run.sh 4 plm            # both (igbert + protbert)                            (12)
 ```
 
-**Every run lives at `results/<batch>/<run>/` — always two levels.** A `run.sh` round shares one batch
+**Every run lives at `results/runs/<batch>/<run>/` — always two levels under `runs/`.** A `run.sh` round shares one batch
 folder; a standalone `train.py` gets a batch folder of its own, so `results/` never collects loose run
-dirs. **`results/latest`** is a symlink to the most recent *batch*, so `results/latest/<config>/`
+dirs. **`results/runs/latest`** is a symlink to the most recent *batch*, so `results/runs/latest/<config>/`
 addresses any run in that round:
 
 ```text
-results/
+results/runs/
 ├── 20260720_191138/                    ← one ./scripts/run.sh round
 │   ├── h1_OAS_scratch/
 │   └── h3_OAS_LC_scratch/
 ├── 20260720_193002/                    ← a single train.py run
 │   └── h3_OAS_scratch/
-├── sweeps/h3_20260811_193030/          ← validation-safe sweep; results/latest unchanged
+├── 20260811_181946_sweep_h3/           ← validation-safe sweep; results/runs/latest unchanged
 │   ├── h3_OAS_scratch_lr1e-4_wu0.0_wd0.0_s42/
 │   └── h3_OAS_scratch_lr1e-3_wu0.06_wd0.01_s43/
 └── latest -> 20260720_193002/          ← newest batch; generate.py uses latest/<config>
 ```
+
+A named group is `<timestamp>_<name>` — the timestamp leads so directories sort chronologically
+whether or not they carry a name (`20260730_160028_seedcheck`, `20260811_181946_sweep_h3`).
 
 The run folder is named from the **resolved arguments**, not the config filename — `h3_scratch.json
 --target_region l3` produces an `l3_OAS_HC_scratch` folder, so an override can't be misfiled. The
@@ -222,7 +226,7 @@ date/time lives on the batch folder and isn't repeated inside.
 CDRSEQGEN_RUN_SUFFIX=ablation_noLC python train.py configs/h3_scratch.json
 #  -> results/<batch>/h3_OAS_scratch_ablation_noLC/
 ```
-`sweep_h3.sh` tags every trial with its LR, warm-up, weight decay, and seed, so folders are
+`sweep.sh` tags every trial with its LR, warm-up, weight decay, epochs and seed, so folders are
 self-describing. It groups trials with `CDRSEQGEN_RESULTS_ROOT`, writes `runs.tsv`/`summary.tsv`, and
 sets `CDRSEQGEN_SKIP_LATEST=1` so exploratory trials do not replace the main usable batch. If two runs
 still collide, the second becomes `..._2` with a logged warning; a run never silently overwrites another.
@@ -230,7 +234,7 @@ still collide, the second becomes `..._2` with a logged warning; a run never sil
 A standalone `python train.py …` sets neither environment variable and retains the normal behavior.
 Export `CDRSEQGEN_RESULTS_ROOT` yourself to group manual runs:
 ```bash
-CDRSEQGEN_RESULTS_ROOT=results/my_experiment python train.py configs/h3_scratch.json
+CDRSEQGEN_RESULTS_ROOT=results/runs/my_experiment python train.py configs/h3_scratch.json
 ```
 
 **Override a config from the CLI:** trailing flags override the JSON (they do **not** replace it), so any
@@ -254,20 +258,36 @@ masked subset. Validation, post-training generation, and standalone evaluation a
 `full_span` dataset view, so partially revealed native residues cannot leak into reported recovery.
 Both settings are persisted in `run_config.json`.
 
-**Tune H3 on validation:** [`scripts/sweep_h3.sh`](scripts/sweep_h3.sh) runs a validation-only,
-multi-seed screen. Its default 32 trials cover 4 learning rates × 2 warm-up ratios × 2 weight decays ×
-2 seeds. Every trial shares a fixed 30-epoch linear-scheduler horizon and uses early stopping; epoch
-budget is deliberately not swept because it would also reshape the scheduler. Post-training generative
-evaluation is disabled during tuning.
+**Tune on validation:** [`scripts/sweep.sh`](scripts/sweep.sh) runs a validation-only,
+multi-seed screen. It takes a GPU id and a preset, the same way `run.sh` takes suite names:
+
+| preset | grid | trials |
+|---|---|---:|
+| `h3` (default) | 4 LR × 2 warm-up × 2 weight decay × 2 seeds, fixed 30-epoch horizon | 32 |
+| `pilot` | 3 LR × 2 epoch budgets — the 2026-07 "is the budget enough?" grid | 6 |
+| `arch` | 3 widths × 2 depths, FFN tracking width | 6 |
+| `quick` | 2 trials at 2 epochs — checks the script runs, not for results |  2 |
+
 ```bash
-./scripts/sweep_h3.sh 4
-SEEDS="42 43 44" LRS="3e-4 1e-3" ./scripts/sweep_h3.sh 4
+./scripts/sweep.sh 4                      # h3 preset
+./scripts/sweep.sh 4 pilot
+SEEDS="42 43 44" LRS="3e-4 1e-3" ./scripts/sweep.sh 4
+SWEEP_DIR=results/runs/my_sweep ./scripts/sweep.sh 4   # resume into the same directory
 ```
-The script refuses datasets without explicit `train`/`validation`/`test` labels, ranks settings by
-mean best validation core recovery across seeds, writes `runs.tsv` and `summary.tsv`, never selects
-the test partition, and leaves `results/latest` untouched. Set `SWEEP_DIR` to resume. The older
-[`sweep_scratch.sh`](scripts/sweep_scratch.sh) is retained only as provenance for the July pilot; it
-selected among trials on the final holdout and should not be used for the IgLM comparison.
+
+Every dimension (`LRS`, `WARMUPS`, `WEIGHT_DECAYS`, `EPOCH_LIST`, `SEEDS`, `HIDDEN_SIZES`,
+`NUM_LAYERS`, `MAX_EPOCHS`, `PATIENCE`) is env-overridable, so a preset only supplies defaults.
+
+The script refuses a dataset without explicit `train`/`validation`/`test` labels, forces
+`--eval_split validation`, ranks settings by mean best-epoch validation core recovery across seeds,
+writes `runs.tsv` and `summary.tsv`, never selects the test partition, skips already-completed grid
+points on resume, and sets `CDRSEQGEN_SKIP_LATEST=1` so exploratory trials do not replace the main
+usable batch. It also flags a winner whose margin falls below the ~0.006 seed-noise floor as a tie.
+
+**On the `pilot` preset.** It sweeps `num_train_epochs`, which also reshapes the linear scheduler —
+so a "20 epochs is better" result from it confounds budget with schedule. That is why `h3` fixes the
+horizon and does not sweep the budget. `pilot` answers a different question (is the budget itself
+enough?) and should not be used to select hyperparameters.
 
 **Completed screen (2026-08-11).** All 32 trials completed on the three-way clustered OAS split
 (16 settings × seeds 42/43). The leading region was shallow rather than decisive:
@@ -281,7 +301,7 @@ selected among trials on the final holdout and should not be used for the IgLM c
 The top-two gap is only 0.00036 and changes sign between the two seeds, so this screen identifies a
 region, not a conclusive winner. Confirm the top two with additional shared seeds before freezing a
 training config; evaluate the final choice only once on `test`. Full local records are in
-`results/sweeps/h3_20260811_181946/{runs,summary}.tsv`.
+`results/runs/20260811_181946_sweep_h3/{runs,summary}.tsv`.
 
 ### Step 3: Result Visualization & Comparison
 All three recovery metrics are recorded **every epoch** (`compute_metrics` → `epoch_metrics.csv`:
@@ -312,14 +332,14 @@ python -m cdrseqgen.utils.linegraph_plotter \
 
 # breakdown of ONE run — per-run metric, several columns on one chart
 python -m cdrseqgen.utils.linegraph_plotter \
-  --run whole  "results/latest/h3_OAS_scratch" eval_accuracy \
-  --run core   "results/latest/h3_OAS_scratch" eval_core_accuracy \
-  --run anchor "results/latest/h3_OAS_scratch" eval_anchor_accuracy \
+  --run whole  "results/runs/latest/h3_OAS_scratch" eval_accuracy \
+  --run core   "results/runs/latest/h3_OAS_scratch" eval_core_accuracy \
+  --run anchor "results/runs/latest/h3_OAS_scratch" eval_anchor_accuracy \
   --ylabel Recovery --title "H3 whole vs core vs anchor"
 ```
 
 A missing CSV or column is reported and skipped rather than aborting the chart, so one bad path in a
-multi-run comparison doesn't lose the other lines. Charts default to `results/pngs/`.
+multi-run comparison doesn't lose the other lines. Charts default to `results/figures/training/`.
 
 <!-- > **⚠️ Never mix datasets on one chart.** OAS (`_OAS`) and SAbDab2 (`_SD2`) runs are evaluated on *different test sets*, so their accuracies are not comparable on shared axes — plot one graph per dataset (e.g. `cdr3_oas` with the 4 OAS runs, `cdr3_sd2` with the 4 SAbDab2 runs). The `results/comparisons/*_oas_*.png` / `*_sd2_*.png` pairs follow this convention. -->
 
@@ -363,23 +383,23 @@ which CDR the checkpoint was trained for (read from `run_config.json`). Samples 
 
 ```bash
 # design coherent loops for a batch of curated frameworks (default: iterative sampling)
-# results/latest is the newest batch — name the config under it (here: h3_OAS_scratch)
-python generate.py --model_path ./results/latest/h3_OAS_scratch --test_file test/test_h3.json --use_native_length
+# results/runs/latest is the newest batch — name the config under it (here: h3_OAS_scratch)
+python generate.py --model_path ./results/runs/latest/h3_OAS_scratch --test_file test/test_h3.json --use_native_length
 
 # more candidates + nucleus sampling
-python generate.py --model_path ./results/latest/h3_OAS_scratch --test_file test/test_h3.json \
+python generate.py --model_path ./results/runs/latest/h3_OAS_scratch --test_file test/test_h3.json \
     --use_native_length --decoding iterative --num_samples 50 --top_p 0.9
 
 # a single framework straight from the CLI (equal bounds mean an exact length)
-python generate.py --model_path ./results/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... \
+python generate.py --model_path ./results/runs/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... \
     --min_length 17 --max_length 17
 
 # constrain each sampled length to an inclusive range (one-sided bounds also work)
-python generate.py --model_path ./results/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... \
+python generate.py --model_path ./results/runs/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... \
     --min_length 11 --max_length 15 --num_samples 50
 
 # infer length from the framework: omit target_length/min_length/max_length
-python generate.py --model_path ./results/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... \
+python generate.py --model_path ./results/runs/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... \
     --num_samples 50
 ```
 
@@ -732,13 +752,59 @@ Neither receives the native length.
 | valid generation rate | 1.00 | 1.00 | tie |
 | runtime / retained sample | **0.078 s** | 0.164 s | CDRSeqGen |
 
-**This inverts the fixed-length result, and the inversion is the finding.** On the fixed-native
-smoke manifest CDRSeqGen wins recovery outright (0.3318 vs 0.2155 whole-span, 0.1491 vs 0.1080 core)
-— but that track forces IgLM's end-of-span to a length it did not choose, and the damage is visible
-in its anchors: IgLM's anchor AAR collapses to **0.552** there against its natural-EOS 0.826, while
-CDRSeqGen's holds at ~0.9 either way. The fixed-length win therefore measures the constraint as much
-as the model. Once both models choose their own length, CDRSeqGen's only remaining edges are
-diversity and speed, and its candidates are 2.4× less plausible to an independent judge.
+**This inverts the fixed-length result — and the fixed-length track turns out to be unfair to
+IgLM.** On the fixed-native smoke manifest CDRSeqGen wins recovery outright (0.3318 vs 0.2155
+whole-span, 0.1491 vs 0.1080 core), but that comparison is an artifact of the `constrain` policy.
+
+`constrain` sets `min_length = max_length = native_length` on IgLM's `generate` call, and Hugging
+Face's `min_length` suppresses the end-of-span logit until that length is reached — so IgLM is not
+merely told the length, it is **forbidden from ending its span** and keeps generating into the
+downstream framework. The corruption is directly measurable in the outputs:
+
+| IgLM fixed-length H3 loops | ends in the J-gene motif (`…DV`) | matches the native's last two residues |
+|---|---:|---:|
+| `constrain` (fixed-length track) | **2%** | **14%** |
+| natural EOS (length-free track) | 20% | 76% |
+| *natives in the manifest* | *20%* | *—* |
+
+The most common four-residue endings under `constrain` are `YWGQ`, `DYWG`, `GQGT`, `WGQG` — these
+are **FR4**, the framework that follows CDR-H3, being counted as loop residues. Naturally IgLM ends
+`YMDV`, `YFDY`, `WFDP`, `AFDI`. This is what drives its anchor AAR down to **0.552** against its own
+natural-EOS 0.826, while CDRSeqGen's holds at ~0.9 in both tracks.
+
+The tell was visible in the aggregate before the mechanism was found: **IgLM scores worse when handed
+the native length (0.2155) than when choosing freely (0.3532)**, and extra information should never
+hurt.
+
+**Re-run under the fair protocol, the fixed-length result reverses (2026-08-21).** The adapter's
+`filter` mode samples IgLM freely and retains only naturally length-matched draws. On the 20 of 25
+frameworks where both models produce native-length loops (matched population, IgBert judge):
+
+| fixed-length, matched population | CDRSeqGen | IgLM `filter` |
+|---|---:|---:|
+| whole-span AAR | 0.3353 | **0.3569** |
+| core AAR | 0.1495 | **0.1868** |
+| anchor AAR | **0.8850** | 0.8565 |
+| diversity | 0.6097 | 0.6106 |
+| per-position entropy (bits) | **1.3008** | 1.0858 |
+| judge perplexity ↓ | 9.8244 | **4.7593** |
+
+IgLM's anchors recover from 0.552 to 0.857 — near its natural-EOS 0.826 — confirming that `constrain`,
+not the model, produced the collapse. The clearest view is the position curve under the two policies
+(`results/figures/training/20260821_benchmark/constrain_vs_filter_position.png`): under `constrain` IgLM's
+C-terminal recovery flatlines near 22% while CDRSeqGen climbs to 86%; under `filter` the two curves
+converge across the whole loop. **So IgLM leads on both tracks.** The previously reported
+fixed-length win was an artifact of the generation policy, and no CDRSeqGen-versus-IgLM recovery
+advantage survives a fair protocol.
+
+Two honest counterweights. First, `filter` has its own bias: it drops the frameworks IgLM cannot
+match. Five of 25 retained nothing in 50 attempts and they skew long (native lengths 12, 20, 22, 24,
+24), so the matched population averages 16.4 residues against 17.2 for the full manifest — both
+models are being scored on a slightly easier subset. Neither policy is unbiased: `constrain` corrupts
+the output, `filter` shrinks the population. Second, the masked-LM formulation does hold one
+structural advantage the recovery numbers hide: **CDRSeqGen produces a native-length loop by
+construction, every time**, while IgLM needed 1,081 attempts for 76 usable candidates (7.0%
+acceptance) and failed outright on 20% of frameworks within its budget.
 
 *Caveats, all of which must be resolved before this number is quoted outside the repo:* n = 25
 examples (AAR is conditioned on length matches, so it rests on 18 CDRSeqGen / 17 IgLM examples);
@@ -807,6 +873,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **Five runs hit their epoch ceiling, all of them context runs.** `h1_SD2_LC`, `h2_OAS_LC`, `h3_OAS_LC`, `l1_OAS_HC`, `l3_OAS_HC` peaked at epoch 19–20 of 20 in the 07-29 batch. Their numbers are lower bounds, so the §4 partner-chain penalty (−0.0102) is an upper bound on the true effect. A scratch-only sweep at 30–40 epochs would settle it (~1 hour; scratch is 60 of the batch's 226 minutes).
 - **Only one comparison has an error bar.** Three seeds of `h3_scratch` ± partner chain put the seed sd of a per-loop Δ at **0.0028** (§4), which already retires two of the six per-loop context numbers as noise. Every *other* number in this README is still single-seed, and any claimed difference below ~0.006 should be treated as unmeasured until it has the same treatment.
 - **Every batch through 2026-08-17 selected checkpoints on the test split.** Not just the 07-29 runs: `eval_split` defaulted to empty, which fell back to "every non-train entry", and `processed_oas_data.json` has only `train`/`test` — so early stopping, `load_best_model_at_end`, the reported `eval_*` metrics, and `generation_eval.json` all read the final holdout. The 08-17 post-refactor batch (`results/20260817_200051`) is affected too; its logs read `2111 eval (split: all non-train)`. **Fixed 2026-08-18**: `get_datasets` now refuses an unset `eval_split` whenever a `test` split exists, and the 36 OAS configs declare `processed_oas_tuning.json` + `eval_split: validation`. Every pre-08-18 number in this README is an exploratory result, not an untouched-test estimate, and the OAS matrix needs re-running before any of it is reported.
+- **Neither fixed-length policy is unbiased — report both.** *(Re-run 2026-08-21; see Findings §11.)* `constrain` corrupts IgLM's loop endings; `filter` is fair per-example but drops the frameworks IgLM cannot length-match (5 of 25, skewing long), so it scores an easier subset. Current practice: report `filter` on a matched population and state the dropout. A policy that is unbiased in both respects — e.g. raising the attempt budget until every framework is covered, or reporting per-length-bucket — is still open. Historical note on `constrain`: IgLM's `constrain` policy sets `min_length = max_length = native_length`, which suppresses its end-of-span logit until that length is reached — so it writes past its loop into FR4. Only 2% of constrained loops carry the J-gene motif against 20% naturally (Findings §11), and every fixed-length CDRSeqGen-versus-IgLM number is inflated in CDRSeqGen's favour. Re-run with the adapter's `filter` mode (retain only naturally length-matched draws; ~12 attempts per accepted candidate at IgLM's 8.4% match rate) before making any fixed-length claim. The length-free track is unaffected — IgLM uses natural EOS there.
 - **SAbDab2 has no validation partition.** Its split comes from the source `ab_ag_split` column, which is `train`/`test` only, so its 12 configs now declare `eval_split: test` — honest, but still selection on the holdout. A three-way SAbDab2 split (or a fixed validation carve-out of its train partition) is needed before any SAbDab2 comparison is reportable.
 - **Hyperparameter selection is not yet frozen.** The validation-safe 32-trial scratch-H3 screen completed on 2026-08-11 and placed `1e-3` / 0.06 warm-up / 0.01 weight decay first at 0.32305 mean validation core recovery. Its margin over the runner-up was only 0.00036 across two seeds and changed sign by seed, so additional shared confirmation seeds are still required before touching the final test split.
 - **Checkpoint-selection policy is still config-declared.** The current configs select core recovery except the four OAS-L2 configs, which select whole-span because those runs have only 1.4% core coverage. Artifact reporting no longer hard-codes that loop name: it derives the metric from recorded coverage. Training should eventually validate or derive `metric_for_best_model` from the dataset before a run, so a future dataset cannot inherit an obsolete L2 exception.
@@ -829,15 +896,18 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
   | H1   | 4                | 83.8%     | 0.73 bits                |
   | L2   | 3                | 98.8%     | **0.10 bits**            |
 
-  On H3 that's ~4 bits handed over per example — roughly 10% of the loop's total information content (a 15-mer at the measured ~2.45 bits/position ≈ 37 bits). On L2 it's nothing: guess 3 and you're right 98.8% of the time. So **H3 recovery is the number most flattered by this**, and cross-loop comparisons of AAR partly compare how much length information each loop gave away. Length-free results are therefore a separate track with length/edit metrics, not a replacement value in these tables.
+  On H3 that's ~4 bits handed over per example — roughly 9% of the loop's total information content (a 15-mer at the measured 2.96 bits/position ≈ 44 bits; position-conditioned entropy over the 2,098 length-15 H3 loops). On L2 it's nothing: guess 3 and you're right 98.8% of the time. So **H3 recovery is the number most flattered by this**, and cross-loop comparisons of AAR partly compare how much length information each loop gave away. Length-free results are therefore a separate track with length/edit metrics, not a replacement value in these tables.
 - **Read best-epoch, not last-epoch** — ESM-2 overfits on SAbDab2/H3; `load_best_model_at_end` saves the peak, but the last CSV row can sit well below it.
-- **Never plot OAS and SAbDab2 on shared axes** — different test sets; the `_OAS`/`_SD2` run tags enforce it, and per-dataset charts live under `results/pngs/<batch>/*_{oas,sd2}*.png`.
+- **Never plot OAS and SAbDab2 on shared axes** — different test sets; the `_OAS`/`_SD2` run tags enforce it, and per-dataset charts live under `results/figures/training/<batch>/*.png`.
 - **`epoch_metrics.csv` and `*_results.json` measure different models — they're *supposed* to disagree.** The CSV is the per-epoch **trajectory** (the model as it stood at each epoch); `eval_results.json`/`all_results.json` come from the post-training `trainer.evaluate()`, which with `load_best_model_at_end` runs on the **best** checkpoint while still being stamped with the final epoch number. On `h3_esm2` the CSV's epoch-10 row reads core **0.3063** (the actual last model) while `eval_results.json` reads **0.3209** (the epoch-4 best model). `save_training_csv` de-duplicates on epoch and **keeps the first** occurrence precisely so the curve keeps the real last-epoch point — keeping the last would silently redraw the best model at x=10 and erase the overfitting decay entirely.
 
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-08-21** -- `scripts/sweep.sh` [new]: merged `sweep_h3.sh`, `sweep_scratch.sh` into unified hyperparameter sweep script
+- **2026-08-21** -- `results/` storage reorganized
+- **2026-08-21** -- IgLM benchmark fix: fixed-length for IgLM now filters samples that match the native length than forced EOS (is this approach ok??)
 - **2026-08-18** -- [RECLAIM] `dataset.py`, `preprocess/common.py`
 - **2026-08-18** -- project wide claude fix
 - **2026-08-17** -- Produced IgLM benchmark results
@@ -858,7 +928,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **2026-07-27** -- `data/preprocess/common.py`[new]: common scaffolding for csv -> json data preprocessing scripts
 - **2026-07-27** -- moved and renamed preprocessing scripts to `data/preprocess/`, removed separate dataset README file
 - **2026-07-24** -- Generate `run_config.json` for each training run
-- **2026-07-24** -- fixed `results/latest/` symlink to latest batch (to verify further)
+- **2026-07-24** -- fixed `results/runs/latest/` symlink to latest batch (to verify further)
 - **2026-07-24** -- `linegraph_plotter.py`: moved to new `utils/` folder
 - **2026-07-24** -- `sampling.py`: handled greedy algo for both independent and iterative decoders
 
@@ -884,6 +954,8 @@ The comparison must run both methods on the **same frozen examples**, with the s
 - [x] Add a model-independent shared scorer that accepts both adapters' `{example_id, native, samples}` records, validates the paired experiment contract, and keeps model-specific sampling outside scoring.
 - [x] Add a manifest-driven CDRSeqGen benchmark adapter for existing checkpoints. It validates run/task/context provenance, recreates training-time tokenization and truncation, preserves duplicate draws, hashes checkpoint artifacts, and writes resumable records in the same schema as IgLM.
 - [x] Add an attempt-bounded IgLM adapter around the official pretrained checkpoint. It records model/checkpoint provenance, conditioning tokens, sampling parameters, per-example seeds, failures, raw generated lengths, runtime, and resumable progress; IgLM remains outside the masked-LM backbone registry.
+- [x] **Re-run the fixed-length track in `filter` mode.** Done 2026-08-21: IgLM leads on both tracks once the constraint is removed (§11). Artifact: `results/benchmark/validation_fixed_length_filter_scores_v1.json`
+- [ ] Cover the 5 frameworks `filter` drops — raise the attempt budget or report per-length-bucket, so the fixed-length population isn't silently the easier subset
 - [x] Define the fixed-length IgLM policy explicitly. Default `constrain` forces IgLM's end-of-span at the supplied native length through its underlying generation API; audit mode `filter` preserves every variable-length draw and reports match/acceptance counts under a finite attempt budget.
 - [x] Validate the shared evaluator on both 25-framework validation outputs: whole-span/core/anchor AAR, diversity, native-distance novelty, unique fraction, per-position entropy, length buckets, validity/length rates, generation runtime per candidate, and a revision-pinned IgBert judge. Final test scoring remains gated on freezing the sampling policy.
 - [x] Add a checkpoint-specific CDRSeqGen length head, bounded/inferred generation, and migration tooling for old sequence checkpoints without changing the backbone architecture.
@@ -903,7 +975,7 @@ The comparison must run both methods on the **same frozen examples**, with the s
 - [x] Plumb `num_attention_heads` / `intermediate_size` through `build_model` — `intermediate_size` now defaults to 4 × `hidden_size` (prerequisite for any architecture sweep)
 - [ ] **Per-loop split** — cluster on the *target* CDR, not always heavy CDR3, then re-run the OAS matrix. Everything non-H3 in Findings is retrieval-bounded until this lands (§6)
 - [x] Implement three-way clustered OAS splitting, explicit validation/test selection, full run provenance, and the validation-safe H3 sweep
-- [x] Run the 32-trial validation-safe scratch H3 screen ([`sweep_h3.sh`](scripts/sweep_h3.sh)); top region: `1e-3` LR / 0.06 warm-up / 0.01 weight decay at 0.32305 mean validation core recovery (two seeds)
+- [x] Run the 32-trial validation-safe scratch H3 screen ([`sweep.sh`](scripts/sweep.sh)); top region: `1e-3` LR / 0.06 warm-up / 0.01 weight decay at 0.32305 mean validation core recovery (two seeds)
 - [ ] Confirm the top two sweep settings with additional shared seeds, freeze the selected config, then evaluate it once on the untouched test split
 - [ ] Multi-seed the key H3 configs (error bars on the ±0.01 model/context deltas)
 - [ ] Re-run the 07-24 batch under core-based checkpoint selection (those 36 runs predate the fix; their saved weights were picked on whole-span)
@@ -929,7 +1001,7 @@ The comparison must run both methods on the **same frozen examples**, with the s
   - [ ] `evaluate.py`
   - [ ] `generate.py`
   - [ ] `fit_mlm_length.py`
-  - [x] bash scripts (`run.sh`, hyperparameter tuning)
+  - [ ] bash scripts (`run.sh`, `sweep.sh`, `test.sh`)
   - [ ] `benchmark/` scripts (`adapters/`, `export_manifest.py`, `scorer.py`)
   - [ ] `test/` scripts
   - [ ] README

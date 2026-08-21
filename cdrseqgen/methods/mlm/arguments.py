@@ -17,7 +17,7 @@ Notes:
     --target_region l3` produces an `l3_OAS_HC_scratch` folder, so an override can't be misfiled.
   * setup_args is where a run becomes a directory on disk: it names the run, creates it, attaches
     the file log, and writes run_config.json. Everything after it can assume training_args.output_dir
-    exists. It does NOT update results/latest — train.py does that once the datasets have loaded, so
+    exists. It does NOT update results/runs/latest — train.py does that once the datasets have loaded, so
     a config rejected by get_datasets cannot take the pointer from the last usable batch.
 """
 import os
@@ -266,8 +266,8 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
 
     os.makedirs(training_args.output_dir, exist_ok=True)
     log_path = attach_file_logging(training_args.output_dir)
-    # results/latest is deliberately NOT updated here. Everything above can succeed for a config
-    # that get_datasets then rejects, and repointing at that dead run would take results/latest
+    # results/runs/latest is deliberately NOT updated here. Everything above can succeed for a config
+    # that get_datasets then rejects, and repointing at that dead run would take results/runs/latest
     # away from the last usable batch. train.py links it once the datasets have loaded.
     write_run_config(training_args.output_dir, model_args, data_args, gen_args, training_args)
     logger.info(f"📁 Workspace initialized at: {training_args.output_dir}")

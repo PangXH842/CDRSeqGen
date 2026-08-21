@@ -5,8 +5,8 @@ renderer owns Markdown layout and row-width validation. The standard tables read
 dataset artifacts only; they do not rerun inference or require a GPU.
 
 Usage:
-    python -m cdrseqgen.utils.batch_tables                          # results/latest
-    python -m cdrseqgen.utils.batch_tables --batch results/20260729_202635
+    python -m cdrseqgen.utils.batch_tables                          # results/runs/latest
+    python -m cdrseqgen.utils.batch_tables --batch results/runs/20260729_202635
     python -m cdrseqgen.utils.batch_tables --only regimes,loops
 
 Metrics:
@@ -527,8 +527,8 @@ def main():
     parser = argparse.ArgumentParser(description="Generate Markdown comparison tables from a batch.")
     parser.add_argument(
         "--batch",
-        default="results/latest",
-        help="Batch directory holding the run folders (default: results/latest).",
+        default="results/runs/latest",
+        help="Batch directory holding the run folders (default: results/runs/latest).",
     )
     parser.add_argument(
         "--only",

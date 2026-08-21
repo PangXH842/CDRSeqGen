@@ -51,7 +51,7 @@ def main():
     backbone = resolve(model_args.model_type)
     train_dataset, eval_dataset, tokenizer = get_datasets(model_args, data_args, training_args, backbone)
     # Only now is this a real run: a rejected config (an undeclared eval_split, say) must not take
-    # results/latest away from the last batch that actually produced results.
+    # results/runs/latest away from the last batch that actually produced results.
     update_latest_link(training_args.output_dir)
 
     # load_training_model ignores the scratch-only kwargs for pretrained backbones (**kw)
