@@ -64,6 +64,7 @@ CDRSeqGen/
 │   │   └── metrics.py          # Architecture-neutral sequence/design metrics
 │   └── utils/
 │       ├── linegraph_plotter.py  # Training-curve plotting utility
+│       ├── confidence_plot.py    # Does per-candidate confidence rank candidates by recovery?
 │       └── batch_tables.py       # Generates validated Markdown comparison tables from a batch
 ├── benchmark/                  # Frozen-manifest comparisons against external baselines
 │   ├── adapters/               # CDRSeqGen and IgLM generation under one output contract
@@ -814,6 +815,48 @@ produced from a **dirty working tree at the previous commit** (`repository_commi
 required. IgLM was also pretrained on OAS, so this holdout is not a leakage-free estimate for it
 (roadmap: overlap audit).
 
+**12. The model's own confidence is nearly useless for selection — an independent judge's is not.**
+Every candidate now carries its own pseudo-perplexity and judge perplexity, so the pairing with its
+own recovery survives into `generation_eval.json` instead of being averaged away. That makes a
+practical question answerable: given 20 candidates for one framework, does picking the most
+confident one beat picking at random? (150 held-out frameworks × 20 candidates, `h3_OAS_scratch`,
+IgBert judge; per-framework Spearman, then averaged.)
+
+| ranking signal | Spearman ρ | top-1 recovery | lift over a random draw |
+|---|---:|---:|---:|
+| random draw (baseline) | — | 0.4066 | — |
+| **self**-perplexity | 0.130 ± 0.047 | 0.4176 | **+0.011 ± 0.012 — not significant** |
+| **judge** perplexity | 0.254 ± 0.046 | 0.4591 | **+0.053 ± 0.013 (8.0σ)** |
+
+The model's own uncertainty carries a statistically detectable but practically useless signal: ρ is
+5.4σ from zero, yet selecting on it does not reliably beat a random draw (95% CI crosses zero), and
+its top pick beats the framework mean only 85/150 times — barely better than a coin flip. An
+independent model ranks roughly twice as well (Δρ = +0.124, 4.4σ) and its top pick beats the
+framework mean 103/150 times, yielding **+12.9% relative recovery for free — no retraining, just
+reranking**.
+
+Panel B of `results/figures/training/20260821_confidence/confidence_selection.png` carries the
+qualifier that the means hide: the per-framework ρ distributions are wide and both straddle zero.
+Self-perplexity ranks *backwards* on **46 of 150** frameworks, the judge on **29 of 150**. So even
+the judge is a population-level effect, not a rule you can trust on any single framework — worth
+stating before anyone reads "+12.9%" as a guarantee.
+
+**The figure is written automatically.** Any evaluation that produces per-candidate scores also
+drops `<output>_confidence.png` beside its JSON — the same convention as the training curves — so
+every `train.py` run and every `evaluate.py` call gets one without a second command. It is skipped
+silently when there is nothing to plot (`--skip_perplexity` with no judge) and is exception-guarded,
+so a plotting problem cannot cost a finished evaluation. To redraw, or to overlay two runs:
+```bash
+python -m cdrseqgen.utils.confidence_plot --eval <run>/generation_eval.json
+python -m cdrseqgen.utils.confidence_plot --eval a.json --label scratch --eval b.json --label ESM-2
+```
+
+This sits directly alongside the decoder finding: iterative decoding buys nothing because the
+learned marginals are near-independent, and now the same model's confidence barely tracks its own
+correctness. Both say the masked-LM objective produces poorly *structured* uncertainty, not merely
+inaccurate predictions. The practical corollary is that a reranking stage is worth more than a
+better sampler — and that the reranker must be an independent model.
+
 > **Bottom line:** fixed-native sequence-only CDR-H3 infilling saturates at ~0.32 core / ~0.46
 > whole-span regardless of model, context, dataset, or decoder; length inference is not solved by the
 > first gap-sentinel head, and against a published baseline that picks its own length the current
@@ -905,6 +948,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-08-21** -- Added confidence scores per candidate and confidence vs AAR correlation metrics
 - **2026-08-21** -- `scripts/sweep.sh` [new]: merged `sweep_h3.sh`, `sweep_scratch.sh` into unified hyperparameter sweep script
 - **2026-08-21** -- `results/` storage reorganized
 - **2026-08-21** -- IgLM benchmark fix: fixed-length for IgLM now filters samples that match the native length than forced EOS (is this approach ok??)

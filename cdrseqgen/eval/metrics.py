@@ -6,6 +6,8 @@
   * unique_fraction         -- fraction of distinct sequences among all samples given
   * per_position_entropy    -- calculate mean Shannon entropy (bits) across loop positions
   * edit_similarity         -- 1 - normalised Levenshtein, for candidates of any length
+  * spearman                -- rank correlation, ties averaged; None when undefined
+  * confidence_metrics      -- does a per-candidate score rank candidates by recovery?
   * calculate               -- length error/edit similarity plus length-matched AAR when native exists
                                 and aggregate all sequence metrics into one dict
 """
@@ -92,6 +94,65 @@ def edit_similarity(sample, reference):
                                previous[j - 1] + (left != right)))
         previous = current
     return 1.0 - previous[-1] / longest
+
+
+def _average_ranks(values):
+    """Ranks with ties averaged, so tied scores cannot fabricate an ordering."""
+    order = sorted(range(len(values)), key=lambda i: values[i])
+    ranks = [0.0] * len(values)
+    i = 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and values[order[j + 1]] == values[order[i]]:
+            j += 1
+        shared = (i + j) / 2 + 1
+        for k in range(i, j + 1):
+            ranks[order[k]] = shared
+        i = j + 1
+    return ranks
+
+
+def spearman(xs, ys):
+    """Rank correlation in [-1, 1]; None when undefined (n < 3, or either side constant)."""
+    if len(xs) != len(ys):
+        raise ValueError("spearman needs equal-length sequences")
+    if len(xs) < 3:
+        return None
+    rx, ry = _average_ranks(list(xs)), _average_ranks(list(ys))
+    mx, my = statistics.mean(rx), statistics.mean(ry)
+    num = sum((a - mx) * (b - my) for a, b in zip(rx, ry))
+    dx = math.sqrt(sum((a - mx) ** 2 for a in rx))
+    dy = math.sqrt(sum((b - my) ** 2 for b in ry))
+    if dx == 0 or dy == 0:      # a constant score ranks nothing
+        return None
+    return num / (dx * dy)
+
+
+def confidence_metrics(recoveries, scores, *, lower_is_better=True, prefix="conf"):
+    """Does a per-candidate confidence score rank candidates by recovery?
+
+    Answers the question a designer actually faces: given N candidates for one framework, does
+    picking the most confident one beat picking at random? ``baseline`` is the mean over the same
+    pairs, so the top-k lift is measured on an identical population rather than against aar_mean,
+    whose population may differ.
+
+    Pairs with a missing value are dropped — a judge that skipped a candidate reduces n rather
+    than biasing the ranking.
+    """
+    pairs = [(r, s) for r, s in zip(recoveries, scores) if r is not None and s is not None]
+    out = {f"{prefix}_n": len(pairs)}
+    if len(pairs) < 3:
+        return out
+    rec = [p[0] for p in pairs]
+    # Orient so that larger always means "more confident"; perplexity is lower-is-better.
+    oriented = [-p[1] for p in pairs] if lower_is_better else [p[1] for p in pairs]
+    out[f"{prefix}_spearman"] = spearman(oriented, rec)
+    order = sorted(range(len(pairs)), key=lambda i: -oriented[i])
+    out[f"{prefix}_baseline_recovery"] = sum(rec) / len(rec)
+    out[f"{prefix}_top1_recovery"] = rec[order[0]]
+    k = min(3, len(pairs))
+    out[f"{prefix}_top3_recovery"] = sum(rec[i] for i in order[:k]) / k
+    return out
 
 
 def calculate(samples, native=None):
