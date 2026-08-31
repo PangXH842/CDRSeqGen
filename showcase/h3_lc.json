@@ -1,0 +1,9 @@
+{
+  "name": "H3 + light-chain context",
+  "note": "Drawn from the **validation** split, so it is safe to inspect repeatedly \u2014 the test partition stays untouched for the final one-shot evaluation. partner_chain is a separate key so generate.py injects it the same way dataset.py does \u2014 do NOT paste it into pt1. Requires an _LC checkpoint.",
+  "source_id": "AGAGCGACACGTCAGC-1_contig_2",
+  "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYYMHWVRQAPGQGLEWMGIINPSGGSTSYAQKFQGRVTMTRDTSTSTVYMELSSLRSEDTAVYYC",
+  "pt2": "WGQGTLVTVSS",
+  "target_truth": "ARKGDPYGDYESPFDY",
+  "partner_chain": "DIQMTQSPSTLSASVGDRVTITCRASQSISSWLAWYQQKPGKAPKLLIYKASSLESGVPSRFSGSGSGTEFTLTISSLQPDDFATYYCQQYNSYPFTFGPGTKVDIK"
+}

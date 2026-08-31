@@ -1,7 +1,7 @@
 [
   {
     "name": "H3 + light-chain + antigen context",
-    "note": "SAbDab2 held-out (split != train), so any recovery shown is honest. antigen/partner_chain are separate keys: which SIDE the antigen is injected on depends on the backbone's position_type, so it cannot be hard-coded into pt1. Requires an _LC_AG checkpoint and --max_len 512.",
+    "note": "\u26a0\ufe0f Still drawn from the SAbDab2 **test** split \u2014 that dataset ships no validation partition (README Open problems), so this is the one showcase case that cannot be redrawn safely. Inspect it sparingly. antigen/partner_chain are separate keys: which SIDE the antigen is injected on depends on the backbone's position_type, so it cannot be hard-coded into pt1. Requires an _LC_AG checkpoint and --max_len 512.",
     "source_id": "pdb_00004plj_H_L",
     "pt1": "QLQQSGPELVKPGASVKISCKASGYTFTDFNMHWVKQSHGKSLEWIGYIYPYNGITGQNQKFKSKATLTVDNSSSSAYMELRSLTSEDSAVYYC",
     "pt2": "WGQGTLVTVSS",

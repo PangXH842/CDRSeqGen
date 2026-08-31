@@ -1,0 +1,18 @@
+[
+  {
+    "name": "H1 \u2014 known ground truth",
+    "note": "Drawn from the **validation** split, so it is safe to inspect repeatedly \u2014 the test partition stays untouched for the final one-shot evaluation. Expect ~0.99 recovery: H1 is germline-templated. Under the clustered split this is near-lookup rather than generalisation (Findings \u00a76).",
+    "source_id": "ACGAGCCCATGCTAGT-1_contig_1",
+    "pt1": "QVQLVESGGGLVKPGGSLRLSCAAS",
+    "pt2": "MSWIRQAPGKGLEWVSYISSSGSTIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYCASRAVTTGIDYWGQGTLVTVSS",
+    "target_truth": "GFTFSDYY"
+  },
+  {
+    "name": "H1 \u2014 design only (no native)",
+    "note": "Drawn from the **validation** split, so it is safe to inspect repeatedly \u2014 the test partition stays untouched for the final one-shot evaluation. target_truth omitted on purpose: the pure design path.",
+    "source_id": "ACCGTAACACCGAATT-1_contig_2",
+    "pt1": "EVQLVESGGGLVQPGGSLRLSCAAS",
+    "pt2": "MSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAAAWGSSTSCYDYWGQGTLVTVSS",
+    "target_length": 8
+  }
+]

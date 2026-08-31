@@ -46,7 +46,7 @@ Usage examples (results/runs/latest is the newest *batch* — name the config yo
         --min_length 17 --max_length 17
 
     # a curated batch with nucleus sampling
-    python generate.py --model_path ./results/runs/latest/h3_OAS_scratch --test_file test/test_h3.json \
+    python generate.py --model_path ./results/runs/latest/h3_OAS_scratch --test_file showcase/h3.json \
         --decoding iterative --num_samples 50 --top_p 0.9
 """
 import argparse

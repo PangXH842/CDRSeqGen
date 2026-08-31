@@ -1,0 +1,26 @@
+[
+  {
+    "name": "H3 short (<=11aa) \u2014 known ground truth",
+    "note": "Drawn from the **validation** split, so it is safe to inspect repeatedly \u2014 the test partition stays untouched for the final one-shot evaluation. Short bucket.",
+    "source_id": "GTAGTCACACGCCAGT-1_contig_2",
+    "pt1": "QLQLQESGPGLVKPSETLSLTCTVSGGSISSSSYYWGWIRQPPGKGLEWIGSIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+    "pt2": "WGQGTLVTVSS",
+    "target_truth": "ARLLAVTIDY"
+  },
+  {
+    "name": "H3 medium (12-17aa) \u2014 known ground truth",
+    "note": "Drawn from the **validation** split, so it is safe to inspect repeatedly \u2014 the test partition stays untouched for the final one-shot evaluation. Medium bucket; ~0.46 whole-span / ~0.32 core is the expected ceiling.",
+    "source_id": "ACTTGTTCACGAAAGC-1_contig_2",
+    "pt1": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+    "pt2": "WGQGTLVTVSS",
+    "target_truth": "AKGPIYYEYYFDY"
+  },
+  {
+    "name": "H3 long (>=20aa) \u2014 design only",
+    "note": "Drawn from the **validation** split, so it is safe to inspect repeatedly \u2014 the test partition stays untouched for the final one-shot evaluation. Long bucket, no native: the hardest design case.",
+    "source_id": "GGGCATCTCCCTCTTT-1_contig_1",
+    "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYYMHWVRQAPGQGLEWMGIINPSGGSTSYAQKFQGRVTMTRDTSTSTVYMELSSLRSEDTAVYYC",
+    "pt2": "WGQGTLVTVSS",
+    "target_length": 20
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "name": "L3 + heavy-chain context",
+  "note": "Drawn from the **validation** split, so it is safe to inspect repeatedly \u2014 the test partition stays untouched for the final one-shot evaluation. The mirror of h3_lc: for a LIGHT target the partner is the HEAVY chain (Architecture \u00a73), so this is the only case exercising the _HC direction. Requires an _HC checkpoint.",
+  "source_id": "AGTCTTTAGGCCCTTG-1_contig_1",
+  "pt1": "VIWMTQSPSLLSASTGDRVTISCRMSQGISSYLAWYQQKPGKAPELLIYAASTLQSGVPSRFSGSGSGTDFTLTISCLQSEDFATYYC",
+  "pt2": "FGQGTKLEIK",
+  "target_truth": "QQYYSFPRT",
+  "partner_chain": "EVQLVESGGGLVKPGGSLRLSCAASGFTFSSYSMNWVRQAPGKGLEWVSSISSSSSYIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYCARAEVDTAMVIFFYGPFDIWGQGTMVTVSS"
+}
