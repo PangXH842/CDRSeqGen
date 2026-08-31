@@ -20,7 +20,6 @@ Imports:
   * generation.sample_masked_span   -- shared independent / iterative decoder dispatch
   * sampling.pseudo_log_likelihood  -- calculate PLL and pseudo-perplexity of a filled loop
 """
-import json
 import logging
 import os
 import random
@@ -30,6 +29,7 @@ from dataclasses import dataclass, field
 
 import torch
 
+from cdrseqgen.artifacts import atomic_write_json
 from cdrseqgen.data.dataset import AntibodyInfillingDataset
 from cdrseqgen.eval.metrics import (
     amino_acid_recovery,
@@ -270,7 +270,7 @@ class FixedNativeStrategy:
 
 
 def run_generative_eval(model, tokenizer, eval_dataset, *, device,
-                        decoding="iterative", num_samples=20,
+                        decoding="independent", num_samples=20,
                         temperature=1.0, top_k=0, top_p=1.0,
                         length_mode="fixed_native", length_predictor=None,
                         min_length=None, max_length=None,
@@ -279,6 +279,7 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
                         skip_perplexity=False,
                         judge_model=None, judge_tokenizer=None,
                         judge_dataset=None, judge_name=None,
+                        anchor_trim=ANCHOR_TRIM,
                         output_path=None, meta=None, title=""):
     """Sample + score candidate loops for a subsample of the eval split, returns the payload dict.
 
@@ -287,6 +288,8 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
     shared (the fixed track is told the native mask count, the variable track must never be).
     """
     model.eval()
+    if isinstance(anchor_trim, bool) or not isinstance(anchor_trim, int) or anchor_trim < 0:
+        raise ValueError("anchor_trim must be a non-negative integer")
 
     torch.manual_seed(seed)
     generator = torch.Generator(device=device)
@@ -325,14 +328,17 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
         model=model, tokenizer=tokenizer, device=device,
         skip_perplexity=skip_perplexity,
         judge_model=judge_model, judge_tokenizer=judge_tokenizer,
+        anchor_trim=anchor_trim,
     )
 
     log_report(records, title=title, judge_name=judge_name)
 
     payload = dict(meta or {})
     payload.update({
+        "schema_version": "cdrseqgen.generation_eval.v1",
         "judge": judge_name,
         "length_policy": strategy.payload_length_policy(),
+        "anchor_trim_each_end": anchor_trim,
         "decoding": {
             "mode": decoding, "num_samples": num_samples, "temperature": temperature,
             "top_k": top_k, "top_p": top_p, "seed": seed,
@@ -469,12 +475,11 @@ def score_with_judge(strategy, i, seqs, judge_model, judge_tokenizer, device):
 
 
 def write_payload(payload, output_path, n_records):
-    """Persist the payload, treating an unwritable path as a warning rather than lost work."""
+    """Persist atomically, treating an unwritable path as a warning rather than lost work."""
     if not output_path:
         return
     try:
-        with open(output_path, "w") as handle:
-            json.dump(payload, handle, indent=2)
+        atomic_write_json(output_path, payload)
         logger.info(f"💾 Saved {n_records} framework records to: {output_path}")
     except OSError as e:
         logger.warning(f"⚠️  Could not write results to {output_path}: {e}")

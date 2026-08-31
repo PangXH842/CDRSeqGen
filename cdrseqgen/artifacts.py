@@ -1,7 +1,11 @@
-"""Shared names for files persisted in a CDRSeqGen run directory, and the reader for them."""
+"""Shared names and provenance/IO helpers for persisted CDRSeqGen artifacts."""
 
+import hashlib
 import json
+import os
+import subprocess
 from pathlib import Path
+from typing import Any
 
 # New runs write the canonical name. Readers use the ordered tuple so current artifacts win while
 # older checkpoints remain readable. On a future rename, move the previous canonical name into
@@ -17,6 +21,69 @@ RUN_CONFIG_FILENAMES = (
 # for fixed-length generation, while bounded/inferred generation fails clearly when these are absent.
 LENGTH_CONFIG_FILENAME = "length_config.json"
 LENGTH_HEAD_FILENAME = "length_head.safetensors"
+
+
+def sha256_file(path: str | Path) -> str:
+    """Hash a file without loading a potentially multi-gigabyte artifact into memory."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def file_identity(path: str | Path | None) -> dict[str, Any] | None:
+    """Path, size, and digest for a regular file; None when no file is present."""
+    if path is None:
+        return None
+    path = Path(path)
+    if not path.is_file():
+        return None
+    return {
+        "path": str(path.resolve()),
+        "size_bytes": path.stat().st_size,
+        "sha256": sha256_file(path),
+    }
+
+
+def atomic_write_json(
+    path: str | Path,
+    payload: dict[str, Any],
+    *,
+    allow_nan: bool = True,
+) -> None:
+    """Write JSON via ``os.replace`` so interruption cannot leave a truncated artifact."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    try:
+        with temporary.open("w") as handle:
+            json.dump(payload, handle, indent=2, allow_nan=allow_nan)
+            handle.write("\n")
+        os.replace(temporary, path)
+    except BaseException:
+        # A failed serialization should not leave a confusing sibling that looks resumable.
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def git_state(repo: str | Path) -> dict[str, Any]:
+    """Commit and dirty flag for the checkout that produced an artifact, when available."""
+    try:
+        commit = subprocess.check_output(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
+        ).strip()
+        dirty = bool(
+            subprocess.check_output(
+                ["git", "-C", str(repo), "status", "--porcelain"], text=True
+            ).strip()
+        )
+        return {"repository_commit": commit, "repository_dirty": dirty}
+    except (OSError, subprocess.CalledProcessError):
+        return {"repository_commit": None, "repository_dirty": None}
 
 
 def find_run_config(model_dir) -> Path | None:

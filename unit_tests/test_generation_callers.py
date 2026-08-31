@@ -90,5 +90,40 @@ class SharedGenerationCallerTests(unittest.TestCase):
         self.assertEqual(len(shared_decode.call_args.args[5]), 2)
 
 
+    @patch("cdrseqgen.methods.mlm.evaluation.sample_masked_span")
+    def test_held_out_eval_uses_the_requested_anchor_trim(self, shared_decode):
+        native_ids = self.tokenizer.encode("ACDEFG")
+        shared_decode.return_value = [self.tokenizer.encode("AYDEFG")]
+        dataset = [{
+            "input_ids": torch.tensor([self.tokenizer.mask_id] * 6),
+            "labels": torch.tensor(native_ids),
+            "target_len": 6,
+        }]
+
+        payload = run_generative_eval(
+            FakeModel(),
+            self.tokenizer,
+            dataset,
+            device=torch.device("cpu"),
+            decoding="independent",
+            num_samples=1,
+            temperature=1.0,
+            top_k=0,
+            top_p=1.0,
+            num_examples=-1,
+            seed=42,
+            skip_perplexity=True,
+            anchor_trim=1,
+        )
+
+        # With one residue trimmed at each end, positions 1..4 are core and only position 1
+        # differs: 3/4. The old hard-coded trim of two would instead report 2/2.
+        self.assertEqual(payload["anchor_trim_each_end"], 1)
+        self.assertAlmostEqual(
+            payload["records"][0]["metrics"]["core_recovery_mean"],
+            0.75,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

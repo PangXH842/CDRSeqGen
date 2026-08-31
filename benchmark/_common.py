@@ -13,11 +13,9 @@ bootstrap cannot live here, because importing this module is what it makes possi
 from __future__ import annotations
 
 import hashlib
-import json
-import os
-import subprocess
 from pathlib import Path
-from typing import Any
+
+from cdrseqgen.artifacts import atomic_write_json, git_state, sha256_file
 
 AMINO_ACIDS = set("ACDEFGHIKLMNPQRSTVWY")
 ADAPTER_SCHEMA_VERSION = "cdrseqgen.adapter_output.v1"
@@ -33,14 +31,6 @@ MANIFEST_RECORD_FIELDS = (
 )
 
 
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def stable_example_seed(base_seed: int, example_id: str) -> int:
     """Derive a resume-safe seed that is stable for each example.
 
@@ -49,42 +39,6 @@ def stable_example_seed(base_seed: int, example_id: str) -> int:
     """
     digest = hashlib.sha256(f"{base_seed}:{example_id}".encode("utf-8")).digest()
     return int.from_bytes(digest[:8], "big") % (2**31)
-
-
-def atomic_write_json(path: Path, payload: dict[str, Any], *, allow_nan: bool = True) -> None:
-    """Write via a temporary file and rename, so an interrupted run never truncates its output.
-
-    `allow_nan=False` makes a NaN a write-time error instead of the bare `NaN` literal, which
-    Python accepts but strict JSON parsers reject. The scorer uses it because its output is the
-    published artifact; the adapters keep the permissive default, where a NaN would signal a
-    generation bug worth seeing in the file rather than a crash mid-run.
-    """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    with temporary.open("w") as handle:
-        json.dump(payload, handle, indent=2, allow_nan=allow_nan)
-        handle.write("\n")
-    os.replace(temporary, path)
-
-
-def git_state(repo: Path) -> dict[str, Any]:
-    """Commit and dirty flag for the tree that produced a result, or Nones outside a checkout.
-
-    `repository_dirty: true` means the result cannot be reproduced from the recorded commit alone.
-    """
-    try:
-        commit = subprocess.check_output(
-            ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
-        ).strip()
-        dirty = bool(
-            subprocess.check_output(
-                ["git", "-C", str(repo), "status", "--porcelain"], text=True
-            ).strip()
-        )
-        return {"repository_commit": commit, "repository_dirty": dirty}
-    except (OSError, subprocess.CalledProcessError):
-        return {"repository_commit": None, "repository_dirty": None}
 
 
 def repository_commit(path: Path | None) -> str | None:

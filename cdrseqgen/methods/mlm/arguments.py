@@ -189,8 +189,10 @@ class GenerationArguments:
     gen_num_examples: int = field(default=150, metadata={"help": "Eval frameworks to sample (-1 = all)."})
     gen_num_samples: int = field(default=20, metadata={"help": "Candidates per framework."})
     gen_decoding: str = field(
-        default="iterative",
-        metadata={"help": "independent | iterative. Set gen_temperature to 0 for greedy decoding."}
+        default="independent",
+        metadata={"help": "independent | iterative. Independent is the safe default for full_span "
+                          "training; iterative requires masking_policy=mixed. Set gen_temperature "
+                          "to 0 for greedy decoding."}
     )
     gen_temperature: float = field(default=1.0, metadata={"help": "Sampling temperature."})
     gen_length_mode: str = field(

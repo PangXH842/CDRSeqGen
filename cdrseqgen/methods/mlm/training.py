@@ -119,7 +119,7 @@ def run_training_pipeline(trainer: Trainer, training_args: TrainingArguments):
 
 
 def post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_args, training_args,
-                             *, length_predictor=None):
+                             *, anchor_trim, length_predictor=None):
     """Sample designs from the finished model, produces generation_eval.json."""
     from cdrseqgen.methods.mlm.evaluation import build_judge, run_generative_eval
 
@@ -159,6 +159,7 @@ def post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_ar
             judge_tokenizer=judge_tokenizer,
             judge_dataset=judge_dataset,
             judge_name=gen_args.gen_judge,
+            anchor_trim=anchor_trim,
             output_path=os.path.join(training_args.output_dir, "generation_eval.json"),
             title=f"{os.path.basename(training_args.output_dir)}   target={data_args.target_region}",
             meta={

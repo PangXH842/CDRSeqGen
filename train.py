@@ -107,6 +107,7 @@ def main():
     if gen_args.run_generative_eval:
         post_training_generation(
             trainer, tokenizer, eval_dataset, data_args, gen_args, training_args,
+            anchor_trim=loss_config.anchor_trim,
             length_predictor=length_predictor,
         )
 

@@ -23,12 +23,19 @@ import os
 import sys
 import json
 import logging
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 from datetime import datetime
 from dataclasses import asdict
 
 from transformers import TrainerCallback
 
-from cdrseqgen.artifacts import RUN_CONFIG_FILENAME
+from cdrseqgen.artifacts import (
+    RUN_CONFIG_FILENAME,
+    atomic_write_json,
+    file_identity,
+    git_state,
+)
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 LOG_FILENAME = "train.log"
@@ -178,6 +185,45 @@ def update_latest_link(run_dir: str) -> None:
         logger.warning(f"⚠️ Could not update {link_path}: {e}")
 
 
+def _package_versions():
+    packages = ("torch", "transformers", "accelerate", "safetensors", "pandas", "scikit-learn")
+    resolved = {}
+    for package in packages:
+        try:
+            resolved[package] = version(package)
+        except PackageNotFoundError:
+            resolved[package] = None
+    return resolved
+
+
+def _training_provenance(model_args, data_args):
+    """Lightweight run identity without re-hashing a multi-gigabyte processed dataset per trial."""
+    data_path = Path(data_args.data_path).expanduser()
+    metadata_path = data_path.with_suffix(".metadata.json")
+    dataset = {
+        "path": str(data_path.resolve()),
+        "size_bytes": data_path.stat().st_size if data_path.is_file() else None,
+        "metadata": file_identity(metadata_path),
+        "declared_processed_file_sha256": None,
+    }
+    if metadata_path.is_file():
+        with metadata_path.open() as handle:
+            dataset["declared_processed_file_sha256"] = json.load(handle).get(
+                "processed_file_sha256"
+            )
+
+    repo = Path(__file__).resolve().parents[2]
+    return {
+        "dataset": dataset,
+        "model_source": model_args.model_type,
+        "runtime": {
+            "python": sys.version.split()[0],
+            "packages": _package_versions(),
+        },
+        **git_state(repo),
+    }
+
+
 def write_run_config(output_dir: str, model_args, data_args, gen_args, training_args) -> dict:
     """Persist every resolved argument so a checkpoint and sweep trial are self-describing.
 
@@ -188,8 +234,8 @@ def write_run_config(output_dir: str, model_args, data_args, gen_args, training_
     for args in (model_args, data_args, gen_args):
         meta.update(asdict(args))
     meta.update(training_args.to_dict())
-    with open(os.path.join(output_dir, RUN_CONFIG_FILENAME), "w") as f:
-        json.dump(meta, f, indent=2)
+    meta["provenance"] = _training_provenance(model_args, data_args)
+    atomic_write_json(os.path.join(output_dir, RUN_CONFIG_FILENAME), meta)
     return meta
 
 

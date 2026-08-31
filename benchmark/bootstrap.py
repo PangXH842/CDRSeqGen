@@ -26,6 +26,10 @@ Three choices matter, and all three follow from the experiment being *matched*:
 
 The interval is a percentile bootstrap. With n = 25 it is approximate — read a CI that straddles
 zero as "not resolved at this sample size", not as evidence of equivalence.
+
+It resamples frameworks while treating each framework's finite candidate pool as observed. It does
+not measure generation-seed uncertainty, and the per-metric 95% intervals are not adjusted for
+examining several endpoints. Repeated generation seeds or a hierarchical bootstrap remain stronger.
 """
 from __future__ import annotations
 
@@ -138,6 +142,11 @@ def compare(scores_path, metrics=DEFAULT_METRICS, iterations=10000, seed=42):
         "iterations": iterations,
         "seed": seed,
         "confidence": CONFIDENCE,
+        "uncertainty_scope": {
+            "resampling_unit": "example",
+            "candidate_pools": "fixed_observed_draws",
+            "multiplicity_adjustment": "none",
+        },
         "results": results,
     }
 
@@ -149,6 +158,8 @@ def format_report(comparison):
         f"({comparison['iterations']:,} resamples, seed {comparison['seed']}, "
         f"{int(CONFIDENCE * 100)}% percentile CI)",
         "The example is the resampling unit; a metric uses only examples where both runs report it.",
+        "Candidate pools are fixed: generation-seed uncertainty is not included.",
+        "Intervals are per metric and unadjusted for examining multiple endpoints.",
         "",
         f"  {'metric':<22} {'n':>3}  {label_a:>10}  {label_b:>10}  {'diff':>9}  "
         f"{'95% CI':>20}  verdict",

@@ -137,6 +137,17 @@ class PayloadTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             load_runs(_write(payload))
 
+    def test_result_declares_what_uncertainty_it_does_not_include(self):
+        payload = _scores(
+            [("a", {"core_aar_mean": 0.2}), ("b", {"core_aar_mean": 0.3})],
+            [("a", {"core_aar_mean": 0.1}), ("b", {"core_aar_mean": 0.2})],
+        )
+        scope = compare(_write(payload), iterations=100)["uncertainty_scope"]
+        self.assertEqual(scope["resampling_unit"], "example")
+        self.assertEqual(scope["candidate_pools"], "fixed_observed_draws")
+        self.assertEqual(scope["multiplicity_adjustment"], "none")
+
+
 
 if __name__ == "__main__":
     unittest.main()

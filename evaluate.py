@@ -10,14 +10,23 @@ Usage example:
         --num_examples 150 --stratify --num_samples 20 --top_p 0.9 \
         --judge Exscientia/IgBert
 """
+import hashlib
 import os
 import json
 import argparse
+import re
+from pathlib import Path
 
 import torch
 from transformers import HfArgumentParser, TrainingArguments
 
-from cdrseqgen.artifacts import RUN_CONFIG_FILENAME, load_run_config
+from cdrseqgen.artifacts import (
+    RUN_CONFIG_FILENAME,
+    file_identity,
+    find_run_config,
+    git_state,
+    load_run_config,
+)
 from cdrseqgen.methods.mlm.arguments import DataArguments, GenerationArguments, ModelArguments
 from cdrseqgen.methods.mlm.training import get_datasets
 from cdrseqgen.train.logging import configure_logging
@@ -39,54 +48,157 @@ def read_run_config(model_dir):
     return config
 
 
-def resolve_decoding(requested, model_dir):
-    """Pick the decoder, defaulting to the one the checkpoint was trained and reported under.
+def resolve_decoding(requested, model_dir=None, run_config=None):
+    """Pick a decoder that is compatible with the checkpoint's masking policy.
 
-    A hardcoded default here is not a neutral choice. `iterative` re-masks and resamples positions
-    one at a time, which assumes the model saw partially revealed loops in training — true only for
-    a `mixed` checkpoint. Applied to the project's default `full_span` checkpoints it is off
-    distribution and expensive: measured on h3_OAS_scratch over 300 frameworks x 10 candidates,
-    iterative decoding drops whole-loop recovery 0.370 -> 0.253 and CORE recovery 0.204 -> 0.077,
-    i.e. below the 0.084 you get by sampling H3's marginal amino-acid frequencies. So the default
-    now follows the run rather than overriding it.
+    Missing policy metadata means an older full-span checkpoint. A recorded iterative decoder must
+    not silently override that training contract; callers can still request it explicitly for an
+    intentional off-distribution experiment.
     """
-    meta = read_run_config(model_dir) or {}
+    meta = run_config if run_config is not None else (read_run_config(model_dir) or {})
     recorded = meta.get("gen_decoding")
-    policy = meta.get("masking_policy")
+    policy = (meta.get("masking_policy") or "full_span").strip().lower()
     if requested is None:
-        chosen = recorded or "independent"
-        source = f"{RUN_CONFIG_FILENAME}" if recorded else "fallback"
-        print(f"🎲 Decoding: {chosen} (from {source})")
+        if policy == "mixed":
+            chosen = recorded if recorded in {"independent", "iterative"} else "iterative"
+        else:
+            chosen = "independent"
+        source = f"masking_policy={policy!r}"
+        if recorded and recorded != chosen:
+            source += f"; ignored incompatible recorded gen_decoding={recorded!r}"
+        print(f"🎲 Decoding: {chosen} ({source})")
     else:
         chosen = requested
         if recorded and recorded != chosen:
             print(f"🎲 Decoding: {chosen} (CLI override; the run recorded '{recorded}')")
         else:
             print(f"🎲 Decoding: {chosen}")
-    if chosen == "iterative" and policy == "full_span":
-        print("⚠️  Iterative decoding on a full_span checkpoint: the model never saw a partially "
+    if chosen == "iterative" and policy != "mixed":
+        print(f"⚠️  Iterative decoding on a {policy} checkpoint: the model never saw a partially "
               "revealed loop in training, so this is off distribution and roughly halves core "
               "recovery. Train with masking_policy: mixed for iterative decoding.")
     return chosen
 
 
-def check_target_region(model_dir, config_target):
-    """Report the CDR loop the checkpoint was trained for, and warn if the config disagrees.
 
-    The eval runs on config_target (the dataset is built from --config). If the checkpoint's own
-    run_config says it was trained for a DIFFERENT loop, we're masking the wrong CDR — the numbers
-    would be confident and meaningless — so warn loudly. Returns the model's trained loop (or None).
-    """
-    meta = read_run_config(model_dir)
-    trained_for = meta.get("target_region") if meta else None
-    if trained_for is None:
-        print(f"ℹ️  No {RUN_CONFIG_FILENAME} in {model_dir} (older run) — can't verify the model's trained loop.")
-    elif trained_for != config_target:
-        print(f"⚠️  LOOP MISMATCH: model was trained for '{trained_for}', but --config targets "
-              f"'{config_target}'. Evaluating on the WRONG CDR — metrics will be meaningless.")
-    else:
-        print(f"🧬 Model trained for CDR '{trained_for}' (matches config).")
-    return trained_for
+COMPATIBILITY_FIELDS = (
+    ("target_region", "target CDR"),
+    ("model_type", "backbone/tokenizer"),
+    ("include_partner_chain", "partner-chain context"),
+    ("include_antigen", "antigen context"),
+    ("data_path", "processed dataset"),
+    ("max_len", "maximum input length"),
+    ("masking_policy", "training masking policy"),
+)
+
+
+def _normalise_compatibility_value(key, value):
+    if key in {"include_partner_chain", "include_antigen"}:
+        return bool(value)
+    if key == "data_path" and value:
+        return str(Path(value).expanduser().resolve())
+    if key in {"target_region", "masking_policy"} and isinstance(value, str):
+        return value.strip().lower()
+    return value
+
+
+def compatibility_problems(run_config, model_args, data_args):
+    """Return checkpoint/config mismatches that would change model inputs or interpretation."""
+    if not run_config:
+        return []
+    requested = {
+        "target_region": data_args.target_region,
+        "model_type": model_args.model_type,
+        "include_partner_chain": data_args.include_partner_chain,
+        "include_antigen": data_args.include_antigen,
+        "data_path": data_args.data_path,
+        "max_len": data_args.max_len,
+        "masking_policy": data_args.masking_policy,
+    }
+    problems = []
+    for key, label in COMPATIBILITY_FIELDS:
+        # Old checkpoints do not carry every newer field. Absence is unknown, not disagreement.
+        if key not in run_config:
+            continue
+        trained = _normalise_compatibility_value(key, run_config.get(key))
+        supplied = _normalise_compatibility_value(key, requested[key])
+        if trained != supplied:
+            problems.append(
+                f"{label}: checkpoint recorded {run_config.get(key)!r}, "
+                f"but --config supplies {requested[key]!r}"
+            )
+    return problems
+
+
+
+def evaluation_provenance(config_path, model_dir, data_path):
+    """Hashes needed to reconstruct which code, checkpoint, config, and data produced an eval."""
+    model_dir = Path(model_dir)
+    run_config_path = find_run_config(model_dir)
+    weights = []
+    seen = set()
+    for pattern in ("model.safetensors", "model-*.safetensors", "pytorch_model.bin"):
+        for path in sorted(model_dir.glob(pattern)):
+            if path in seen:
+                continue
+            seen.add(path)
+            weights.append(file_identity(path))
+
+    data_path = Path(data_path).expanduser()
+    metadata_path = data_path.with_suffix(".metadata.json")
+    dataset = {
+        "path": str(data_path.expanduser().resolve()),
+        "size_bytes": data_path.stat().st_size if data_path.is_file() else None,
+        "metadata": file_identity(metadata_path),
+    }
+    if metadata_path.is_file():
+        with metadata_path.open() as handle:
+            dataset["declared_processed_file_sha256"] = json.load(handle).get(
+                "processed_file_sha256"
+            )
+
+    repo = Path(__file__).resolve().parent
+    return {
+        "config": file_identity(config_path),
+        "run_config": file_identity(run_config_path),
+        "checkpoint_weights": weights,
+        "dataset": dataset,
+        **git_state(repo),
+    }
+
+
+def default_output_path(args):
+    """Parameter-addressed manual-eval path; a repeated identical run requires --overwrite."""
+    def slug(value):
+        return re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value)).strip("-")
+
+    identity = {
+        "length_mode": args.length_mode,
+        "min_length": args.min_length,
+        "max_length": args.max_length,
+        "length_temperature": args.length_temperature,
+        "decoding": args.decoding,
+        "num_examples": args.num_examples,
+        "stratify": args.stratify,
+        "num_samples": args.num_samples,
+        "temperature": args.temperature,
+        "top_k": args.top_k,
+        "top_p": args.top_p,
+        "seed": args.seed,
+        "skip_perplexity": args.skip_perplexity,
+        "judge": args.judge,
+        "judge_path": args.judge_path,
+    }
+    digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:10]
+    judge = slug(args.judge or "nojudge").replace("/", "-")
+    name = (
+        f"{args.length_mode}_{args.decoding}_"
+        f"n{args.num_examples}x{args.num_samples}_"
+        f"T{slug(args.temperature)}_k{args.top_k}_p{slug(args.top_p)}_"
+        f"s{args.seed}_{judge}_{digest}.json"
+    )
+    return os.path.join(args.model_dir, "evaluations", name)
+
 
 
 def main():
@@ -97,8 +209,8 @@ def main():
     ap.add_argument("--stratify", action="store_true", help="Balance the draw across H3 length buckets.")
 
     ap.add_argument("--decoding", choices=["independent", "iterative"], default=None,
-                    help="Default: whatever the checkpoint's run_config.json recorded, so the "
-                         "eval decoder matches the one the run was trained and reported under.")
+                    help="Default: independent for full_span checkpoints; a mixed checkpoint uses "
+                         "its recorded decoder, or iterative when none was recorded.")
     ap.add_argument("--num_samples", type=int, default=20, help="Candidates per framework.")
     ap.add_argument("--temperature", type=float, default=1.0)
     ap.add_argument("--length_mode", choices=("fixed_native", "bounded", "inferred"),
@@ -116,7 +228,13 @@ def main():
                          "(makes perplexity comparable ACROSS models; self-ppl is not).")
     ap.add_argument("--judge_path", type=str, default=None, help="Weights for the judge (default: the --judge hub id).")
     ap.add_argument("--output", type=str, default=None,
-                    help="Results JSON path ('none' to skip writing; default: <model_dir>/generation_eval.json).")
+                    help="Results JSON path ('none' to skip writing; default: a parameter-addressed "
+                         "file under <model_dir>/evaluations/).")
+    ap.add_argument("--overwrite", action="store_true",
+                    help="Replace an existing output with the same path/parameters.")
+    ap.add_argument("--force", action="store_true",
+                    help="Evaluate despite checkpoint/config input-contract mismatches. Every "
+                         "mismatch is retained in the output provenance.")
     args = ap.parse_args()
     resolve_generation_length_policy(
         args.length_mode,
@@ -130,9 +248,35 @@ def main():
     training_args.report_to = []
     training_args.eval_strategy = "no"
 
-    # Provenance: what CDR was this checkpoint actually trained for? (warns on config mismatch)
-    trained_for = check_target_region(args.model_dir, data_args.target_region)
-    args.decoding = resolve_decoding(args.decoding, args.model_dir)
+    run_config = read_run_config(args.model_dir)
+    problems = compatibility_problems(run_config, model_args, data_args)
+    if run_config is None:
+        print(f"ℹ️  No {RUN_CONFIG_FILENAME} in {args.model_dir} (older run) — "
+              "checkpoint/config compatibility cannot be verified.")
+    elif problems:
+        for problem in problems:
+            print(f"⛔ {problem}")
+        if not args.force:
+            raise SystemExit(
+                f"Refusing to evaluate: {len(problems)} checkpoint/config mismatch(es). "
+                "Use the checkpoint's original input contract, or pass --force for a deliberate "
+                "off-contract experiment."
+            )
+        print(f"🔓 --force given: continuing with {len(problems)} recorded mismatch(es).")
+    else:
+        print("🧬 Checkpoint input contract matches --config.")
+
+    trained_for = run_config.get("target_region") if run_config else None
+    args.decoding = resolve_decoding(
+        args.decoding, args.model_dir, run_config=run_config
+    )
+    output_path = None if args.output == "none" else (args.output or default_output_path(args))
+    if output_path and os.path.exists(output_path) and not args.overwrite:
+        raise SystemExit(
+            f"Refusing to overwrite existing evaluation: {output_path}. "
+            "Choose --output or pass --overwrite."
+        )
+    provenance = evaluation_provenance(args.config, args.model_dir, data_args.data_path)
 
     backbone = resolve(model_args.model_type)
     _, eval_dataset, tokenizer = get_datasets(model_args, data_args, training_args, backbone)
@@ -171,16 +315,22 @@ def main():
         skip_perplexity=args.skip_perplexity,
         judge_model=judge_model, judge_tokenizer=judge_tokenizer,
         judge_dataset=judge_dataset, judge_name=args.judge,
-        output_path=(None if args.output == "none"
-                     else args.output or os.path.join(args.model_dir, "generation_eval.json")),
+        anchor_trim=model_args.anchor_trim,
+        output_path=output_path,
         title=f"{os.path.basename(args.model_dir)}   target={data_args.target_region}",
         meta={
-            "config": args.config,
-            "model_dir": args.model_dir,
+            "config": str(Path(args.config).resolve()),
+            "model_dir": str(Path(args.model_dir).resolve()),
             "target_region": data_args.target_region,        # loop this eval ran on (from --config)
             "model_trained_for": trained_for,                # loop the checkpoint was trained for (run_config)
+            "eval_split": data_args.eval_split,
             "include_partner_chain": bool(data_args.include_partner_chain),
             "include_antigen": bool(data_args.include_antigen),
+            "compatibility": {
+                "problems": problems,
+                "forced": bool(problems and args.force),
+            },
+            "provenance": provenance,
         },
     )
 

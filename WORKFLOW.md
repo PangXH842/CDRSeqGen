@@ -431,9 +431,18 @@ python evaluate.py \
     --config configs/h3_esm2.json \
     --model_dir results/20260710/20260710_184547_h3_OAS_esm2_t12_35M_UR50D \
     --num_examples 150 --stratify --num_samples 20 \
-    --decoding iterative --top_p 0.9 \
+    --top_p 0.9 \
     --judge Exscientia/IgBert
 ```
+
+`evaluate.py` checks the supplied config against the checkpoint's `run_config.json` before loading
+weights. A target-loop, backbone/tokenizer, context, dataset, maximum-length, or masking-policy
+mismatch stops the run because it would change the model's inputs or invalidate the interpretation.
+`--force` is reserved for deliberate off-contract experiments and records every mismatch in the
+output. Decoder selection is also policy-aware: `full_span` checkpoints use `independent`;
+`mixed` checkpoints use their recorded decoder (or `iterative` when none was recorded). Passing
+`--decoding iterative` explicitly remains possible, with an off-distribution warning on a
+`full_span` checkpoint.
 
 The command above is the original `fixed_native` track. Use the checkpoint length head for a bounded
 or fully inferred sweep:
@@ -459,8 +468,11 @@ alignment-aware edit similarity, diversity, validity, runtime, and judge perplex
 > of both scratch and ESM-2). Diversity/entropy carry no such caveat; they're purely sequence-based.
 
 `--num_examples K` subsamples the split (`-1` = all; default 200); `--stratify` balances the draw across
-short/medium/long H3 buckets so rare long loops aren't washed out. Results land in
-`<model_dir>/generation_eval.json`.
+short/medium/long H3 buckets so rare long loops aren't washed out. Manual results land in a
+parameter-addressed file under `<model_dir>/evaluations/`, so a temperature or seed sweep cannot
+silently replace the training-time result. Repeating the exact same output path is refused unless
+`--overwrite` is explicit. The JSON records checkpoint/config/data hashes, repository state,
+compatibility checks, decoder settings, and the anchor definition.
 
 ### Generative evaluation runs automatically after every training run
 Once all epochs finish, `train.py` fits the frozen-backbone length head, samples designs from the
@@ -480,7 +492,7 @@ judging is valid. Tune or disable via config:
 "run_generative_eval": true,
 "gen_num_examples": 150,
 "gen_num_samples": 20,
-"gen_decoding": "iterative",
+"gen_decoding": "independent",
 "gen_top_p": 0.9,
 "gen_length_mode": "fixed_native",
 "gen_min_length": null,
