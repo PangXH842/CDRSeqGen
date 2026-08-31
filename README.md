@@ -74,7 +74,10 @@ CDRSeqGen/
 ├── cdrseqgen/                  # Library package — grouped by concern (entrypoints stay at root)
 │   ├── artifacts.py            # Shared names for persisted run artifacts and legacy aliases
 │   ├── data/                   # ALL data code (the data itself lives in dataset/data/)
-│   │   ├── dataset.py          # Runtime: processed JSON → tensors (tokenizers, Dataset, collator)
+│   │   ├── frameworks.py       # Method-NEUTRAL: tokenizers, framework/target split, context
+│   │   │                       #   injection + capping. No masking — an AR/enc-dec method
+│   │   │                       #   subclasses AntibodyFrameworkDataset and lays out its own inputs
+│   │   ├── dataset.py          # Masked-LM view: masking policies, mask layout, labels, collator
 │   │   └── preprocess/         # Offline: raw → processed JSON (run once per dataset)
 │   │       ├── oas_paired.py       # OAS paired repertoires + the leakage-safe clustered split
 │   │       ├── sabdab2.py          # SAbDab2 structures (adds antigen; split ships with the data)
@@ -446,6 +449,12 @@ zero) and decisively better at *length* (MAE, edit similarity). Every **recovery
 whole-span, core, and CDRSeqGen's apparent anchor advantage alike — is unresolved at n = 25, and the
 point estimates sit well inside their intervals. CDRSeqGen's diversity edge is individually resolved but small.
 
+**Correcting for the eight endpoints changes no verdict.** Eight unadjusted 95% intervals carry a
+family-wise error near 34% under independence, so the multiplicity caveat is worth stating — but at
+Bonferroni-adjusted 99.375% intervals all four resolved metrics still exclude zero: judge perplexity
+[+4.75, +6.61], length MAE [+0.16, +1.39], edit similarity [−0.057, −0.006], diversity
+[+0.011, +0.044]. Edit similarity sits nearest the boundary and still clears it.
+
 Two readings follow. The recovery axes are not evidence of parity either: an interval spanning zero
 at this sample size means *not measured*, not *equal*. And the axis that does resolve is the one
 CDRSeqGen loses worst — judged plausibility — which is the same signal §7 and §12 keep returning.
@@ -654,7 +663,9 @@ Antigen sequences (up to ~2,300 residues for large multi-chain complexes) made t
 *   **Metric Extraction:** At the end of training, `train.py` parses the Hugging Face logs, dumps `epoch_metrics.csv` (loss + recovery, whole-span **and** the anchor-excluded `core`/`anchor` accuracies), and generates standalone `.png` curves.
 
 ### 6. Extensibility Principles
-The recurring rule: **a new capability is added in one place, and the rest of the pipeline stays oblivious.** Four "add-one-line" seams:
+The recurring rule: **a new capability is added in one place, and the rest of the pipeline stays oblivious.** Five seams:
+
+- **New generation method** → a package beside [`methods/mlm/`](cdrseqgen/methods/mlm/), subclassing `AntibodyFrameworkDataset` from [`data/frameworks.py`](cdrseqgen/data/frameworks.py). *Added 2026-08-31*: the framework/target split, context injection and length capping are now method-neutral, and `TokenizerAdapter.mask_id` is optional — requiring a mask token was the one thing that made a causal tokenizer impossible to construct. `dataset.py` is now just the masked-LM view of that base, and re-exports the moved names so existing imports are unchanged. The benchmark contract was already method-agnostic, as [`adapters/iglm.py`](benchmark/adapters/iglm.py) demonstrates.
 - **New masked-LM backbone** → one `Backbone` entry in [`backbones.py`](cdrseqgen/methods/mlm/backbones.py) (§2) — the entrypoints and `dataset.py` never learn about it.
 - **New target loop** → change the `target_region` string (§1); masking logic is untouched.
 - **New context** → one boolean flag (`include_partner_chain`, `include_antigen`), resolved symmetrically (§3–4).
@@ -720,6 +731,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
+- **2026-08-31** -- Data layer split (`frameworks.py`) for mlm to make way for autoregressive dataset class
 <!-- AI ACCESS ZONE ENDS -->
 - **2026-08-31** -- Former `test/` dir split into `showcase/` (jsons for inference) and `unit_tests/` (for examining train scripts)
 - **2026-08-31** -- Auto figure plotting after hyperparameter & loss sweeps, in sweep dir instead of separate `figures/` folder
@@ -813,7 +825,7 @@ The comparison must run both methods on the **same frozen examples**, with the s
 
 - **Operation Reclamation** -- Manual code cleaning: Comprehend and rewrite the project content in my own terms - previous work handled by AI resulted in the project almost becoming a "black box" for the developer himself 
   - [ ] `data/` scripts 
-    - [x] `dataset.py`, `common.py` (0818)
+    - [ ] `dataset.py`, `frameworks.py` (0818)
     - [ ] `preprocess/` scripts
   - [ ] `cdrseqgen/methods/mlm/` 
     - [ ] arguments, backbones

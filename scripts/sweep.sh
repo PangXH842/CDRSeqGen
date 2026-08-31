@@ -15,10 +15,12 @@
 #   arch     architecture screen: 3 widths x 2 depths, FFN tracks width           (6 trials)
 #            Only valid since 2026-07-27, when num_attention_heads / intermediate_size became
 #            ModelArguments; before that the FFN ratio silently changed with hidden_size.
-#   loss     objective screen: 5 core/anchor weightings x 3 seeds              (15 trials)
+#   loss     objective screen: 3 DISTINCT objectives x 3 seeds                   (9 trials)
 #            Generative eval is ON and trials rank by judge perplexity, because ranking on
 #            core accuracy would let a core-weighted objective grade its own homework.
-#            Weight combos are deduped against cross_entropy, which ignores them: 24 -> 15.
+#            Deduped on the core:anchor RATIO, which is all the loss normaliser preserves:
+#            24 nominal -> 9 distinct (weighted 1/1 == cross_entropy; 3/0 == 1/0). Checkpoints
+#            select on whole-span accuracy, not core, for the same non-circularity reason.
 #   quick    2 trials, 2 epochs — for checking this script runs, not for results.
 #
 # Every preset selects on the named validation split and never touches test. The dataset gate
@@ -29,6 +31,8 @@
 #   MAX_EPOCHS=40 PATIENCE=5 ./scripts/sweep.sh 0 h3
 #   SWEEP_DIR=results/runs/my_sweep ./scripts/sweep.sh 0 h3     # resume into the same directory
 #   DRY_RUN=1 ./scripts/sweep.sh 0 loss                         # print the grid, run nothing
+#   SELECT_METRIC=accuracy ./scripts/sweep.sh 0 h3              # which metric picks each
+#                                                               #   trial's best checkpoint
 #   DATA_PATH=path/to/three_way.json ./scripts/sweep.sh 0 h3
 #
 # Before the first run, create a three-way clustered dataset:
@@ -73,6 +77,12 @@ case "$PRESET" in
     LOSS_TYPES=${LOSS_TYPES:-"cross_entropy weighted_cross_entropy"}
     CORE_WEIGHTS=${CORE_WEIGHTS:-"1.0 3.0"}; ANCHOR_WEIGHTS=${ANCHOR_WEIGHTS:-"1.0 0.0"}
     GEN_EVAL=${GEN_EVAL:-true}; RANK_METRIC=${RANK_METRIC:-judge_ppl}
+    # Checkpoint selection has the same circularity as ranking: core_accuracy is what a core-
+    # weighted objective optimises, so selecting on it hands those settings an advantage at the
+    # per-epoch level even when the final ranking is judged independently. Whole-span is the least
+    # circular per-epoch metric available. eval_loss is NOT an option here — it is computed with
+    # each trial's OWN loss function, so its scale differs between objectives and is not comparable.
+    SELECT_METRIC=${SELECT_METRIC:-accuracy}
     # Generative eval runs once per trial, so the 150x20 default would dominate the sweep. 100x10
     # still gives ~1000 candidates per trial, which is ample for a stable judge-perplexity mean.
     GEN_EXAMPLES=${GEN_EXAMPLES:-100}; GEN_SAMPLES=${GEN_SAMPLES:-10}
@@ -92,9 +102,15 @@ CORE_WEIGHTS=${CORE_WEIGHTS:-"__keep__"}
 ANCHOR_WEIGHTS=${ANCHOR_WEIGHTS:-"__keep__"}
 GEN_EVAL=${GEN_EVAL:-false}
 RANK_METRIC=${RANK_METRIC:-core}
+# Per-epoch metric that picks each trial's best checkpoint (load_best_model_at_end).
+SELECT_METRIC=${SELECT_METRIC:-core_accuracy}
 # "__keep__" leaves the base config's generative-eval size alone.
 GEN_EXAMPLES=${GEN_EXAMPLES:-__keep__}
 GEN_SAMPLES=${GEN_SAMPLES:-__keep__}
+case "$SELECT_METRIC" in
+  core_accuracy|accuracy) ;;
+  *) echo "ERROR: SELECT_METRIC must be core_accuracy|accuracy, got '$SELECT_METRIC'"; exit 1 ;;
+esac
 case "$RANK_METRIC" in
   core|whole|judge_ppl|diversity|gen_core) ;;
   *) echo "ERROR: RANK_METRIC must be core|whole|judge_ppl|diversity|gen_core, got '$RANK_METRIC'"
@@ -172,20 +188,44 @@ GRID_FILE="$OUT/grid.tsv"
                          "$NUM_LAYERS" "$LOSS_TYPES" "$CORE_WEIGHTS" "$ANCHOR_WEIGHTS" "$SEEDS" <<'PY'
 import itertools, sys
 out, *dims = sys.argv[1:]
-seen, rows = set(), []
+
+
+def objective_key(loss, cw, aw):
+    """The equivalence class of an objective, so two spellings of one loss are trained once.
+
+    weighted_cross_entropy is a weighted MEAN over supervised tokens, so the normaliser cancels any
+    common factor and only the core:anchor RATIO survives. Three collapses follow, and the 08-25
+    screen ran all three before anyone noticed (README Findings §13):
+      * cross_entropy ignores the weights entirely
+      * equal weights reduce to plain cross_entropy       -> weighted 1/1 == cross_entropy
+      * a common factor cancels                            -> weighted 3/0 == weighted 1/0
+    """
+    if loss in ("__keep__", "cross_entropy"):
+        return (loss,)
+    core, anchor = float(cw), float(aw)
+    if anchor == 0:
+        return ("core_only",)
+    if core == 0:
+        return ("anchor_only",)
+    return ("cross_entropy",) if core == anchor else ("ratio", round(core / anchor, 6))
+
+
+seen, rows, collapsed = set(), [], 0
 for lr, wu, wd, ep, hs, nl, loss, cw, aw, seed in itertools.product(*[d.split() for d in dims]):
-    # cross_entropy ignores the core/anchor weights, so sweeping them against it would train the
-    # identical model several times. Canonicalise, then drop the duplicates.
     if loss == "cross_entropy":
         cw = aw = "1.0"
-    row = (lr, wu, wd, ep, hs, nl, loss, cw, aw, seed)
-    if row in seen:
+    key = (lr, wu, wd, ep, hs, nl, objective_key(loss, cw, aw), seed)
+    if key in seen:
+        collapsed += 1
         continue
-    seen.add(row)
-    rows.append(row)
+    seen.add(key)
+    rows.append((lr, wu, wd, ep, hs, nl, loss, cw, aw, seed))
 with open(out, "w") as handle:
     for row in rows:
         handle.write("\t".join(row) + "\n")
+if collapsed:
+    print(f"Grid: collapsed {collapsed} trial(s) that retrain an objective the grid already covers "
+          f"(only the core:anchor ratio survives the loss normaliser; see Findings §13).")
 PY
 total=$(wc -l < "$GRID_FILE")
 
@@ -203,7 +243,7 @@ echo "data=$DATA_PATH (selecting on validation)"
 echo "LR=[$LRS] warmup=[$WARMUPS] weight_decay=[$WEIGHT_DECAYS] epochs=[$EPOCH_LIST] seeds=[$SEEDS]"
 [[ "$HIDDEN_SIZES" != "__keep__" ]] && echo "hidden=[$HIDDEN_SIZES] layers=[$NUM_LAYERS]"
 [[ "$LOSS_TYPES" != "__keep__" ]] && echo "loss=[$LOSS_TYPES] core_w=[$CORE_WEIGHTS] anchor_w=[$ANCHOR_WEIGHTS]"
-echo "generative_eval=$GEN_EVAL  ranked_by=$RANK_METRIC"
+echo "generative_eval=$GEN_EVAL  ranked_by=$RANK_METRIC  checkpoints_selected_on=$SELECT_METRIC"
 [[ "$GEN_EVAL" == "true" && "$GEN_EXAMPLES" != "__keep__" ]] && \
   echo "gen_eval size: ${GEN_EXAMPLES} frameworks x ${GEN_SAMPLES} candidates per trial"
 echo "patience=$PATIENCE threshold=$STOP_THRESHOLD scheduler=$SCHEDULER"
@@ -252,7 +292,7 @@ while IFS=$'\t' read -r lr wu wd ep hs nl loss cw aw seed; do
     --lr_scheduler_type "$SCHEDULER" \
     --early_stopping_patience "$PATIENCE" \
     --early_stopping_threshold "$STOP_THRESHOLD" \
-    --metric_for_best_model core_accuracy \
+    --metric_for_best_model "$SELECT_METRIC" \
     --greater_is_better true \
     --load_best_model_at_end true \
     --save_total_limit 1 \

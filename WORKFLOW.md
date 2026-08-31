@@ -190,20 +190,22 @@ multi-seed screen. It takes a GPU id and a preset, the same way `run.sh` takes s
 | `h3` (default) | 4 LR × 2 warm-up × 2 weight decay × 2 seeds, fixed 30-epoch horizon | 32 |
 | `pilot` | 3 LR × 2 epoch budgets — the 2026-07 "is the budget enough?" grid | 6 |
 | `arch` | 3 widths × 2 depths, FFN tracking width | 6 |
-| `loss` | 5 objective settings × 3 seeds, generative eval on, ranked by judge perplexity | 15 |
+| `loss` | 3 **distinct** objectives × 3 seeds, generative eval on, ranked by judge perplexity | 9 |
 | `quick` | 2 trials at 2 epochs — checks the script runs, not for results |  2 |
 
 The `loss` grid is `cross_entropy` plus four weighted settings (core/anchor `1.0/1.0`, `1.0/0.0`,
-`3.0/1.0`, `3.0/0.0`). Weight combinations are deduplicated against `cross_entropy`, which ignores
-them, so the nominal 24 grid points collapse to the 15 trials the preset runs.
+`3.0/1.0`, `3.0/0.0`) — but only **three** of those five are distinct objectives, so 24 nominal grid
+points collapse to **9** trials.
 
-> **⚠️ Only 9 of those 15 are distinct objectives** — the dedup catches weights under
-> `cross_entropy` but not weights that are equivalent to each other. The loss normalises by total
-> weight, so only the core-to-anchor *ratio* survives: `weighted 1.0/1.0` is bit-identical to
-> `cross_entropy`, and `3.0/0.0` to `1.0/0.0`. Six of the fifteen trials therefore retrain a model
-> the grid has already trained. **Keeping one such pair is worth it deliberately** — it measures
-> run-to-run nondeterminism, which turns out to exceed the seed spread (Findings §13) — but the
-> other three are waste. Canonicalising on the ratio is a contained change to the grid materialiser.
+> **Why five settings are three objectives.** `weighted_cross_entropy` is a weighted *mean* over
+> supervised tokens, so the normaliser cancels any common factor and only the core-to-anchor
+> **ratio** survives. Hence `weighted 1.0/1.0` is bit-identical to `cross_entropy` (verified to
+> 1e-9) and `3.0/0.0` to `1.0/0.0`. The 08-25 screen ran all five before this was noticed, which is
+> how Findings §13 ended up with the same loss occupying its top two ranks — a free measurement of
+> run-to-run nondeterminism, and the reason §13 can say the objective differences are inside it.
+> **Fixed 2026-08-31**: the grid materialiser canonicalises on the ratio and reports what it drops
+> (`Grid: collapsed N trial(s)…`). To reproduce the determinism control deliberately, pass the two
+> spellings explicitly rather than relying on the grid to duplicate them.
 
 ```bash
 ./scripts/sweep.sh 4                      # h3 preset
@@ -216,10 +218,18 @@ DRY_RUN=1 ./scripts/sweep.sh 4 loss       # print the grid, train nothing
 
 Every dimension (`LRS`, `WARMUPS`, `WEIGHT_DECAYS`, `EPOCH_LIST`, `SEEDS`, `HIDDEN_SIZES`,
 `NUM_LAYERS`, `MAX_EPOCHS`, `PATIENCE`, `LOSS_TYPES`, `CORE_WEIGHTS`, `ANCHOR_WEIGHTS`) is
-env-overridable, so a preset only supplies defaults. Three knobs control what each trial is scored on:
-`RANK_METRIC` (`core` | `whole` | `judge_ppl` | `diversity`), `GEN_EVAL` (`true`/`false`), and
-`GEN_EXAMPLES`/`GEN_SAMPLES`, which shrink the generative eval — it runs once per trial, so the
-150×20 default would dominate a 15-trial sweep. The `loss` preset uses 100×10.
+env-overridable, so a preset only supplies defaults. Four knobs control what each trial is scored on:
+`RANK_METRIC` (`core` | `whole` | `judge_ppl` | `diversity` | `gen_core`), `SELECT_METRIC`
+(`core_accuracy` | `accuracy`), `GEN_EVAL` (`true`/`false`), and `GEN_EXAMPLES`/`GEN_SAMPLES`, which
+shrink the generative eval — it runs once per trial, so the 150×20 default would dominate a 9-trial
+sweep. The `loss` preset uses 100×10.
+
+**`SELECT_METRIC` picks each trial's best checkpoint**, and it carries the same circularity as
+ranking: `core_accuracy` is what a core-weighted objective optimises, so selecting on it advantages
+those settings per-epoch even when the final ranking is judged independently. The `loss` preset
+therefore defaults it to whole-span `accuracy`; every other preset keeps `core_accuracy`. Note
+`eval_loss` is **not** an option — it is computed with each trial's own loss function, so its scale
+differs between objectives and cannot be compared across them.
 
 Rank by `judge_ppl` rather than `core` when comparing objectives: a loss that reweights core tokens
 changes the very quantity `core` measures, so ranking on it partly rewards the objective for
