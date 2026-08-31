@@ -36,6 +36,52 @@ def amino_acid_recovery(pred, native):
     return correct / len(native)
 
 
+def core_anchor_indices(length, anchor_trim):
+    """Positions of the hypervariable core and the V/J-determined anchors, for a loop of `length`.
+
+    A loop of <= 2*anchor_trim residues has no core and is entirely anchor, matching
+    ``recovery._core_anchor_masks``. Kept here rather than in either caller so the training
+    metrics, the generative eval, and the benchmark scorer cannot drift on what "core" means.
+    """
+    core = list(range(anchor_trim, length - anchor_trim)) if length > 2 * anchor_trim else []
+    core_set = set(core)
+    return core, [i for i in range(length) if i not in core_set]
+
+
+def recovery_at_indices(sample, native, indices):
+    """Per-residue identity over `indices` only; None when the subset is empty."""
+    if not indices:
+        return None
+    return sum(sample[i] == native[i] for i in indices) / len(indices)
+
+
+def position_recovery(samples, native):
+    """Per-position recovery across the length-matched samples for one framework.
+
+    Returns one entry per native position: its index, its position normalised to [0, 1] so loops of
+    different length can share an axis, and the fraction of length-matched samples that reproduce
+    the native residue there (None when nothing matched the length).
+
+    Positional recovery is only defined against a same-length sample, which is why wrong-length
+    draws are dropped here rather than counted as misses -- the same rule `recovery_at_indices`
+    follows. Shared with the benchmark scorer so a position curve drawn from a training run and one
+    drawn from a benchmark score mean the same thing.
+    """
+    length = len(native)
+    matched = [sample for sample in samples if len(sample) == length]
+    return [
+        {
+            "position": position,
+            "relative_position": (position / (length - 1)) if length > 1 else 0.5,
+            "recovery": (
+                sum(sample[position] == native[position] for sample in matched) / len(matched)
+                if matched else None
+            ),
+        }
+        for position in range(length)
+    ]
+
+
 def hamming_fraction(a, b):
     """Normalised Hamming distance; a length mismatch counts the extra residues as differences"""
     longest = max(len(a), len(b))

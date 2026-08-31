@@ -31,7 +31,14 @@ from dataclasses import dataclass, field
 import torch
 
 from cdrseqgen.data.dataset import AntibodyInfillingDataset
-from cdrseqgen.eval.metrics import amino_acid_recovery, calculate, confidence_metrics
+from cdrseqgen.eval.metrics import (
+    amino_acid_recovery,
+    calculate,
+    confidence_metrics,
+    core_anchor_indices,
+    recovery_at_indices,
+)
+from cdrseqgen.methods.mlm.recovery import ANCHOR_TRIM
 from cdrseqgen.methods.mlm.generation import sample_masked_span
 from cdrseqgen.methods.mlm.length import (
     native_mask_length,
@@ -54,6 +61,11 @@ SUMMARY_KEYS = [
     ("unique_fraction", "unique"),
     ("aar_mean", "recovery"),
     ("aar_length_matched_mean", "recovery@L"),
+    # Split the length-matched recovery: anchors are largely V/J-determined and easy, the core is
+    # the part a design method has to actually get right. Reported separately so a gain in one
+    # cannot hide a loss in the other.
+    ("core_recovery_mean", "core@L"),
+    ("anchor_recovery_mean", "anchor@L"),
     ("novelty_mean", "novelty"),
     ("length_match_rate", "length-match"),
     ("length_absolute_error_mean", "length-MAE"),
@@ -337,7 +349,7 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
 
 
 def run_eval_loop(strategy, selected, *, model, tokenizer, device, skip_perplexity,
-                  judge_model, judge_tokenizer):
+                  judge_model, judge_tokenizer, anchor_trim=ANCHOR_TRIM):
     """Per-example generate -> score -> record, identical for every length track."""
     try:
         from tqdm import tqdm
@@ -388,6 +400,11 @@ def run_eval_loop(strategy, selected, *, model, tokenizer, device, skip_perplexi
         # Per-candidate detail. Recovery is defined only where the length matches, so the
         # correlation answers "among candidates of the right length, does confidence pick the
         # accurate one" rather than rediscovering that wrong-length candidates score badly.
+        # The core/anchor split needs a positional correspondence, so like recovery it is defined
+        # only on length-matched candidates. It is what separates "the model learned the J-gene
+        # motif" from "the model learned the hypervariable middle" — the distinction a core-weighted
+        # objective is meant to move, and one whole-loop AAR averages away.
+        core_indices, anchor_indices = core_anchor_indices(len(drawn.native), anchor_trim)
         candidates = []
         for seq, self_ppl, judge_ppl in zip(drawn.seqs, self_perplexities, judge_perplexities):
             matched = len(seq) == len(drawn.native)
@@ -396,9 +413,17 @@ def run_eval_loop(strategy, selected, *, model, tokenizer, device, skip_perplexi
                 "length": len(seq),
                 "length_match": matched,
                 "recovery": amino_acid_recovery(seq, drawn.native) if matched else None,
+                "core_recovery":
+                    recovery_at_indices(seq, drawn.native, core_indices) if matched else None,
+                "anchor_recovery":
+                    recovery_at_indices(seq, drawn.native, anchor_indices) if matched else None,
                 "self_perplexity": self_ppl,
                 "judge_perplexity": judge_ppl,
             })
+        for key in ("core_recovery", "anchor_recovery"):
+            values = [c[key] for c in candidates if c[key] is not None]
+            if values:
+                metrics[f"{key}_mean"] = sum(values) / len(values)
         recoveries = [c["recovery"] for c in candidates]
         metrics.update(confidence_metrics(
             recoveries, [c["self_perplexity"] for c in candidates], prefix="self_conf"))
@@ -466,7 +491,7 @@ def write_confidence_figure(payload, output_path, title=""):
     if not output_path:
         return None
     try:
-        from cdrseqgen.utils.confidence_plot import save_run_figure
+        from cdrseqgen.visualization.confidence_plot import save_run_figure
 
         figure_path = os.path.splitext(output_path)[0] + "_confidence.png"
         saved = save_run_figure(payload.get("records", []), figure_path,

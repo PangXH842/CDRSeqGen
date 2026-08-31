@@ -39,6 +39,37 @@ def read_run_config(model_dir):
     return config
 
 
+def resolve_decoding(requested, model_dir):
+    """Pick the decoder, defaulting to the one the checkpoint was trained and reported under.
+
+    A hardcoded default here is not a neutral choice. `iterative` re-masks and resamples positions
+    one at a time, which assumes the model saw partially revealed loops in training — true only for
+    a `mixed` checkpoint. Applied to the project's default `full_span` checkpoints it is off
+    distribution and expensive: measured on h3_OAS_scratch over 300 frameworks x 10 candidates,
+    iterative decoding drops whole-loop recovery 0.370 -> 0.253 and CORE recovery 0.204 -> 0.077,
+    i.e. below the 0.084 you get by sampling H3's marginal amino-acid frequencies. So the default
+    now follows the run rather than overriding it.
+    """
+    meta = read_run_config(model_dir) or {}
+    recorded = meta.get("gen_decoding")
+    policy = meta.get("masking_policy")
+    if requested is None:
+        chosen = recorded or "independent"
+        source = f"{RUN_CONFIG_FILENAME}" if recorded else "fallback"
+        print(f"🎲 Decoding: {chosen} (from {source})")
+    else:
+        chosen = requested
+        if recorded and recorded != chosen:
+            print(f"🎲 Decoding: {chosen} (CLI override; the run recorded '{recorded}')")
+        else:
+            print(f"🎲 Decoding: {chosen}")
+    if chosen == "iterative" and policy == "full_span":
+        print("⚠️  Iterative decoding on a full_span checkpoint: the model never saw a partially "
+              "revealed loop in training, so this is off distribution and roughly halves core "
+              "recovery. Train with masking_policy: mixed for iterative decoding.")
+    return chosen
+
+
 def check_target_region(model_dir, config_target):
     """Report the CDR loop the checkpoint was trained for, and warn if the config disagrees.
 
@@ -65,7 +96,9 @@ def main():
     ap.add_argument("--num_examples", type=int, default=200, help="Eval examples to sample (-1 = all).")
     ap.add_argument("--stratify", action="store_true", help="Balance the draw across H3 length buckets.")
 
-    ap.add_argument("--decoding", choices=["independent", "iterative"], default="iterative")
+    ap.add_argument("--decoding", choices=["independent", "iterative"], default=None,
+                    help="Default: whatever the checkpoint's run_config.json recorded, so the "
+                         "eval decoder matches the one the run was trained and reported under.")
     ap.add_argument("--num_samples", type=int, default=20, help="Candidates per framework.")
     ap.add_argument("--temperature", type=float, default=1.0)
     ap.add_argument("--length_mode", choices=("fixed_native", "bounded", "inferred"),
@@ -99,6 +132,7 @@ def main():
 
     # Provenance: what CDR was this checkpoint actually trained for? (warns on config mismatch)
     trained_for = check_target_region(args.model_dir, data_args.target_region)
+    args.decoding = resolve_decoding(args.decoding, args.model_dir)
 
     backbone = resolve(model_args.model_type)
     _, eval_dataset, tokenizer = get_datasets(model_args, data_args, training_args, backbone)

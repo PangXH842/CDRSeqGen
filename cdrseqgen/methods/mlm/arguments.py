@@ -2,7 +2,7 @@
   
   * setup_args          -- parse config/CLI, name the run, create its directory, start its log
 
-  * ModelArguments      -- backbone choice + scratch architecture knobs + early stopping
+  * ModelArguments      -- backbone, scratch architecture, loss, and early-stopping settings
   * DataArguments       -- which JSON, which loop, which context, length cap
   * GenerationArguments -- the post-training design sweep (on by default)
 
@@ -31,6 +31,8 @@ from transformers import HfArgumentParser, TrainingArguments
 
 from cdrseqgen.data.dataset import normalize_masking_policy
 from cdrseqgen.methods.mlm.length import resolve_generation_length_policy
+from cdrseqgen.methods.mlm.losses import loss_config_from_args
+from cdrseqgen.methods.mlm.recovery import ANCHOR_TRIM
 from cdrseqgen.train.logging import (
     RUN_SUFFIX_ENV,
     attach_file_logging,
@@ -76,6 +78,24 @@ class ModelArguments:
     early_stopping_threshold: float = field(
         default=0.0,
         metadata={"help": "Minimum change that counts as an improvement for early stopping."}
+    )
+    loss_type: str = field(
+        default="cross_entropy",
+        metadata={"help": "MLM objective: cross_entropy or weighted_cross_entropy."}
+    )
+    core_loss_weight: float = field(
+        default=1.0,
+        metadata={"help": "Core-residue weight under weighted_cross_entropy."}
+    )
+    anchor_loss_weight: float = field(
+        default=1.0,
+        metadata={"help": "Anchor-residue weight under weighted_cross_entropy."}
+    )
+    anchor_trim: int = field(
+        default=ANCHOR_TRIM,
+        metadata={"help": "Residues at each loop end treated as anchors by loss and recovery. "
+                          "Defaults to the ANCHOR_TRIM environment variable so the documented "
+                          "override still reaches training metrics; a config or flag wins over it."}
     )
 
 
@@ -223,6 +243,11 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
         model_args, data_args, gen_args, training_args = parser.parse_args_into_dataclasses()
 
     data_args.masking_policy = normalize_masking_policy(data_args.masking_policy)
+    loss_config = loss_config_from_args(model_args, training_args)
+    model_args.loss_type = loss_config.loss_type
+    # Loss metadata is consumed by MLMLossTrainer rather than the model's forward signature. Keep
+    # it available to the data collator instead of letting Trainer remove it as an unused column.
+    training_args.remove_unused_columns = False
     if not 0.0 <= data_args.mixed_full_span_probability <= 1.0:
         raise ValueError("mixed_full_span_probability must be between 0 and 1")
     if (

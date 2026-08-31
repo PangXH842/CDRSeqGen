@@ -27,9 +27,11 @@ if sys.path and Path(sys.path[0]).resolve() == BENCHMARK_DIR:
 # this file already imports cdrseqgen, so the old "no project imports" rationale no longer held.)
 from cdrseqgen.eval.metrics import (
     LENGTH_BUCKETS,
+    core_anchor_indices,
     edit_similarity,
     hamming_fraction,
     per_position_entropy as position_entropy,
+    recovery_at_indices,
 )
 from benchmark._common import (
     ADAPTER_SCHEMA_VERSION,
@@ -78,12 +80,6 @@ def population_sd_or_none(values: Iterable[float | None]) -> float | None:
     return statistics.pstdev(present) if len(present) > 1 else 0.0
 
 
-def recovery_at_indices(sample: str, native: str, indices: list[int]) -> float | None:
-    if not indices:
-        return None
-    return sum(sample[index] == native[index] for index in indices) / len(indices)
-
-
 def validate_adapter_record(record: dict[str, Any], manifest_record: dict[str, Any],
                             *, track: str = "fixed_native_length") -> None:
     required = {
@@ -130,9 +126,7 @@ def score_record(
     samples = record["samples"]
     length = len(native)
     recovery_samples = [sample for sample in samples if len(sample) == length]
-    core_indices = list(range(anchor_trim, length - anchor_trim)) if length > 2 * anchor_trim else []
-    core_set = set(core_indices)
-    anchor_indices = [index for index in range(length) if index not in core_set]
+    core_indices, anchor_indices = core_anchor_indices(length, anchor_trim)
 
     whole_values = [recovery_at_indices(sample, native, list(range(length))) for sample in recovery_samples]
     core_values = [recovery_at_indices(sample, native, core_indices) for sample in recovery_samples]

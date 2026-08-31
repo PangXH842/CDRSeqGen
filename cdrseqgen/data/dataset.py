@@ -5,7 +5,7 @@ Functions:
   * TokenizerAdapter         -- uniform tokenizer interface (custom, HF)
   * assemble_masked_input    -- the [cls] pt1 [mask x L] pt2 [end] layout
   * AntibodyInfillingDataset -- one entry -> (input_ids, labels, target_len) with one CDR masked
-  * collate_fn               -- pad a list of items into a batch (+ attention mask)
+  * collate_fn               -- pad a list of items into a batch (+ loss metadata/attention mask)
 
 Input schema:
     heavy / light            -- {fwr1..fwr4, cdr1..cdr3, full_aa, imgt_numbering}
@@ -310,8 +310,10 @@ class AntibodyInfillingDataset(Dataset):
     def __getitem__(self, idx):
         """Assemble one example: mask the target loop, inject context, cap length, build labels.
 
-        Returns {input_ids, labels, target_len, masked_count}. `labels` carries native residues only
-        at positions hidden in this view and -100 everywhere else. `target_len` remains the true loop
+        Returns {input_ids, labels, target_offsets, target_len, masked_count}. `labels` carries native
+        residues only at positions hidden in this view and -100 everywhere else. `target_offsets`
+        aligns each sequence position to its original loop offset (-1 outside the loop), which lets
+        losses classify anchors/core even under mixed masking. `target_len` remains the true loop
         length; evaluation uses a full-span view, so its mask count still equals that length.
         """
         framework = self.framework_parts(idx)
@@ -337,10 +339,14 @@ class AntibodyInfillingDataset(Dataset):
         # full_span view (pipeline.py), so no native target residue leaks into reported recovery.
         masked_offsets = set(self._masked_target_offsets(len(target_ids)))
 
-        # 5. Create labels only for residues the model must reconstruct.
+        # 5. Create labels only for residues the model must reconstruct. Target offsets remain for
+        # every loop position, including visible mixed-mask residues, so a custom loss can still
+        # distinguish core from anchors when the supervised positions are non-contiguous.
         labels = [-100] * len(input_ids)
+        target_offsets = [-1] * len(input_ids)
         for i, t_id in enumerate(target_ids):
             position = mask_start_idx + i
+            target_offsets[position] = i
             if i in masked_offsets:
                 labels[position] = t_id
             else:
@@ -351,6 +357,7 @@ class AntibodyInfillingDataset(Dataset):
         return {
             "input_ids": torch.tensor(input_ids, dtype=torch.long),
             "labels": torch.tensor(labels, dtype=torch.long),
+            "target_offsets": torch.tensor(target_offsets, dtype=torch.long),
             "target_len": len(target_ids),
             "masked_count": len(masked_offsets),
         }
@@ -376,6 +383,7 @@ def collate_fn(batch, pad_token_id=0):
     """
     input_ids = [item["input_ids"] for item in batch]
     labels = [item["labels"] for item in batch]
+    target_offsets = [item["target_offsets"] for item in batch]
 
     # Pad sequences to the longest one in this specific batch
     input_ids_padded = torch.nn.utils.rnn.pad_sequence(
@@ -384,6 +392,9 @@ def collate_fn(batch, pad_token_id=0):
     labels_padded = torch.nn.utils.rnn.pad_sequence(
         labels, batch_first=True, padding_value=-100 # -100 is ignored by Loss
     )
+    target_offsets_padded = torch.nn.utils.rnn.pad_sequence(
+        target_offsets, batch_first=True, padding_value=-1
+    )
 
     # Create attention mask (1 for real tokens, 0 for padding)
     attention_mask = (input_ids_padded != pad_token_id).long()
@@ -391,7 +402,9 @@ def collate_fn(batch, pad_token_id=0):
     return {
         "input_ids": input_ids_padded,
         "labels": labels_padded,
-        "attention_mask": attention_mask
+        "attention_mask": attention_mask,
+        "target_offsets": target_offsets_padded,
+        "target_lengths": torch.tensor([item["target_len"] for item in batch], dtype=torch.long),
     }
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from cdrseqgen.utils.batch_tables import (
+from cdrseqgen.visualization.batch_tables import (
     _common_recovery_policy,
     build_table,
     markdown_table,
@@ -115,3 +115,41 @@ class CoverageAwareReportingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MixedLossDetectionTests(unittest.TestCase):
+    """A core-weighted run optimises the number the recovery tables report, so a batch that mixes
+    objectives is not one comparison — it must say so rather than render silently."""
+
+    def _batch(self, tmp, losses):
+        import json, os
+        runs = {}
+        for i, loss in enumerate(losses):
+            run = Path(tmp) / f"h3_OAS_scratch_{i}"
+            run.mkdir(parents=True)
+            if loss is not None:
+                (run / "run_config.json").write_text(json.dumps({"loss_type": loss}))
+            runs[("h3", "OAS", "", f"m{i}")] = str(run)
+        return runs
+
+    def test_single_objective_is_not_flagged(self):
+        import tempfile
+        from cdrseqgen.visualization.batch_tables import loss_warning
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(loss_warning(self._batch(tmp, ["cross_entropy", "cross_entropy"])))
+
+    def test_mixed_objectives_are_flagged(self):
+        import tempfile
+        from cdrseqgen.visualization.batch_tables import loss_warning
+        with tempfile.TemporaryDirectory() as tmp:
+            warning = loss_warning(self._batch(tmp, ["cross_entropy", "weighted_cross_entropy"]))
+            self.assertIsNotNone(warning)
+            self.assertIn("weighted_cross_entropy", warning)
+
+    def test_runs_predating_the_field_count_as_cross_entropy(self):
+        """Old runs have no loss_type; they trained with plain cross-entropy, so a batch of them
+        plus a new cross-entropy run is still one comparison."""
+        import tempfile
+        from cdrseqgen.visualization.batch_tables import loss_warning
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(loss_warning(self._batch(tmp, [None, "cross_entropy"])))

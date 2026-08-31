@@ -51,7 +51,9 @@ def _core_anchor_masks(masked_positions: np.ndarray, trim: int = ANCHOR_TRIM):
     return core, anchor
 
 
-def _warn_if_low_core_coverage(coverage: float, rows_with_core: int, n_rows: int) -> None:
+def _warn_if_low_core_coverage(
+    coverage: float, rows_with_core: int, n_rows: int, trim: int = ANCHOR_TRIM
+) -> None:
     """Warn once per process when core_accuracy is backed by too few eval rows to be meaningful."""
     global _warned_low_core_coverage
     if coverage >= MIN_CORE_COVERAGE or _warned_low_core_coverage:
@@ -59,13 +61,13 @@ def _warn_if_low_core_coverage(coverage: float, rows_with_core: int, n_rows: int
     _warned_low_core_coverage = True
     logger.warning(
         f"⚠️ core_accuracy covers only {rows_with_core}/{n_rows} eval rows ({coverage:.1%}) — this "
-        f"target's loops are mostly <= {2 * ANCHOR_TRIM} residues, so most have no anchor-excluded "
+        f"target's loops are mostly <= {2 * trim} residues, so most have no anchor-excluded "
         f"core and the score is noise. Report WHOLE-SPAN accuracy for this loop (see README, "
         f"'How to read the numbers'). Known case: light-chain CDR2 (L2)."
     )
 
 
-def compute_metrics(eval_pred: EvalPrediction) -> dict:
+def compute_metrics(eval_pred: EvalPrediction, *, trim: int = ANCHOR_TRIM) -> dict:
     """Sequence recovery on the masked loop: whole-span, plus anchor-excluded core and anchor-only."""
     predictions, labels = eval_pred
 
@@ -89,7 +91,7 @@ def compute_metrics(eval_pred: EvalPrediction) -> dict:
     correct = (preds == labels) & masked_positions
 
     # Split the span into hypervariable core vs. V/J-determined anchor ends.
-    core_mask, anchor_mask = _core_anchor_masks(masked_positions)
+    core_mask, anchor_mask = _core_anchor_masks(masked_positions, trim=trim)
     core_total = core_mask.sum()
     anchor_total = anchor_mask.sum()
 
@@ -102,7 +104,7 @@ def compute_metrics(eval_pred: EvalPrediction) -> dict:
     rows_with_core = int((core_mask.sum(axis=-1) > 0).sum())
     n_rows = int(masked_positions.shape[0])
     core_coverage = (rows_with_core / n_rows) if n_rows else 0.0
-    _warn_if_low_core_coverage(core_coverage, rows_with_core, n_rows)
+    _warn_if_low_core_coverage(core_coverage, rows_with_core, n_rows, trim=trim)
 
     return {
         "accuracy": float(correct.sum() / total_masked),

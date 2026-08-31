@@ -1,73 +1,119 @@
-"""Training-curve plotting: epoch_metrics.csv -> PNG.
+"""Line charts, and the training-curve reader that is their commonest caller.
 
-  * plot_epoch_curves -- draw any number of epoch-vs-value lines on one chart
+  * LineSeries        -- one line: x, y, a label, and an optional band around it
+  * draw_lines        -- render lines onto an axes somebody else owns (the composable entry point)
+  * plot_epoch_curves -- read epoch_metrics.csv files and draw them as a standalone PNG
   * slugify           -- filename-safe version of a title
 
-One function covers both comparison modes, because every line is the same triple
+`plot_epoch_curves` covers both comparison modes, because every line is the same triple
 (run_dir, column, legend_label):
   * one metric across many runs   -- [(run_a, metric, "A"), (run_b, metric, "B"), ...]
   * many metrics from one run     -- [(run, "eval_accuracy", "whole"), (run, "eval_core_accuracy",
                                       "core"), ...]  <- the whole/core/anchor breakdown
 
-Called two ways: train.py auto-plots every run's curves at the end of training, and this file is
-also a CLI for ad-hoc cross-run charts (python -m cdrseqgen.utils.linegraph_plotter --help).
+Called three ways: train.py auto-plots every run's curves at the end of training; this file is a CLI
+for ad-hoc cross-run charts (python -m cdrseqgen.visualization.linegraph_plotter --help); and `draw_lines`
+is a panel inside the multi-panel analysis figures (sweep_plots).
 
 Note:
   * A missing CSV or column is reported and skipped rather than aborting the chart, so one bad
     path in a multi-run comparison doesn't lose the other lines.
 """
+from __future__ import annotations
+
 import os
 import re
 import argparse
+from dataclasses import dataclass
+
 import pandas as pd
 import matplotlib.pyplot as plt
 
-line_markers = ['o', 's', 'D', '^', 'v', 'P', 'X', '*']
+from cdrseqgen.visualization import plot_style
+
+
+@dataclass
+class LineSeries:
+    """One line. `band` is an optional (lower, upper) pair parallel to `y`, drawn as a shaded range.
+
+    The band carries the spread of whatever `y` averages — seeds, usually — so a reader can see
+    whether two means are separated by more than their replicates.
+    """
+
+    x: list
+    y: list
+    label: str
+    band: tuple | None = None
+    color: str | None = None
+    linestyle: str = "-"
+
+    def __post_init__(self):
+        if len(self.x) != len(self.y):
+            raise ValueError(
+                f"LineSeries '{self.label}': {len(self.x)} x-values against {len(self.y)} y-values"
+            )
+
+
+def draw_lines(ax, series, *, markers=True, color_offset=0):
+    """Draw `series` onto `ax`. Returns True if anything was drawn.
+
+    A band is drawn beneath its line at low alpha; where a band would be zero-width it is the
+    caller's job to omit it, since a collapsed band reads as agreement rather than as one replicate.
+    """
+    drew = False
+    for index, entry in enumerate(series):
+        if not len(entry.x):
+            continue
+        drew = True
+        colour = entry.color or plot_style.color(index + color_offset)
+        if entry.band is not None:
+            lower, upper = entry.band
+            ax.fill_between(entry.x, lower, upper, color=colour, alpha=0.18, linewidth=0)
+        ax.plot(
+            entry.x, entry.y,
+            color=colour,
+            marker=plot_style.marker(index + color_offset) if markers else None,
+            markersize=4, linewidth=2, linestyle=entry.linestyle, label=entry.label,
+        )
+    return drew
+
 
 def slugify(text):
     return re.sub(r'[^a-z0-9]+', '_', text.lower()).strip('_')
 
-def plot_epoch_curves(series, title="Comparison", ylabel="Value", save_dir=".", filename="plot"):
-    """Plot any number of epoch-vs-value lines (from epoch_metrics.csv files) on one chart"""
-    plt.figure(figsize=(10, 6))
-    colors = [plt.cm.turbo(i / max(len(series) - 1, 1)) for i in range(len(series))]
 
+def read_epoch_series(series):
+    """Turn (run_dir, column, label) triples into LineSeries, skipping what cannot be read."""
     csv_cache = {}  # a run_dir reused across lines (the breakdown case) is read once
-    plotted = False
-    for i, (run_dir, column, label) in enumerate(series):
+    lines = []
+    for run_dir, column, label in series:
         csv_path = os.path.join(run_dir, "epoch_metrics.csv")
         if csv_path not in csv_cache:
             csv_cache[csv_path] = pd.read_csv(csv_path) if os.path.exists(csv_path) else None
-        df = csv_cache[csv_path]
+        frame = csv_cache[csv_path]
 
-        if df is None:
+        if frame is None:
             print(f"❌ Could not find epoch_metrics.csv in {run_dir}")
-        elif column not in df.columns:
+        elif column not in frame.columns:
             print(f"⚠️ Metric '{column}' not found in {csv_path}")
         else:
-            plt.plot(
-                df["epoch"], df[column],
-                color=colors[i], marker=line_markers[i % len(line_markers)],
-                linewidth=2, label=label,
-            )
-            plotted = True
+            lines.append(LineSeries(list(frame["epoch"]), list(frame[column]), label))
+    return lines
 
-    if not plotted:
+
+def plot_epoch_curves(series, title="Comparison", ylabel="Value", save_dir=".", filename="plot"):
+    """Plot any number of epoch-vs-value lines (from epoch_metrics.csv files) on one chart"""
+    figure, ax = plt.subplots(figsize=(10, 6))
+    if not draw_lines(ax, read_epoch_series(series)):
         print("🚫 No valid data found to plot. Check your folder paths and metric names!")
-        plt.close()
+        plt.close(figure)
         return
 
-    plt.title(title, fontsize=14, fontweight='bold')
-    plt.xlabel("Epoch", fontsize=12)
-    plt.ylabel(ylabel, fontsize=12)
-    plt.grid(True, linestyle='--', alpha=0.6)
-    plt.legend()
-
-    os.makedirs(save_dir, exist_ok=True)
-    output_name = os.path.join(save_dir, f"{filename}.png")
-    plt.savefig(output_name, dpi=300, bbox_inches='tight')
-    print(f"✅ Plot successfully saved as: {output_name}")
-    plt.close()
+    plot_style.style_axes(ax, title=title, xlabel="Epoch", ylabel=ylabel, legend=True,
+                          legend_fontsize=10)
+    # A single-chart PNG is physically smaller than a multi-panel figure, so it needs the higher
+    # density to stay legible when dropped into a document at full width.
+    plot_style.save_figure(figure, save_dir, filename, dpi=300)
 
 
 if __name__ == "__main__":

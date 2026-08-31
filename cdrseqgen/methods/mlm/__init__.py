@@ -1,7 +1,7 @@
 """Masked-LM training and CDR generation method.
 
-This package owns the MLM-compatible backbones, training objective, masked
-sampling, fixed/variable-length generation, and MLM-native evaluation. Future
+This package owns the MLM-compatible backbones, configurable training losses,
+masked sampling, fixed/variable-length generation, and MLM-native evaluation. Future
 autoregressive or encoder-decoder methods can live beside it without inheriting
 mask-token or pseudo-log-likelihood assumptions.
 

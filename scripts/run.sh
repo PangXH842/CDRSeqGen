@@ -127,6 +127,18 @@ for config in "${CONFIGS[@]}"; do
     echo "✅ Finished run: $config"
 done
 
+# --- Reporting: comparison tables + dashboards, written beside the runs ------------------------
+# Each run already drops its own curves next to its epoch_metrics.csv; these are the batch-level
+# equivalent, so a finished round is self-describing without a second command. Both steps are
+# guarded: the matrix has already trained, and a reporting failure must not be able to spoil it.
 echo ""
-echo "🎉 Done (${#CONFIGS[@]} runs). Results in $BATCH_DIR/ ; comparison plots via 'python -m cdrseqgen.utils.linegraph_plotter'."
-echo "   $(find "$BATCH_DIR" -maxdepth 1 -mindepth 1 -type d | wc -l) run dir(s) written."
+echo "📊 Generating batch tables and dashboards..."
+python -m cdrseqgen.visualization.batch_tables --batch "$BATCH_DIR" --output \
+  || echo "⚠️ Table step failed; the runs are intact — rerun it against $BATCH_DIR"
+python -m cdrseqgen.visualization.batch_plots --batch "$BATCH_DIR" \
+  || echo "⚠️ Plot step failed; the runs are intact — rerun it against $BATCH_DIR"
+
+echo ""
+echo "🎉 Done (${#CONFIGS[@]} runs). Everything for this batch is in $BATCH_DIR/"
+echo "   $(find "$BATCH_DIR" -maxdepth 1 -mindepth 1 -type d | wc -l) run dir(s), plus batch_tables.md and figures/ (one dashboard per dataset)."
+echo "   Ad-hoc cross-run charts: 'python -m cdrseqgen.visualization.linegraph_plotter'."

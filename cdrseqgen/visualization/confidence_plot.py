@@ -5,8 +5,8 @@ answers the designer's question directly: if I keep only the k most confident of
 what recovery do I get, and how does that compare with keeping k at random?
 
 Usage:
-    python -m cdrseqgen.utils.confidence_plot --eval results/runs/latest/h3_OAS_scratch/generation_eval.json
-    python -m cdrseqgen.utils.confidence_plot --eval a.json --label "H3 scratch" \
+    python -m cdrseqgen.visualization.confidence_plot --eval results/runs/latest/h3_OAS_scratch/generation_eval.json
+    python -m cdrseqgen.visualization.confidence_plot --eval a.json --label "H3 scratch" \
                                               --eval b.json --label "H3 ESM-2"
 
 Panels:

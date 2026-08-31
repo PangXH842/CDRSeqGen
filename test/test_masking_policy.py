@@ -10,6 +10,7 @@ from cdrseqgen.data.dataset import (
     AntibodyInfillingDataset,
     AntibodyTokenizer,
     TokenizerAdapter,
+    collate_fn,
     normalize_masking_policy,
 )
 from cdrseqgen.methods.mlm.training import get_datasets
@@ -80,6 +81,15 @@ class MaskingPolicyTests(unittest.TestCase):
         self.assertEqual(int((span == self.tokenizer.mask_id).sum()), item["masked_count"])
         self.assertTrue(torch.equal(span[visible], target[visible]))
         self.assertTrue(torch.all(span_labels[visible] == -100))
+        offsets = item["target_offsets"][span_start:span_start + item["target_len"]]
+        self.assertTrue(torch.equal(offsets, torch.arange(item["target_len"])))
+
+    def test_collate_preserves_padded_loss_metadata(self):
+        first = self._dataset()[0]
+        second = self._dataset()[1]
+        batch = collate_fn([first, second], pad_token_id=self.tokenizer.pad_id)
+        self.assertEqual(batch["target_offsets"].shape, batch["labels"].shape)
+        self.assertEqual(batch["target_lengths"].tolist(), [4, 4])
 
     def test_pipeline_uses_distinct_shared_data_views_and_full_span_eval(self):
         data_args = SimpleNamespace(

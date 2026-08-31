@@ -1,8 +1,8 @@
 <!-- Note to AI: Edits allowed OUTSIDE of MANUAL PROTECTION ZONES and INSIDE of AI ACCESS ZONES -->
 # CDRSeqGen: Modular Antibody Infilling Framework
 
-**Date Updated:** 2026-08-20
-**Status:** Matched length-free CDRSeqGen–IgLM validation scored — **IgLM leads on every quality axis** (Findings §11). Paired confidence intervals and a clean-tree rescore pending
+**Date Updated:** 2026-08-31
+**Status:** Matched length-free CDRSeqGen–IgLM validation scored — **IgLM leads on every quality axis** (Findings §11). Paired confidence intervals and a clean-tree rescore pending. The core-weighted loss screen has since concluded: **no re-weighting beats plain cross-entropy** (Findings §13), closing the last sequence-side lever before Phase 2
 
 ## Project Overview
 CDRSeqGen is a computational immunology framework designed to predict antibody loop sequences given the surrounding framework context. 
@@ -46,6 +46,7 @@ CDRSeqGen/
 │   │   └── mlm/                # Masked-LM training, generation, and native evaluation
 │   │       ├── arguments.py        # MLM model/data/generation arguments + run setup
 │   │       ├── backbones.py        # Masked-LM registry — resolve(model_type) -> Backbone
+│   │       ├── losses.py           # Shared loss registry + Trainer bridge for every MLM backbone
 │   │       ├── training.py         # Datasets, Trainer lifecycle, post-training evaluation
 │   │       ├── recovery.py         # Position recovery, anchor/core split, core coverage
 │   │       ├── sampling.py         # Independent/iterative decoding + pseudo-perplexity
@@ -62,10 +63,16 @@ CDRSeqGen/
 │   │   └── record_results.py   # epoch_metrics.csv + training-curve PNGs
 │   ├── eval/
 │   │   └── metrics.py          # Architecture-neutral sequence/design metrics
-│   └── utils/
-│       ├── linegraph_plotter.py  # Training-curve plotting utility
-│       ├── confidence_plot.py    # Does per-candidate confidence rank candidates by recovery?
-│       └── batch_tables.py       # Generates validated Markdown comparison tables from a batch
+│   └── visualization/          # Run artifacts -> charts and tables. No GPU, no model loading.
+│       ├── plot_style.py           # Shared palette, axes furniture, empty panels, saving
+│       ├── linegraph_plotter.py    # Chart type: lines with optional spread bands (+ CLI)
+│       ├── bargraph_plotter.py     # Chart type: grouped bars with error bars
+│       ├── scatterplot_plotter.py  # Chart type: operating-point scatter
+│       ├── sweep_plots.py          # Figure: sweep settings x seeds, four panels
+│       ├── batch_plots.py          # Figure: the run matrix, one dashboard per dataset
+│       ├── confidence_plot.py      # Figure: does per-candidate confidence rank by recovery?
+│       ├── batch_tables.py         # Generates validated Markdown comparison tables from a batch
+│       └── sweep_tables.py         # Ranks a sweep's settings across seeds -> summary.tsv
 ├── benchmark/                  # Frozen-manifest comparisons against external baselines
 │   ├── adapters/               # CDRSeqGen and IgLM generation under one output contract
 │   ├── manifests/              # Versioned validation/test inputs plus SHA-256 sidecars
@@ -78,8 +85,12 @@ CDRSeqGen/
 │                               #   Deliberately outside the package; configs' data_path points here.
 ├── results/                    # Ignored in git. Three tiers, by cost to regenerate:
 │   ├── runs/                   #   hours of GPU — <timestamp>[_name]/<run>/, latest -> newest
+│   │                           #   A round reports itself when it finishes: records at the batch
+│   │                           #   root (batch_tables.md, or runs.tsv/summary.tsv for a sweep),
+│   │                           #   charts under <batch>/figures/, per-trial stdout under logs/.
 │   ├── benchmark/              #   GPU minutes — <benchmark_id>/{generations,scores}/
-│   └── figures/                #   seconds, disposable — training/<batch>/ and benchmark/<id>/
+│   └── figures/                #   seconds, disposable — hand-picked charts for the README and
+│                               #   ad-hoc cross-batch comparisons, which belong to no one batch
 ├── test/                       # Unit tests plus curated qualitative JSON cases for generate.py
 │   ├── test_*.py
 │   └── test_{h1,h3,h3_lc,h3_ag}.json
@@ -91,7 +102,7 @@ CDRSeqGen/
 ├── fit_mlm_length.py           # Add MLM length artifacts to an older checkpoint
 ├── scripts/
 │   ├── run.sh                  # Unified runner: ./scripts/run.sh <gpu> [oas|antigen|lcdr|igbert|protbert|plm|all ...]
-│   ├── sweep.sh                # Unified hyperparameter sweep: h3 | pilot | arch | quick presets
+│   ├── sweep.sh                # Unified sweep: h3 | pilot | arch | loss | quick presets
 │   └── test.sh                 # Unit test runner (sets PYTHONPATH; no GPU or data needed)
 ├── env.sh
 └── README.md
@@ -182,7 +193,7 @@ We use `.json` configuration files to manage hyperparameters cleanly. The traine
 CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_scratch.json
 ```
 
-**Run an Automated Experiment Suite:** [`scripts/run.sh`](scripts/run.sh) takes a GPU id and one or more suite names, skips to the next config if one fails.
+**Run an Automated Experiment Suite:** [`scripts/run.sh`](scripts/run.sh) takes a GPU id and one or more suite names, skips to the next config if one fails, and writes the round's tables and dashboards into the batch folder when it finishes (Step 3).
 ```bash
 # One runner, suites chosen (and combined) by arg:  ./scripts/run.sh <gpu> [suite ...]
 ./scripts/run.sh 4                # default "all": OAS heavy + SAbDab2 antigen + OAS light (36)
@@ -206,14 +217,24 @@ addresses any run in that round:
 results/runs/
 ├── 20260720_191138/                    ← one ./scripts/run.sh round
 │   ├── h1_OAS_scratch/
-│   └── h3_OAS_LC_scratch/
+│   ├── h3_OAS_LC_scratch/
+│   ├── batch_tables.md                 ← the round's own report, written when it finishes
+│   └── figures/                        ← batch_oas.png, batch_sd2.png
 ├── 20260720_193002/                    ← a single train.py run
 │   └── h3_OAS_scratch/
 ├── 20260811_181946_sweep_h3/           ← validation-safe sweep; results/runs/latest unchanged
 │   ├── h3_OAS_scratch_lr1e-4_wu0.0_wd0.0_s42/
-│   └── h3_OAS_scratch_lr1e-3_wu0.06_wd0.01_s43/
+│   ├── h3_OAS_scratch_lr1e-3_wu0.06_wd0.01_s43/
+│   ├── runs.tsv  summary.tsv  grid.tsv ← the records you read
+│   ├── figures/                        ← objective_comparison.png
+│   └── logs/                           ← one stdout/stderr capture per trial
 └── latest -> 20260720_193002/          ← newest batch; generate.py uses latest/<config>
 ```
+
+Everything a round produces about *itself* sits at its own root: records as files, charts under
+`figures/`, per-trial stdout under `logs/`. The logs are kept rather than dropped because a trial
+that dies before logging attaches leaves no `train.log` — sometimes no run directory at all — so
+that capture is the only evidence of the failure; they just no longer outnumber the records.
 
 A named group is `<timestamp>_<name>` — the timestamp leads so directories sort chronologically
 whether or not they carry a name (`20260730_160028_seedcheck`, `20260811_181946_sweep_h3`).
@@ -259,6 +280,32 @@ masked subset. Validation, post-training generation, and standalone evaluation a
 `full_span` dataset view, so partially revealed native residues cannot leak into reported recovery.
 Both settings are persisted in `run_config.json`.
 
+**Choose a training loss:** ordinary token-averaged cross-entropy remains the default and therefore
+reproduces old configs. The shared loss registry in
+[`cdrseqgen/methods/mlm/losses.py`](cdrseqgen/methods/mlm/losses.py) is applied after model forward,
+so scratch, ESM-2, IgBert, and ProtBert use the same implementation. The first alternative raises
+the contribution of the hypervariable core relative to the easier loop anchors:
+
+```bash
+python train.py configs/h3_scratch.json \
+    --loss_type weighted_cross_entropy \
+    --core_loss_weight 2.0 --anchor_loss_weight 1.0 --anchor_trim 2
+```
+
+or, equivalently, from a config: [`configs/h3_scratch_weighted.json`](configs/h3_scratch_weighted.json)
+is `h3_scratch.json` plus the three loss keys and nothing else, so the two differ only in objective.
+
+The weighted objective is a weighted mean over supervised tokens, so only the core-to-anchor weight
+ratio matters. `anchor_trim: 2` means the first and last two residues are anchors; loops of length
+four or less contain no core and are treated entirely as anchors — on H3 that is 1 of 21,106 loops,
+but on L2 it is 98.8% of them, so the weighted objective is an H3/H2/H1 tool and degenerates to plain
+cross-entropy on the short light-chain loops. Setting `anchor_loss_weight 0` supervises the core only
+(both weights zero is refused, as is a negative weight); a batch whose supervised tokens are all
+anchors under that setting raises rather than emitting NaN. The same trim is passed to the
+reported `core_accuracy`/`anchor_accuracy`, and original loop offsets keep the classification correct
+under mixed masking. Loss settings and any `label_smoothing_factor` are persisted in
+`run_config.json`.
+
 **Tune on validation:** [`scripts/sweep.sh`](scripts/sweep.sh) runs a validation-only,
 multi-seed screen. It takes a GPU id and a preset, the same way `run.sh` takes suite names:
 
@@ -267,21 +314,44 @@ multi-seed screen. It takes a GPU id and a preset, the same way `run.sh` takes s
 | `h3` (default) | 4 LR × 2 warm-up × 2 weight decay × 2 seeds, fixed 30-epoch horizon | 32 |
 | `pilot` | 3 LR × 2 epoch budgets — the 2026-07 "is the budget enough?" grid | 6 |
 | `arch` | 3 widths × 2 depths, FFN tracking width | 6 |
+| `loss` | 5 objective settings × 3 seeds, generative eval on, ranked by judge perplexity | 15 |
 | `quick` | 2 trials at 2 epochs — checks the script runs, not for results |  2 |
+
+The `loss` grid is `cross_entropy` plus four weighted settings (core/anchor `1.0/1.0`, `1.0/0.0`,
+`3.0/1.0`, `3.0/0.0`). Weight combinations are deduplicated against `cross_entropy`, which ignores
+them, so the nominal 24 grid points collapse to the 15 trials the preset runs.
+
+> **⚠️ Only 9 of those 15 are distinct objectives** — the dedup catches weights under
+> `cross_entropy` but not weights that are equivalent to each other. The loss normalises by total
+> weight, so only the core-to-anchor *ratio* survives: `weighted 1.0/1.0` is bit-identical to
+> `cross_entropy`, and `3.0/0.0` to `1.0/0.0`. Six of the fifteen trials therefore retrain a model
+> the grid has already trained. **Keeping one such pair is worth it deliberately** — it measures
+> run-to-run nondeterminism, which turns out to exceed the seed spread (Findings §13) — but the
+> other three are waste. Canonicalising on the ratio is a contained change to the grid materialiser.
 
 ```bash
 ./scripts/sweep.sh 4                      # h3 preset
 ./scripts/sweep.sh 4 pilot
 SEEDS="42 43 44" LRS="3e-4 1e-3" ./scripts/sweep.sh 4
 SWEEP_DIR=results/runs/my_sweep ./scripts/sweep.sh 4   # resume into the same directory
+./scripts/sweep.sh 4 loss
+DRY_RUN=1 ./scripts/sweep.sh 4 loss       # print the grid, train nothing
 ```
 
 Every dimension (`LRS`, `WARMUPS`, `WEIGHT_DECAYS`, `EPOCH_LIST`, `SEEDS`, `HIDDEN_SIZES`,
-`NUM_LAYERS`, `MAX_EPOCHS`, `PATIENCE`) is env-overridable, so a preset only supplies defaults.
+`NUM_LAYERS`, `MAX_EPOCHS`, `PATIENCE`, `LOSS_TYPES`, `CORE_WEIGHTS`, `ANCHOR_WEIGHTS`) is
+env-overridable, so a preset only supplies defaults. Three knobs control what each trial is scored on:
+`RANK_METRIC` (`core` | `whole` | `judge_ppl` | `diversity`), `GEN_EVAL` (`true`/`false`), and
+`GEN_EXAMPLES`/`GEN_SAMPLES`, which shrink the generative eval — it runs once per trial, so the
+150×20 default would dominate a 15-trial sweep. The `loss` preset uses 100×10.
+
+Rank by `judge_ppl` rather than `core` when comparing objectives: a loss that reweights core tokens
+changes the very quantity `core` measures, so ranking on it partly rewards the objective for
+optimising its own metric. The independent judge does not share that bias.
 
 The script refuses a dataset without explicit `train`/`validation`/`test` labels, forces
 `--eval_split validation`, ranks settings by mean best-epoch validation core recovery across seeds,
-writes `runs.tsv` and `summary.tsv`, never selects the test partition, skips already-completed grid
+writes `runs.tsv`, `summary.tsv` and `objective_comparison.png`, never selects the test partition, skips already-completed grid
 points on resume, and sets `CDRSEQGEN_SKIP_LATEST=1` so exploratory trials do not replace the main
 usable batch. It also flags a winner whose margin falls below the ~0.006 seed-noise floor as a tie.
 
@@ -319,20 +389,40 @@ Use the **breakdown** chart to see the anchor gap, and the **individual** charts
 breakdown's y-axis spans ~0.3–0.9, which compresses within-line movement (ESM-2's core decay from
 0.321 → 0.306 is legible on `eval_core_accuracy_curve.png`, barely visible on the breakdown).
 
+#### A finished round reports itself
+What each run does for itself, a batch now does for the whole round — the report lands in the **batch
+folder**, beside the runs it describes, so nothing has to be regenerated by hand to read a result.
+Records sit at the batch root and charts under `figures/`, the same split `results/` uses one level up:
+
+| written by | at the end of | into |
+|---|---|---|
+| `batch_tables.py` | `run.sh` | `<batch>/batch_tables.md` — every README comparison table |
+| `batch_plots.py` | `run.sh` | `<batch>/figures/batch_<ds>.png` — one dashboard per dataset |
+| `sweep_tables.py` | `sweep.sh` | `<sweep>/summary.tsv` — settings ranked across seeds |
+| `sweep_plots.py` | `sweep.sh` | `<sweep>/figures/objective_comparison.png` — settings × seeds |
+
+Both steps are guarded in the shell: a batch that already trained cannot be spoiled by a reporting
+failure, and any of the four can be re-run against a finished directory at any time. That matters for
+`sweep_tables` in particular — it used to be a heredoc at the end of `sweep.sh`, so an interrupted
+sweep produced no summary at all, even though every finished trial was already on disk.
+
+`results/figures/` stays for what does **not** belong to one batch: hand-picked charts for this
+README, and ad-hoc comparisons spanning several batches (the two CLIs below still default there).
+
 One function draws both comparison shapes, because every line is the same triple `(run_dir, column, label)`.
 Each `--run` takes `LABEL FOLDER [METRIC]`; omit `METRIC` and it falls back to the global `--metric`
 (default `eval_core_accuracy`):
 
 ```bash
 # same metric across runs — metric named once
-python -m cdrseqgen.utils.linegraph_plotter \
+python -m cdrseqgen.visualization.linegraph_plotter \
   --metric eval_core_accuracy \
   --run "H3 Scratch" "results/20260729_202635/h3_OAS_scratch" \
   --run "H3 ESM-2"   "results/20260729_202635/h3_OAS_esm2_t12_35M_UR50D" \
   --title "H3 Core Recovery: Scratch vs ESM-2"
 
 # breakdown of ONE run — per-run metric, several columns on one chart
-python -m cdrseqgen.utils.linegraph_plotter \
+python -m cdrseqgen.visualization.linegraph_plotter \
   --run whole  "results/runs/latest/h3_OAS_scratch" eval_accuracy \
   --run core   "results/runs/latest/h3_OAS_scratch" eval_core_accuracy \
   --run anchor "results/runs/latest/h3_OAS_scratch" eval_anchor_accuracy \
@@ -576,8 +666,8 @@ Every generated table states the selected metric and minimum core coverage. Budg
 
 > **Every table here is generated, not hand-written** — regenerate them all after any new batch with:
 > ```bash
-> python -m cdrseqgen.utils.batch_tables --batch results/20260729_202635
-> python -m cdrseqgen.utils.batch_tables --only regimes,loops   # or a subset
+> python -m cdrseqgen.visualization.batch_tables --batch results/20260729_202635
+> python -m cdrseqgen.visualization.batch_tables --only regimes,loops   # or a subset
 > ```
 > It reads only what a finished run already writes (`epoch_metrics.csv`, `generation_eval.json`,
 > `run_config.json`) plus the processed dataset JSONs, and prints markdown ready to paste. The one
@@ -841,14 +931,23 @@ Self-perplexity ranks *backwards* on **46 of 150** frameworks, the judge on **29
 the judge is a population-level effect, not a rule you can trust on any single framework — worth
 stating before anyone reads "+12.9%" as a guarantee.
 
+> **⚠️ The ordering did not hold on a second checkpoint.** Scored on the 08-25 screen's
+> cross-entropy run, self-perplexity *outranked* the judge: top-1 lift **+0.0276 against +0.0186**,
+> the reverse of the table above. That run is not a replication — 100 frameworks × 10 candidates
+> against 150 × 20, on the tuned config rather than `h3_OAS_scratch` — and halving the candidate
+> pool makes top-1 selection substantially noisier. But it is enough that the *ranking* of the two
+> signals should be treated as unsettled until one `evaluate.py` run at 150 × 20 on the tuned
+> checkpoint says otherwise. The claim that survives either way is the practical one: an
+> independent judge is a usable reranker, and reranking beats a better sampler.
+
 **The figure is written automatically.** Any evaluation that produces per-candidate scores also
 drops `<output>_confidence.png` beside its JSON — the same convention as the training curves — so
 every `train.py` run and every `evaluate.py` call gets one without a second command. It is skipped
 silently when there is nothing to plot (`--skip_perplexity` with no judge) and is exception-guarded,
 so a plotting problem cannot cost a finished evaluation. To redraw, or to overlay two runs:
 ```bash
-python -m cdrseqgen.utils.confidence_plot --eval <run>/generation_eval.json
-python -m cdrseqgen.utils.confidence_plot --eval a.json --label scratch --eval b.json --label ESM-2
+python -m cdrseqgen.visualization.confidence_plot --eval <run>/generation_eval.json
+python -m cdrseqgen.visualization.confidence_plot --eval a.json --label scratch --eval b.json --label ESM-2
 ```
 
 This sits directly alongside the decoder finding: iterative decoding buys nothing because the
@@ -857,12 +956,55 @@ correctness. Both say the masked-LM objective produces poorly *structured* uncer
 inaccurate predictions. The practical corollary is that a reranking stage is worth more than a
 better sampler — and that the reranker must be an independent model.
 
+**13. Re-weighting the loss across loop positions changes nothing — the anchors are not wasted
+capacity.** The 08-25 screen trained the tuned scratch config (`1e-3`, 0.06 warm-up, 0.01 weight
+decay, 30 epochs) under four objective settings × 3 seeds; 10 of 15 trials completed before it was
+interrupted. Ranked three ways, the winner changes with the metric:
+
+| ranked by | 1st | 2nd | 3rd | 4th |
+|---|---|---|---|---|
+| judge perplexity ↓ | **cross-entropy** (6.94) | weighted 1/1 (7.04) | weighted 3/1 (7.09) | core-only (31.60) |
+| free-running core@L | **weighted 1/1** (0.2294) | cross-entropy (0.2286) | core-only (0.2266) | weighted 3/1 (0.2258) |
+| teacher-forced core | **weighted 1/1** (0.3226) | weighted 3/1 (0.3224) | cross-entropy (0.3212) | core-only (0.3207) |
+
+**The two settings trading first place are the same loss function.** `weighted_cross_entropy` at
+core/anchor `1.0/1.0` is bit-identical to `cross_entropy` — with equal weights the weighted mean
+reduces to the plain token mean (verified to 1e-9). The grid therefore contained only **three**
+distinct objectives, not five: `3.0/0.0` is likewise identical to `1.0/0.0`, because the loss
+normalises by total weight and only the core-to-anchor *ratio* survives.
+
+That accident supplies the number that settles the comparison. Two runs of an identical objective at
+identical seeds differ by **0.096 judge perplexity, 0.0014 teacher-forced core, 0.0009
+free-running core** — and every real between-objective gap is at or below that floor. Weighted 3:1,
+the only genuinely distinct non-degenerate setting, sits inside it on all three metrics.
+
+**Core-only is the one decisive result, and it is a clean negative.** Setting
+`anchor_loss_weight 0` collapses anchor recovery from **0.873 to 0.042**, which is what drives judge
+perplexity to 4.5×. It did *not* buy anything for the region it targets: core@L 0.2266 against
+cross-entropy's 0.2286. So down-weighting the anchors does not reallocate capacity to the
+hypervariable middle — the core stays exactly where it was and the anchors break. The position curve
+in `results/runs/20260825_165553_sweep_loss/figures/objective_comparison.png` shows it directly:
+core-only tracks every other objective across relative positions 0.2–0.7 and falls away only at the
+two ends. Its higher diversity (0.716 against 0.560) is an artifact of emitting implausible anchors,
+not better design.
+
+*Caveats: weighted 3:1 has n=1 — the sweep was interrupted before its other two seeds ran, so it is
+bounded by the noise floor rather than properly measured. H3/OAS/scratch only, one hyperparameter
+setting, generative eval at 100×10 rather than the 150×20 used in §12. One thing strengthens the
+conclusion: checkpoint selection ran on `core_accuracy`, the metric a core-weighted objective
+directly optimises, and the weighted settings still did not win.*
+
+This is the third independent result pointing one way. Iterative decoding buys nothing because the
+marginals are near-independent (Step 4); the model's confidence barely tracks its own correctness
+(§12); and now re-weighting tokens within the objective moves neither recovery nor plausibility. The
+problem is the objective *class*, not the weighting inside it.
+
 > **Bottom line:** fixed-native sequence-only CDR-H3 infilling saturates at ~0.32 core / ~0.46
-> whole-span regardless of model, context, dataset, or decoder; length inference is not solved by the
-> first gap-sentinel head, and against a published baseline that picks its own length the current
-> method loses on recovery, length, edit distance, and judged plausibility alike; and the non-H3
-> loops are not yet measured on a split that tests generalisation. Together these motivate the
-> eventual shift to a **structure objective** (see Roadmap).
+> whole-span regardless of model, context, dataset, decoder, **or loss weighting**; length inference
+> is not solved by the first gap-sentinel head, and against a published baseline that picks its own
+> length the current method loses on recovery, length, edit distance, and judged plausibility alike;
+> and the non-H3 loops are not yet measured on a split that tests generalisation. Together these
+> motivate the eventual shift to a **structure objective** (see Roadmap).
 
 ---
 
@@ -909,7 +1051,11 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ### Open problems
 - **The split only controls the loop it clusters on.** `add_split_field` clusters heavy CDR3, so the holdout is leakage-safe for H3 and **not** for H1/H2/L1/L2/L3 — 98% of OAS test H1s appear verbatim in train (Findings §6). Every non-H3 number in this README is therefore retrieval-bounded and should not be read as generalisation. Fix: cluster on the *target* CDR (per-loop split), a contained change to `add_split_field`; then re-run the OAS matrix.
 - **The first learned H3 length head is below its naive baseline.** It reaches 9.24% exact accuracy / 3.64 MAE versus 10.52% / 3.28 for always predicting length 15 (Finding §10). Before treating inferred MLM generation as a competitive method, evaluate probability calibration and top-k length coverage, then test a representation or objective that actually learns the framework-to-length signal.
-- **Training still optimizes recovery, not design.** The masked-LM objective rewards reproducing the native loop; the generative metrics only *measure* design quality after the fact — nothing trains for it. Findings §7 shows the two can disagree outright (H1: 0.99 recovery, 0.002 diversity). A design-aligned objective stays open (Phase 2).
+- **Training still optimizes recovery, not design.** The masked-LM objective rewards reproducing the native loop; the generative metrics only *measure* design quality after the fact — nothing trains for it. Findings §7 shows the two can disagree outright (H1: 0.99 recovery, 0.002 diversity). A design-aligned objective stays open (Phase 2). Re-weighting tokens *within* the masked-LM objective has now been tested and does not help (§13), so this needs a different objective class rather than a better weighting.
+- **Run-to-run nondeterminism exceeds the seed spread, and only seeds are ever reported.** Two bit-identical objectives at identical seeds — `cross_entropy` and `weighted 1.0/1.0` — ended 0.0014 apart in teacher-forced core, all three seeds in the same direction, against a within-objective seed sd of 0.0003–0.0007 (§13). The two differ only in floating-point reduction order. So a seed sd *understates* reproducibility by 2–4×, which bears directly on the ±0.006 tie threshold in `sweep.sh` and the σ ≈ 0.0028 noise floor in §4. Every "error bar" in this README is a seed spread and should be read as a lower bound. Cheap fix: keep one duplicated setting per sweep as a deliberate determinism control.
+- **Checkpoint selection is circular for a loss sweep.** `sweep.sh` argues — correctly — that *ranking* a loss sweep on core recovery lets a core-weighted objective grade its own homework, and defaults `RANK_METRIC` to `judge_ppl`. It then passes `--metric_for_best_model core_accuracy` to every trial, so each checkpoint is still *selected* on the metric the objective optimises. It is also blind to the failure §13 found: the core-only run has anchor recovery 0.042 and would be selected happily, because selection never looks at anchors even though `eval_anchor_accuracy` is recorded every epoch.
+- **`evaluate.py --decoding` does not default off the masking policy.** `resolve_decoding` falls back to the checkpoint's recorded `gen_decoding`, which defaults to `"iterative"` in `GenerationArguments` — so a checkpoint that never set it resolves back to the mode that halves core recovery on a `full_span` run. All 49 current configs happen to set `independent`, which is the only reason this is not live. The guard that would catch it is also dead for older checkpoints: it tests `masking_policy == "full_span"`, and `masking_policy` is absent from every `run_config.json` written before 08-25. Drive the default off `masking_policy`, treating a missing value as `full_span`.
+- **`anchor_trim` does not reach the generative eval.** `run_generative_eval` never forwards it to `run_eval_loop`, so `core@L`/`anchor@L` always use the module default of 2 even when training ran with `--anchor_trim 3`, while the training metrics use the requested value. Not live today (everything is trim 2), but it is the silent metric-definition mismatch the shared `core_anchor_indices` exists to prevent.
 - **The judge shares the eval distribution.** IgBert was trained on OAS paired repertoires — the same distribution as the OAS eval split it judges. It's applied identically to every model, so the *comparison* is fair, but absolute perplexities are OAS-flavoured; an off-distribution judge would be a stronger check.
 - **Generative sweep is H3/OAS only.** The matrix covered CDR-H3 on OAS (150 held-out frameworks × 4 models). L-chain loops, SAbDab2, and the antigen configs have not been swept generatively.
 - **Sampler is marginal-based, not learned-joint — now measured.** The `iterative` (Mask-Predict) decoder approximates the loop joint by conditioning on committed residues, but the model is still a masked-LM trained on independent-position recovery. As of 2026-07-28 this is no longer a suspicion: iterative and `independent` are **within noise on every metric** on H3/OAS/ESM-2 (recovery 0.4057 vs 0.4072; judge-ppl 7.14 vs 7.23) at ~15× the compute. The conditioning buys nothing because the learned marginals are already near-independent — true joint/generative *training* (autoregressive or diffusion) is Phase-2 territory.
@@ -940,6 +1086,16 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
   | L2   | 3                | 98.8%     | **0.10 bits**            |
 
   On H3 that's ~4 bits handed over per example — roughly 9% of the loop's total information content (a 15-mer at the measured 2.96 bits/position ≈ 44 bits; position-conditioned entropy over the 2,098 length-15 H3 loops). On L2 it's nothing: guess 3 and you're right 98.8% of the time. So **H3 recovery is the number most flattered by this**, and cross-loop comparisons of AAR partly compare how much length information each loop gave away. Length-free results are therefore a separate track with length/edit metrics, not a replacement value in these tables.
+- **Teacher-forced accuracy is not generation accuracy, and the core is where they diverge.** `eval_accuracy`/`eval_core_accuracy` are argmax over the true context; the generative eval samples. On `h3_OAS_scratch` (300 frameworks x 10 candidates, fixed-native, T=1.0, independent decoding, all 3,000 candidates length-matched):
+
+  | metric | teacher-forced (argmax) | free-running (sampled) |
+  |---|---|---|
+  | whole-loop | 0.4604 | 0.3695 |
+  | **core** | 0.3180 | **0.2042** |
+  | anchor | — | 0.8397 |
+
+  The whole-loop number is carried by the anchors (0.84): they are largely V/J-determined, so a model that had learned nothing about the hypervariable middle would still post a respectable whole-loop AAR. Judge the core column. Against baselines fitted on train and evaluated on validation over the same 26,205 core positions — matched to the sampling protocol, since an argmax baseline is not comparable to a sampled model — sampling from H3's marginal core amino-acid frequencies expects **0.084**, and sampling from a per-`(length, position)` frequency table expects **0.146**. At 0.204 the model beats the lookup table by ~40% relative, which is a real but modest margin, and the honest headline for free-running H3 core design.
+- **The decoder must match the checkpoint's masking policy.** `iterative` decoding re-masks and resamples positions one at a time, which assumes the model saw partially revealed loops — true only under `masking_policy: mixed`. On the same `full_span` checkpoint and protocol, iterative decoding costs whole-loop 0.370 -> 0.253 and core **0.204 -> 0.077**, dropping it below even the 0.084 marginal-sampling baseline. `evaluate.py --decoding` therefore defaults to whatever `run_config.json` recorded rather than to a fixed mode, and warns when `iterative` is forced onto a `full_span` run.
 - **Read best-epoch, not last-epoch** — ESM-2 overfits on SAbDab2/H3; `load_best_model_at_end` saves the peak, but the last CSV row can sit well below it.
 - **Never plot OAS and SAbDab2 on shared axes** — different test sets; the `_OAS`/`_SD2` run tags enforce it, and per-dataset charts live under `results/figures/training/<batch>/*.png`.
 - **`epoch_metrics.csv` and `*_results.json` measure different models — they're *supposed* to disagree.** The CSV is the per-epoch **trajectory** (the model as it stood at each epoch); `eval_results.json`/`all_results.json` come from the post-training `trainer.evaluate()`, which with `load_best_model_at_end` runs on the **best** checkpoint while still being stamped with the final epoch number. On `h3_esm2` the CSV's epoch-10 row reads core **0.3063** (the actual last model) while `eval_results.json` reads **0.3209** (the epoch-4 best model). `save_training_csv` de-duplicates on epoch and **keeps the first** occurrence precisely so the curve keeps the real last-epoch point — keeping the last would silently redraw the best model at x=10 and erase the overfitting decay entirely.
@@ -948,6 +1104,9 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-08-31** -- Auto figure plotting after hyperparameter & loss sweeps, in sweep dir instead of separate `figures/` folder
+- **2026-08-31** -- Data visualization rework, run/sweep type -> table/graph plotters
+- **2026-08-25** -- Enabled different loss types besides cross entropy, currently added: weighted cross entropy (core vs anchor)
 - **2026-08-21** -- Added confidence scores per candidate and confidence vs AAR correlation metrics
 - **2026-08-21** -- `scripts/sweep.sh` [new]: merged `sweep_h3.sh`, `sweep_scratch.sh` into unified hyperparameter sweep script
 - **2026-08-21** -- `results/` storage reorganized
@@ -1022,6 +1181,11 @@ The comparison must run both methods on the **same frozen examples**, with the s
 - [x] Run the 32-trial validation-safe scratch H3 screen ([`sweep.sh`](scripts/sweep.sh)); top region: `1e-3` LR / 0.06 warm-up / 0.01 weight decay at 0.32305 mean validation core recovery (two seeds)
 - [ ] Confirm the top two sweep settings with additional shared seeds, freeze the selected config, then evaluate it once on the untouched test split
 - [ ] Multi-seed the key H3 configs (error bars on the ±0.01 model/context deltas)
+- [x] **Run the core/anchor loss screen** ([`sweep.sh`](scripts/sweep.sh) `loss` preset, 10/15 trials). Result: no re-weighting beats plain cross-entropy, and core-only collapses the anchors without helping the core (§13). Closes the "is the loss weighting a lever?" question in the negative
+- [ ] Finish the loss screen's two missing `weighted 3.0/1.0` seeds (43, 44) so the only distinct untested setting is measured rather than noise-bounded; skip `3.0/0.0` entirely — it is the same objective as `1.0/0.0`
+- [ ] Canonicalise the `loss` grid on the core-to-anchor ratio, keeping exactly one duplicate pair as a deliberate determinism control (6 of 15 trials are currently redundant)
+- [ ] Settle the §12 self-vs-judge ordering with one 150 × 20 `evaluate.py` run on the tuned checkpoint — the 08-25 screen inverted it at 100 × 10
+- [ ] Fix the four reporting/selection defects in Open problems: circular `metric_for_best_model` on loss sweeps, the `gen_decoding` fallback and its dead `masking_policy` guard, and `anchor_trim` not reaching the generative eval
 - [ ] Re-run the 07-24 batch under core-based checkpoint selection (those 36 runs predate the fix; their saved weights were picked on whole-span)
 - [ ] Lock the Phase-2 objective + primary metric with advisor
 <!-- AI ACCESS ZONE ENDS -->
@@ -1041,7 +1205,7 @@ The comparison must run both methods on the **same frozen examples**, with the s
     - [ ] length, length_predictor, variable_length_evaluation
   - [ ] `eval/metrics.py`  and `train/` artifact/logging scripts
   - [ ] `train.py` + `train/` (logging)
-  - [x] `linegraph_plotter.py` + `batch_tables.py`
+  - [ ] visualization scripts
   - [ ] `evaluate.py`
   - [ ] `generate.py`
   - [ ] `fit_mlm_length.py`

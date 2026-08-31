@@ -10,11 +10,12 @@ CDRSEQGEN_RESULTS_ROOT so every run of the round shares one batch folder.
 """
 import functools
 
-from transformers import Trainer, set_seed
+from transformers import set_seed
 
 from cdrseqgen.data.dataset import collate_fn
 from cdrseqgen.methods.mlm.arguments import setup_args
 from cdrseqgen.methods.mlm.backbones import resolve
+from cdrseqgen.methods.mlm.losses import MLMLossTrainer, loss_config_from_args
 from cdrseqgen.methods.mlm.recovery import compute_metrics
 from cdrseqgen.methods.mlm.training import (
     get_datasets,
@@ -47,6 +48,15 @@ def main():
 
     model_args, data_args, gen_args, training_args = setup_args()
     set_seed(training_args.seed)
+    loss_config = loss_config_from_args(model_args, training_args)
+    logger.info(
+        "🎯 Loss: %s (core=%g, anchor=%g, trim=%d, label_smoothing=%g)",
+        loss_config.loss_type,
+        loss_config.core_weight,
+        loss_config.anchor_weight,
+        loss_config.anchor_trim,
+        loss_config.label_smoothing,
+    )
 
     backbone = resolve(model_args.model_type)
     train_dataset, eval_dataset, tokenizer = get_datasets(model_args, data_args, training_args, backbone)
@@ -65,13 +75,14 @@ def main():
         max_len=data_args.max_len,
     )
 
-    trainer = Trainer(
+    trainer = MLMLossTrainer(
         model=model,
         args=training_args,
+        loss_config=loss_config,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         data_collator=functools.partial(collate_fn, pad_token_id=tokenizer.pad_id),
-        compute_metrics=compute_metrics,
+        compute_metrics=functools.partial(compute_metrics, trim=loss_config.anchor_trim),
         callbacks=build_callbacks(model_args, training_args, logger),
     )
 

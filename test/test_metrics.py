@@ -1,6 +1,8 @@
 import unittest
 
 from cdrseqgen.eval.metrics import (
+    core_anchor_indices,
+    recovery_at_indices,
     LENGTH_BUCKETS,
     amino_acid_recovery,
     calculate,
@@ -8,6 +10,7 @@ from cdrseqgen.eval.metrics import (
     hamming_fraction,
     mean_pairwise_diversity,
     per_position_entropy,
+    position_recovery,
     unique_fraction,
 )
 
@@ -71,6 +74,61 @@ class SharedMetricPrimitiveTests(unittest.TestCase):
         for length in range(0, 60):
             hits = [name for name, lo, hi in LENGTH_BUCKETS if lo <= length <= hi]
             self.assertEqual(len(hits), 1, f"length {length} matched {hits}")
+
+
+class CoreAnchorSplitTests(unittest.TestCase):
+    """The one definition of "core" shared by training metrics, generative eval, and the scorer."""
+
+    def test_split_trims_the_requested_ends(self):
+        core, anchor = core_anchor_indices(10, 2)
+        self.assertEqual(core, [2, 3, 4, 5, 6, 7])
+        self.assertEqual(anchor, [0, 1, 8, 9])
+
+    def test_short_loop_is_entirely_anchor(self):
+        # Matches recovery._core_anchor_masks: a loop of <= 2*trim residues has no core at all,
+        # which is why L2 (mostly 3-mers) reports core recovery over almost no positions.
+        for length in (3, 4):
+            core, anchor = core_anchor_indices(length, 2)
+            self.assertEqual(core, [])
+            self.assertEqual(anchor, list(range(length)))
+
+    def test_the_two_halves_partition_the_loop(self):
+        for length in range(1, 20):
+            core, anchor = core_anchor_indices(length, 2)
+            self.assertEqual(sorted(core + anchor), list(range(length)))
+            self.assertFalse(set(core) & set(anchor))
+
+    def test_recovery_at_indices_scores_only_the_subset(self):
+        native, sample = "ABCDEF", "ABQQEF"
+        core, anchor = core_anchor_indices(6, 2)
+        self.assertEqual(recovery_at_indices(sample, native, core), 0.0)
+        self.assertEqual(recovery_at_indices(sample, native, anchor), 1.0)
+
+    def test_recovery_over_an_empty_subset_is_none_not_zero(self):
+        # A loop with no core must report "not measured", never a 0.0 that averages into the mean.
+        self.assertIsNone(recovery_at_indices("ABC", "ABC", []))
+
+    def test_position_recovery_scores_each_position_over_length_matched_samples(self):
+        curve = position_recovery(["ABQ", "AXQ"], "ABC")
+        self.assertEqual([point["recovery"] for point in curve], [1.0, 0.5, 0.0])
+        self.assertEqual([point["position"] for point in curve], [0, 1, 2])
+        self.assertEqual([point["relative_position"] for point in curve], [0.0, 0.5, 1.0])
+
+    def test_position_recovery_drops_wrong_length_samples_rather_than_counting_them_as_misses(self):
+        # Positional identity is undefined against a different-length draw: position i of a
+        # 4-residue sample is not position i of a 3-residue native. Counting it as a miss would
+        # understate recovery for exactly the models that pick their own length.
+        curve = position_recovery(["ABC", "ABCD"], "ABC")
+        self.assertEqual([point["recovery"] for point in curve], [1.0, 1.0, 1.0])
+
+    def test_position_recovery_reports_none_when_nothing_matched_the_length(self):
+        curve = position_recovery(["ABCD"], "ABC")
+        self.assertEqual([point["recovery"] for point in curve], [None, None, None])
+
+    def test_position_recovery_of_a_single_residue_loop_sits_mid_axis(self):
+        # relative_position would divide by zero at length 1; it is pinned to 0.5 so the point
+        # lands in the middle bin instead of claiming to be an N-terminal anchor.
+        self.assertEqual(position_recovery(["A"], "A")[0]["relative_position"], 0.5)
 
 
 class CalculateBlockTests(unittest.TestCase):

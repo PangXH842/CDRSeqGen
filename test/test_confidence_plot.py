@@ -1,6 +1,6 @@
 import unittest
 
-from cdrseqgen.utils.confidence_plot import (
+from cdrseqgen.visualization.confidence_plot import (
     baseline_recovery,
     rho_distribution,
     selection_curve,

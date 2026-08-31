@@ -15,6 +15,10 @@
 #   arch     architecture screen: 3 widths x 2 depths, FFN tracks width           (6 trials)
 #            Only valid since 2026-07-27, when num_attention_heads / intermediate_size became
 #            ModelArguments; before that the FFN ratio silently changed with hidden_size.
+#   loss     objective screen: 5 core/anchor weightings x 3 seeds              (15 trials)
+#            Generative eval is ON and trials rank by judge perplexity, because ranking on
+#            core accuracy would let a core-weighted objective grade its own homework.
+#            Weight combos are deduped against cross_entropy, which ignores them: 24 -> 15.
 #   quick    2 trials, 2 epochs — for checking this script runs, not for results.
 #
 # Every preset selects on the named validation split and never touches test. The dataset gate
@@ -24,6 +28,7 @@
 #   LRS="3e-4 1e-3" SEEDS="42 43 44" ./scripts/sweep.sh 0 h3
 #   MAX_EPOCHS=40 PATIENCE=5 ./scripts/sweep.sh 0 h3
 #   SWEEP_DIR=results/runs/my_sweep ./scripts/sweep.sh 0 h3     # resume into the same directory
+#   DRY_RUN=1 ./scripts/sweep.sh 0 loss                         # print the grid, run nothing
 #   DATA_PATH=path/to/three_way.json ./scripts/sweep.sh 0 h3
 #
 # Before the first run, create a three-way clustered dataset:
@@ -58,14 +63,46 @@ case "$PRESET" in
     EPOCH_LIST=${EPOCH_LIST:-"30"}
     HIDDEN_SIZES=${HIDDEN_SIZES:-"128 192 256"}; NUM_LAYERS=${NUM_LAYERS:-"4 6"}
     ;;
+  loss)
+    # One hyperparameter fixed at the h3 screen's winner; only the objective varies. Ranks on
+    # judge perplexity because core recovery is what a core-weighted loss optimises — ranking on
+    # it would just rediscover the weighting. Generative eval is therefore ON.
+    LRS=${LRS:-"1e-3"}; WARMUPS=${WARMUPS:-"0.06"}
+    WEIGHT_DECAYS=${WEIGHT_DECAYS:-"0.01"}; SEEDS=${SEEDS:-"42 43 44"}
+    EPOCH_LIST=${EPOCH_LIST:-"30"}; HIDDEN_SIZES=${HIDDEN_SIZES:-""}; NUM_LAYERS=${NUM_LAYERS:-""}
+    LOSS_TYPES=${LOSS_TYPES:-"cross_entropy weighted_cross_entropy"}
+    CORE_WEIGHTS=${CORE_WEIGHTS:-"1.0 3.0"}; ANCHOR_WEIGHTS=${ANCHOR_WEIGHTS:-"1.0 0.0"}
+    GEN_EVAL=${GEN_EVAL:-true}; RANK_METRIC=${RANK_METRIC:-judge_ppl}
+    # Generative eval runs once per trial, so the 150x20 default would dominate the sweep. 100x10
+    # still gives ~1000 candidates per trial, which is ample for a stable judge-perplexity mean.
+    GEN_EXAMPLES=${GEN_EXAMPLES:-100}; GEN_SAMPLES=${GEN_SAMPLES:-10}
+    ;;
   quick)
     LRS=${LRS:-"1e-4 1e-3"}; WARMUPS=${WARMUPS:-"0.0"}
     WEIGHT_DECAYS=${WEIGHT_DECAYS:-"0.0"}; SEEDS=${SEEDS:-"42"}
     EPOCH_LIST=${EPOCH_LIST:-"2"}; HIDDEN_SIZES=${HIDDEN_SIZES:-""}; NUM_LAYERS=${NUM_LAYERS:-""}
     ;;
   *)
-    echo "ERROR: unknown preset '$PRESET'. Use: h3 pilot arch quick"; exit 1 ;;
+    echo "ERROR: unknown preset '$PRESET'. Use: h3 pilot arch loss quick"; exit 1 ;;
 esac
+
+# Loss dims default to "whatever the base config says", so non-loss presets are unchanged.
+LOSS_TYPES=${LOSS_TYPES:-"__keep__"}
+CORE_WEIGHTS=${CORE_WEIGHTS:-"__keep__"}
+ANCHOR_WEIGHTS=${ANCHOR_WEIGHTS:-"__keep__"}
+GEN_EVAL=${GEN_EVAL:-false}
+RANK_METRIC=${RANK_METRIC:-core}
+# "__keep__" leaves the base config's generative-eval size alone.
+GEN_EXAMPLES=${GEN_EXAMPLES:-__keep__}
+GEN_SAMPLES=${GEN_SAMPLES:-__keep__}
+case "$RANK_METRIC" in
+  core|whole|judge_ppl|diversity|gen_core) ;;
+  *) echo "ERROR: RANK_METRIC must be core|whole|judge_ppl|diversity|gen_core, got '$RANK_METRIC'"
+     exit 1 ;;
+esac
+if [[ "$RANK_METRIC" =~ ^(judge_ppl|diversity|gen_core)$ ]] && [[ "$GEN_EVAL" != "true" ]]; then
+  echo "ERROR: RANK_METRIC=$RANK_METRIC needs generation_eval.json — set GEN_EVAL=true"; exit 1
+fi
 
 # Architecture dims are optional; an empty list means "leave the config's value alone".
 [[ -z "$HIDDEN_SIZES" ]] && HIDDEN_SIZES="__keep__"
@@ -114,171 +151,142 @@ OUT=${SWEEP_DIR:-"results/runs/${STAMP}_sweep_${PRESET}"}
 mkdir -p "$OUT"
 export CDRSEQGEN_RESULTS_ROOT="$OUT"
 
+# Per-trial stdout/stderr goes in its own subdirectory. It is mostly a superset of the trial's own
+# train.log (same logger lines, plus transformers warnings and tqdm redraws) — but only mostly, and
+# the difference is what matters: a trial that dies before logging attaches (bad config, import
+# error, OOM at startup) writes no train.log and may leave no run dir, so this capture is the only
+# record of the failure. Kept, therefore, but out of the sweep root, where 32 near-identical
+# filenames buried runs.tsv and summary.tsv.
+LOG_DIR="$OUT/logs"
+mkdir -p "$LOG_DIR"
+
 MAP="$OUT/runs.tsv"
-SUMMARY="$OUT/summary.tsv"
 if [[ ! -f "$MAP" ]]; then
-  printf 'lr\twarmup\tweight_decay\tepochs\thidden\tlayers\tseed\tscheduler\tstatus\trun_dir\n' > "$MAP"
+  printf 'lr\twarmup\tweight_decay\tepochs\thidden\tlayers\tloss\tcore_w\tanchor_w\tseed\tscheduler\tstatus\trun_dir\n' > "$MAP"
 fi
 
-total=0
-for lr in $LRS; do for wu in $WARMUPS; do for wd in $WEIGHT_DECAYS; do
-  for ep in $EPOCH_LIST; do for hs in $HIDDEN_SIZES; do for nl in $NUM_LAYERS; do
-    for seed in $SEEDS; do total=$((total + 1)); done
-done; done; done; done; done; done
+# The grid is materialised once, one trial per TSV line. Ten nested bash loops were becoming
+# unreadable and silently mis-ordered columns; a flat list keeps adding a dimension to one place.
+GRID_FILE="$OUT/grid.tsv"
+"$PYTHON" - "$GRID_FILE" "$LRS" "$WARMUPS" "$WEIGHT_DECAYS" "$EPOCH_LIST" "$HIDDEN_SIZES" \
+                         "$NUM_LAYERS" "$LOSS_TYPES" "$CORE_WEIGHTS" "$ANCHOR_WEIGHTS" "$SEEDS" <<'PY'
+import itertools, sys
+out, *dims = sys.argv[1:]
+seen, rows = set(), []
+for lr, wu, wd, ep, hs, nl, loss, cw, aw, seed in itertools.product(*[d.split() for d in dims]):
+    # cross_entropy ignores the core/anchor weights, so sweeping them against it would train the
+    # identical model several times. Canonicalise, then drop the duplicates.
+    if loss == "cross_entropy":
+        cw = aw = "1.0"
+    row = (lr, wu, wd, ep, hs, nl, loss, cw, aw, seed)
+    if row in seen:
+        continue
+    seen.add(row)
+    rows.append(row)
+with open(out, "w") as handle:
+    for row in rows:
+        handle.write("\t".join(row) + "\n")
+PY
+total=$(wc -l < "$GRID_FILE")
+
+if [[ -n "${DRY_RUN:-}" ]]; then
+  # Print the grid and stop. Checking a preset should never cost GPU time.
+  echo "DRY_RUN — $total trials would run:"
+  printf 'lr\twu\twd\tep\thidden\tlayers\tloss\tcore_w\tanchor_w\tseed\n'
+  cat "$GRID_FILE"
+  exit 0
+fi
 
 echo "======================================================================"
 echo "CDRSeqGen sweep | preset=$PRESET | GPU $GPU | base=$BASE | trials=$total"
 echo "data=$DATA_PATH (selecting on validation)"
 echo "LR=[$LRS] warmup=[$WARMUPS] weight_decay=[$WEIGHT_DECAYS] epochs=[$EPOCH_LIST] seeds=[$SEEDS]"
 [[ "$HIDDEN_SIZES" != "__keep__" ]] && echo "hidden=[$HIDDEN_SIZES] layers=[$NUM_LAYERS]"
+[[ "$LOSS_TYPES" != "__keep__" ]] && echo "loss=[$LOSS_TYPES] core_w=[$CORE_WEIGHTS] anchor_w=[$ANCHOR_WEIGHTS]"
+echo "generative_eval=$GEN_EVAL  ranked_by=$RANK_METRIC"
+[[ "$GEN_EVAL" == "true" && "$GEN_EXAMPLES" != "__keep__" ]] && \
+  echo "gen_eval size: ${GEN_EXAMPLES} frameworks x ${GEN_SAMPLES} candidates per trial"
 echo "patience=$PATIENCE threshold=$STOP_THRESHOLD scheduler=$SCHEDULER"
 echo "output=$OUT"
 echo "======================================================================"
 
 i=0
-for lr in $LRS; do
- for wu in $WARMUPS; do
-  for wd in $WEIGHT_DECAYS; do
-   for ep in $EPOCH_LIST; do
-    for hs in $HIDDEN_SIZES; do
-     for nl in $NUM_LAYERS; do
-      for seed in $SEEDS; do
-        i=$((i + 1))
+while IFS=$'\t' read -r lr wu wd ep hs nl loss cw aw seed; do
+  i=$((i + 1))
 
-        # Resume: a completed grid point is never re-run, so an interrupted sweep continues.
-        if awk -F '\t' -v lr="$lr" -v wu="$wu" -v wd="$wd" -v ep="$ep" -v hs="$hs" -v nl="$nl" \
-               -v seed="$seed" \
-          'NR > 1 && $1 == lr && $2 == wu && $3 == wd && $4 == ep && $5 == hs && $6 == nl \
-           && $7 == seed && $9 == "completed" {found=1} END {exit !found}' "$MAP"; then
-          echo "[$i/$total] SKIP completed: lr=$lr wu=$wu wd=$wd ep=$ep hs=$hs nl=$nl seed=$seed"
-          continue
-        fi
+  # Resume: a completed grid point is never re-run, so an interrupted sweep continues.
+  if awk -F '\t' -v a="$lr" -v b="$wu" -v c="$wd" -v d="$ep" -v e="$hs" -v f="$nl" \
+         -v g="$loss" -v h="$cw" -v j="$aw" -v k="$seed" \
+    'NR > 1 && $1==a && $2==b && $3==c && $4==d && $5==e && $6==f && $7==g && $8==h \
+     && $9==j && $10==k && $12=="completed" {found=1} END {exit !found}' "$MAP"; then
+    echo "[$i/$total] SKIP completed: lr=$lr wu=$wu wd=$wd ep=$ep loss=$loss cw=$cw aw=$aw seed=$seed"
+    continue
+  fi
 
-        tag="lr${lr}_wu${wu}_wd${wd}_ep${ep}_s${seed}"
-        [[ "$hs" != "__keep__" ]] && tag="${tag}_h${hs}l${nl}"
-        export CDRSEQGEN_RUN_SUFFIX="$tag"
-        LOG="$OUT/${tag}.log"
+  tag="lr${lr}_wu${wu}_wd${wd}_ep${ep}_s${seed}"
+  [[ "$hs" != "__keep__" ]] && tag="${tag}_h${hs}l${nl}"
+  [[ "$loss" != "__keep__" ]] && tag="${tag}_${loss%%_*}${cw}-${aw}"
+  export CDRSEQGEN_RUN_SUFFIX="$tag"
+  LOG="$LOG_DIR/${tag}.log"
 
-        ARCH_ARGS=()
-        if [[ "$hs" != "__keep__" ]]; then
-          # intermediate_size defaults to 4 x hidden_size, so the FFN ratio tracks width and the
-          # comparison is not confounded by a fixed FFN. Heads must divide hidden_size.
-          ARCH_ARGS=(--hidden_size "$hs" --num_layers "$nl" --num_attention_heads 8)
-        fi
+  EXTRA_ARGS=()
+  if [[ "$hs" != "__keep__" ]]; then
+    # intermediate_size defaults to 4 x hidden_size, so the FFN ratio tracks width and the
+    # comparison is not confounded by a fixed FFN. Heads must divide hidden_size.
+    EXTRA_ARGS+=(--hidden_size "$hs" --num_layers "$nl" --num_attention_heads 8)
+  fi
+  if [[ "$loss" != "__keep__" ]]; then
+    EXTRA_ARGS+=(--loss_type "$loss" --core_loss_weight "$cw" --anchor_loss_weight "$aw")
+  fi
+  [[ "$GEN_EXAMPLES" != "__keep__" ]] && EXTRA_ARGS+=(--gen_num_examples "$GEN_EXAMPLES")
+  [[ "$GEN_SAMPLES" != "__keep__" ]] && EXTRA_ARGS+=(--gen_num_samples "$GEN_SAMPLES")
 
-        echo "[$i/$total] RUN  lr=$lr wu=$wu wd=$wd ep=$ep hs=$hs nl=$nl seed=$seed"
-        if "$PYTHON" train.py "$BASE" \
-          --data_path "$DATA_PATH" \
-          --eval_split validation \
-          --learning_rate "$lr" \
-          --warmup_ratio "$wu" \
-          --weight_decay "$wd" \
-          --num_train_epochs "$ep" \
-          --lr_scheduler_type "$SCHEDULER" \
-          --early_stopping_patience "$PATIENCE" \
-          --early_stopping_threshold "$STOP_THRESHOLD" \
-          --metric_for_best_model core_accuracy \
-          --greater_is_better true \
-          --load_best_model_at_end true \
-          --save_total_limit 1 \
-          --seed "$seed" \
-          --data_seed "$seed" \
-          --run_generative_eval false \
-          "${ARCH_ARGS[@]}" \
-          > "$LOG" 2>&1; then
-          RUNDIR=$(grep -oE "Workspace initialized at: .*" "$LOG" | tail -1 | sed 's/.*at: //')
-          if [[ -n "$RUNDIR" && -f "$RUNDIR/epoch_metrics.csv" ]]; then
-            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\tcompleted\t%s\n' \
-              "$lr" "$wu" "$wd" "$ep" "$hs" "$nl" "$seed" "$SCHEDULER" "$RUNDIR" >> "$MAP"
-            echo "          OK: $RUNDIR"
-          else
-            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\tincomplete\t%s\n' \
-              "$lr" "$wu" "$wd" "$ep" "$hs" "$nl" "$seed" "$SCHEDULER" "${RUNDIR:-}" >> "$MAP"
-            echo "          INCOMPLETE: training exited 0 but metrics/run path missing; see $LOG"
-          fi
-        else
-          printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\tfailed\t\n' \
-            "$lr" "$wu" "$wd" "$ep" "$hs" "$nl" "$seed" "$SCHEDULER" >> "$MAP"
-          echo "          FAILED: see $LOG"
-        fi
-      done
-     done
-    done
-   done
-  done
- done
-done
+  echo "[$i/$total] RUN  lr=$lr wu=$wu wd=$wd ep=$ep hs=$hs nl=$nl loss=$loss cw=$cw aw=$aw seed=$seed"
+  if "$PYTHON" train.py "$BASE" \
+    --data_path "$DATA_PATH" \
+    --eval_split validation \
+    --learning_rate "$lr" \
+    --warmup_ratio "$wu" \
+    --weight_decay "$wd" \
+    --num_train_epochs "$ep" \
+    --lr_scheduler_type "$SCHEDULER" \
+    --early_stopping_patience "$PATIENCE" \
+    --early_stopping_threshold "$STOP_THRESHOLD" \
+    --metric_for_best_model core_accuracy \
+    --greater_is_better true \
+    --load_best_model_at_end true \
+    --save_total_limit 1 \
+    --seed "$seed" \
+    --data_seed "$seed" \
+    --run_generative_eval "$GEN_EVAL" \
+    "${EXTRA_ARGS[@]}" \
+    > "$LOG" 2>&1; then
+    RUNDIR=$(grep -oE "Workspace initialized at: .*" "$LOG" | tail -1 | sed 's/.*at: //')
+    if [[ -n "$RUNDIR" && -f "$RUNDIR/epoch_metrics.csv" ]]; then
+      STATUS=completed
+      echo "          OK: $RUNDIR"
+    else
+      STATUS=incomplete
+      echo "          INCOMPLETE: training exited 0 but metrics/run path missing; see $LOG"
+    fi
+  else
+    STATUS=failed; RUNDIR=""
+    echo "          FAILED: see $LOG"
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$lr" "$wu" "$wd" "$ep" "$hs" "$nl" "$loss" "$cw" "$aw" "$seed" "$SCHEDULER" \
+    "$STATUS" "${RUNDIR:-}" >> "$MAP"
+done < "$GRID_FILE"
 
-# --- Rank settings by mean best-epoch validation core recovery across seeds --------------------
-"$PYTHON" - "$MAP" "$SUMMARY" <<'PY'
-import csv, math, os, statistics, sys
-from collections import defaultdict
+# --- Reporting: summary table + comparison figure, both beside the runs ------------------------
+# These live in cdrseqgen/visualization/ rather than in a heredoc here, so an interrupted sweep can
+# still be summarised and plotted from whatever finished — which is exactly when you want to see
+# where it got to. Neither step can fail the sweep: the trials are already on disk.
+"$PYTHON" -m cdrseqgen.visualization.sweep_tables --sweep "$OUT" --rank_metric "$RANK_METRIC" \
+  || echo "⚠️ Summary step failed; the runs are intact — rerun it against $OUT"
+"$PYTHON" -m cdrseqgen.visualization.sweep_plots --sweep "$OUT" \
+  || echo "⚠️ Plot step failed; the runs are intact — rerun it against $OUT"
 
-map_path, summary_path = sys.argv[1:]
-trials = []
-with open(map_path) as f:
-    for row in csv.DictReader(f, delimiter="\t"):
-        if row["status"] != "completed":
-            continue
-        metrics_path = os.path.join(row["run_dir"], "epoch_metrics.csv")
-        if not os.path.exists(metrics_path):
-            continue
-        with open(metrics_path) as mf:
-            metrics = list(csv.DictReader(mf))
-        if not metrics:
-            continue
-        best = max(metrics, key=lambda x: float(x["eval_core_accuracy"]))
-        trials.append({**row,
-                       "best_core": float(best["eval_core_accuracy"]),
-                       "best_epoch": float(best["epoch"]),
-                       "final_core": float(metrics[-1]["eval_core_accuracy"])})
-
-# Seeds are the replicate dimension: everything else identifies the setting.
-groups = defaultdict(list)
-for t in trials:
-    groups[(t["lr"], t["warmup"], t["weight_decay"], t["epochs"], t["hidden"], t["layers"])].append(t)
-
-ranked = []
-for (lr, wu, wd, ep, hs, nl), members in groups.items():
-    values = [m["best_core"] for m in members]
-    ranked.append({
-        "lr": lr, "warmup": wu, "weight_decay": wd, "epochs": ep,
-        "hidden": hs, "layers": nl, "n_seeds": len(values),
-        "mean_core": statistics.mean(values),
-        "sd_core": statistics.stdev(values) if len(values) > 1 else math.nan,
-        "min_core": min(values), "max_core": max(values),
-        "mean_best_epoch": statistics.mean(m["best_epoch"] for m in members),
-        # best - final exposes overfitting: a large gap means the curve peaked and decayed.
-        "mean_decay": statistics.mean(m["best_core"] - m["final_core"] for m in members),
-    })
-ranked.sort(key=lambda x: (-x["mean_core"], float(x["lr"])))
-
-fields = ["lr", "warmup", "weight_decay", "epochs", "hidden", "layers", "n_seeds",
-          "mean_core", "sd_core", "min_core", "max_core", "mean_best_epoch", "mean_decay"]
-with open(summary_path, "w", newline="") as f:
-    writer = csv.DictWriter(f, fieldnames=fields, delimiter="\t")
-    writer.writeheader()
-    writer.writerows(ranked)
-
-print("\nValidation ranking (mean best-epoch core recovery across seeds)")
-print(" lr       wu     wd      ep   n   mean      sd        best_ep  decay")
-for r in ranked:
-    sd = "n/a" if math.isnan(r["sd_core"]) else f"{r['sd_core']:.6f}"
-    arch = "" if r["hidden"] == "__keep__" else f"  h{r['hidden']}l{r['layers']}"
-    print(f" {float(r['lr']):.0e}  {float(r['warmup']):>5.2f}  {float(r['weight_decay']):>5.3f}  "
-          f"{float(r['epochs']):>4.0f}  {r['n_seeds']:>2}  {r['mean_core']:.6f}  {sd:>8}  "
-          f"{r['mean_best_epoch']:>6.1f}  {r['mean_decay']:>+.4f}{arch}")
-
-if ranked:
-    w = ranked[0]
-    print(f"\nScreening winner (validation only): lr={w['lr']}, warmup={w['warmup']}, "
-          f"weight_decay={w['weight_decay']}, epochs={w['epochs']}, mean={w['mean_core']:.6f}")
-    if w["n_seeds"] < 2:
-        print("WARNING: winner has fewer than two completed seeds; do not freeze it yet.")
-    if len(ranked) > 1:
-        gap = w["mean_core"] - ranked[1]["mean_core"]
-        print(f"Gap to runner-up: {gap:.6f}"
-              + ("  — below the ~0.006 seed-noise floor; treat as a tie."
-                 if gap < 0.006 else ""))
-print(f"Summary written to {summary_path}")
-PY
+echo ""
+echo "🎉 Sweep complete. Everything for this sweep is in $OUT/"
+echo "   runs.tsv · summary.tsv · figures/ · logs/ · one folder per trial"
