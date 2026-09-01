@@ -104,10 +104,12 @@ class TokenizerAdapter:
         def _encode(seq):
             return tok.encode(" ".join(seq) if space_residues else seq, add_special_tokens=False)
 
-        return cls(
+        adapter = cls(
             encode=_encode,
             decode=lambda ids: tok.decode(ids).replace(" ", ""),
-            vocab_size=tok.vocab_size,
+            # ``vocab_size`` excludes runtime-added special tokens for several HF tokenizers;
+            # ``len(tok)`` is the embedding-table size callers actually need.
+            vocab_size=len(tok),
             pad_id=tok.pad_token_id,
             mask_id=tok.mask_token_id,
             cls_id=cls_id,
@@ -117,6 +119,9 @@ class TokenizerAdapter:
             uses_special_tokens=uses_special_tokens,
             position_type=position_type,
         )
+        adapter.save_pretrained = tok.save_pretrained
+        adapter.backend_tokenizer = tok
+        return adapter
 
 
 def inject_context(tokenizer, pt1_ids, pt2_ids, n_target, *,

@@ -153,3 +153,29 @@ class MixedLossDetectionTests(unittest.TestCase):
         from cdrseqgen.visualization.batch_tables import loss_warning
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIsNone(loss_warning(self._batch(tmp, [None, "cross_entropy"])))
+
+
+class MethodComparisonTableTests(unittest.TestCase):
+    def test_compare_suite_table_contains_masked_and_causal_runs(self):
+        row = {
+            "epoch": 1,
+            "eval_accuracy": 0.5,
+            "eval_core_accuracy": 0.4,
+            "eval_anchor_accuracy": 0.8,
+            "eval_core_coverage": 1.0,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            masked = Path(tmp) / "h3_OAS_scratch"
+            causal = Path(tmp) / "h3_OAS_ar_scratch"
+            write_metrics(masked, [row])
+            write_metrics(causal, [{**row, "eval_core_accuracy": 0.45}])
+            table = build_table("methods", {
+                ("h3", "OAS", "", "scratch"): str(masked),
+                ("h3", "OAS", "", "ar_scratch"): str(causal),
+            })
+
+        self.assertIn("scratch (masked)", table)
+        self.assertIn("scratch (causal)", table)
+        self.assertIn("0.4000", table)
+        self.assertIn("0.4500", table)
+        self.assertIn("+0.050", table)

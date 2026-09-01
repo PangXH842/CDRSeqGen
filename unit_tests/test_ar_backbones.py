@@ -16,7 +16,8 @@ import torch
 from cdrseqgen.data.dataset_ar import (CausalInfillingDataset, CausalTokenizer,
                                        causal_collate_fn)
 from cdrseqgen.methods.ar import backbones
-from cdrseqgen.methods.ar.backbones import REQUIRED_SENTINELS, missing_sentinels, resolve
+from cdrseqgen.methods.ar.backbones import (_prepare_hf_tokenizer, REQUIRED_SENTINELS,
+                                           missing_sentinels, resolve)
 
 
 class DispatchTests(unittest.TestCase):
@@ -80,6 +81,65 @@ class SentinelTests(unittest.TestCase):
         vocab = CausalTokenizer().tok_to_id
         for token in REQUIRED_SENTINELS:
             self.assertIn(token, vocab)
+
+class FakeHFTokenizer:
+    def __init__(self, existing_eos=False):
+        self.vocab = {"A": 0, "C": 1}
+        self.eos_token = None
+        self.eos_token_id = None
+        self.pad_token_id = None
+        if existing_eos:
+            self.vocab["</s>"] = len(self.vocab)
+            self.eos_token = "</s>"
+            self.eos_token_id = self.vocab["</s>"]
+
+    def get_vocab(self):
+        return dict(self.vocab)
+
+    def __len__(self):
+        return len(self.vocab)
+
+    def add_special_tokens(self, mapping):
+        added = 0
+        if "eos_token" in mapping:
+            token = mapping["eos_token"]
+            if token not in self.vocab:
+                self.vocab[token] = len(self.vocab)
+                added += 1
+            self.eos_token = token
+            self.eos_token_id = self.vocab[token]
+        for token in mapping.get("additional_special_tokens", []):
+            if token not in self.vocab:
+                self.vocab[token] = len(self.vocab)
+                added += 1
+        return added
+
+    @property
+    def pad_token(self):
+        return None if self.pad_token_id is None else self.eos_token
+
+    @pad_token.setter
+    def pad_token(self, token):
+        self.pad_token_id = self.vocab[token]
+
+
+class HFTokenizerPreparationTests(unittest.TestCase):
+    def test_missing_eos_is_registered_as_the_actual_terminator(self):
+        tokenizer = FakeHFTokenizer()
+        added = _prepare_hf_tokenizer(tokenizer)
+
+        self.assertEqual(added, ["<eos>", "<mask>", "<sep>"])
+        self.assertEqual(tokenizer.eos_token_id, tokenizer.vocab["<eos>"])
+        self.assertEqual(tokenizer.pad_token_id, tokenizer.eos_token_id)
+
+    def test_an_existing_semantic_eos_is_not_replaced_by_a_literal_token(self):
+        tokenizer = FakeHFTokenizer(existing_eos=True)
+        added = _prepare_hf_tokenizer(tokenizer)
+
+        self.assertEqual(added, ["<mask>", "<sep>"])
+        self.assertNotIn("<eos>", tokenizer.vocab)
+        self.assertEqual(tokenizer.eos_token, "</s>")
+
 
 
 class RoundTripTests(unittest.TestCase):

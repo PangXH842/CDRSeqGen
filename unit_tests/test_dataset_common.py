@@ -114,6 +114,40 @@ class SharedWithTheMaskedViewTests(unittest.TestCase):
         self.assertIn(False, kept_a)              # dropout actually dropped something
         os.unlink(path)
 
+class HFAdapterTests(unittest.TestCase):
+    def test_runtime_added_tokens_count_toward_vocab_and_tokenizer_is_saveable(self):
+        class FakeTokenizer:
+            vocab_size = 2
+            pad_token_id = 0
+            mask_token_id = 3
+            cls_token_id = None
+            bos_token_id = 1
+            eos_token_id = 2
+            sep_token_id = None
+            all_special_ids = [0, 1, 2, 3]
+
+            def __len__(self):
+                return 4
+
+            def encode(self, seq, add_special_tokens=False):
+                return [1] * len(seq)
+
+            def decode(self, ids):
+                return "A" * len(ids)
+
+            def save_pretrained(self, path):
+                return path
+
+        tokenizer = FakeTokenizer()
+        adapter = TokenizerAdapter.from_hf(
+            tokenizer, position_type="absolute", uses_special_tokens=True)
+
+        self.assertIsNotNone(adapter)
+        self.assertEqual(adapter.vocab_size, 4)
+        self.assertIs(adapter.backend_tokenizer, tokenizer)
+        self.assertTrue(callable(adapter.save_pretrained))
+
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -13,13 +13,13 @@ from cdrseqgen.methods.mlm.arguments import setup_args
 from cdrseqgen.methods.mlm.backbones import resolve
 from cdrseqgen.methods.mlm.losses import MLMLossTrainer, loss_config_from_args
 from cdrseqgen.methods.common import build_callbacks
+from cdrseqgen.methods.common.training import run_training_pipeline
 from cdrseqgen.methods.mlm.recovery import compute_metrics
 from cdrseqgen.methods.mlm.training import (
     get_datasets,
     post_training_generation,
-    run_training_pipeline,
 )
-from cdrseqgen.train.logging import LogMetricsCallback, configure_logging, update_latest_link
+from cdrseqgen.train.logging import configure_logging, update_latest_link
 
 configure_logging()
 
@@ -68,7 +68,7 @@ def main():
         callbacks=build_callbacks(model_args, training_args, logger),
     )
 
-    run_training_pipeline(trainer, training_args)
+    run_training_pipeline(trainer, training_args, tokenizer=tokenizer)
 
     length_predictor = None
     if training_args.do_train and data_args.train_length_predictor:

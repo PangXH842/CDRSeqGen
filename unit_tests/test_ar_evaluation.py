@@ -9,11 +9,13 @@ import os
 import tempfile
 import unittest
 
+from unittest.mock import patch
 import torch
 
 from cdrseqgen.data.dataset_ar import CausalInfillingDataset, causal_adapter
 from cdrseqgen.eval.generative import build_masked_judge_prompt
-from cdrseqgen.methods.ar.evaluation import CausalStrategy
+from cdrseqgen.methods.ar.evaluation import (CausalStrategy,
+                                             run_causal_generative_eval)
 
 CHAIN = {"fwr1": "AAAA", "cdr1": "CC", "fwr2": "DDDD", "cdr2": "EE",
          "fwr3": "FFFF", "cdr3": "GGGGG", "fwr4": "HHHH"}
@@ -145,6 +147,75 @@ class JudgePromptTests(unittest.TestCase):
         strategy, *_ = _strategy(path)
         _, positions = strategy.judge_inputs(0, "ACDEFGH")
         self.assertEqual(len(positions), 7)
+        os.unlink(path)
+
+
+class ValidityAccountingTests(unittest.TestCase):
+    def test_empty_and_incomplete_attempts_do_not_disappear(self):
+        path = _data()
+        strategy, *_ = _strategy(path)
+        results = [
+            {"loop": "", "length": 0, "complete": True},
+            {"loop": "A", "length": 1, "complete": False},
+            {"loop": "AC", "length": 2, "complete": True},
+        ]
+        with patch("cdrseqgen.methods.ar.evaluation.sample_loops", return_value=results):
+            drawn = strategy.draw(0)
+
+        self.assertEqual(drawn.seqs, ["AC"])
+        self.assertEqual(drawn.record_extra, {"attempts": 3, "incomplete": 1, "empty": 1})
+        self.assertEqual(strategy.attempts, 3)
+        self.assertEqual(strategy.complete_nonempty, 1)
+        self.assertEqual(strategy.complete_empty, 1)
+        self.assertEqual(strategy.incomplete, 1)
+        os.unlink(path)
+
+    def test_payload_matches_the_shared_schema_and_records_validity(self):
+        path = _data()
+        strategy, subset, _, adapter = _strategy(path)
+        payload = run_causal_generative_eval(
+            strategy.model, adapter, subset, device="cpu", num_examples=1,
+            num_samples=2, temperature=0, max_new_tokens=8, seed=17,
+            skip_perplexity=True, judge_name="",
+            meta={"target_region": "h3"},
+        )
+
+        self.assertEqual(payload["schema_version"], "cdrseqgen.generation_eval.v1")
+        self.assertEqual(payload["method"], "ar")
+        self.assertEqual(payload["target_region"], "h3")
+        self.assertEqual(payload["decoding"]["seed"], 17)
+        self.assertEqual(payload["n_selected"], 1)
+        self.assertEqual(payload["n_generated"], 1)
+        self.assertIn("aar_mean", payload["summary"])
+        self.assertEqual(payload["generation_validity"]["attempts"], 1)
+        self.assertEqual(payload["generation_validity"]["valid_generation_rate"], 1.0)
+        os.unlink(path)
+
+    def test_a_zero_validity_run_still_reports_its_attempt_budget(self):
+        class NeverStops:
+            def __init__(self, vocab_size, token):
+                self.vocab_size, self.token = vocab_size, token
+
+            def eval(self):
+                return self
+
+            def __call__(self, input_ids=None, attention_mask=None, **_):
+                logits = torch.zeros(
+                    (input_ids.shape[0], input_ids.shape[1], self.vocab_size))
+                logits[:, -1, self.token] = 10.0
+                return {"logits": logits}
+
+        path = _data()
+        _, subset, _, adapter = _strategy(path)
+        model = NeverStops(adapter.vocab_size, adapter.encode("A")[0])
+        payload = run_causal_generative_eval(
+            model, adapter, subset, device="cpu", num_examples=1,
+            temperature=0, max_new_tokens=3, skip_perplexity=True)
+
+        self.assertEqual(payload["n_generated"], 0)
+        self.assertEqual(payload["generation_validity"]["attempts"], 1)
+        self.assertEqual(payload["generation_validity"]["incomplete"], 1)
+        self.assertEqual(payload["generation_validity"]["valid_generation_rate"], 0.0)
         os.unlink(path)
 
 

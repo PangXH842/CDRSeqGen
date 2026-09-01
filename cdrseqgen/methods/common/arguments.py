@@ -1,12 +1,12 @@
 """Base run configuration: the arguments and run setup every method shares.
 
-  * BaseModelArguments / BaseDataArguments / BaseGenerationArguments -- the 25 fields both methods
+  * BaseModelArguments / BaseDataArguments / BaseGenerationArguments -- the 28 fields both methods
     declare identically. A method subclasses one and adds only what is its own.
   * parse_config_and_cli  -- config JSON, or config + trailing CLI overrides, or bare CLI
   * initialise_run         -- name the run from RESOLVED arguments, create it, start its log
 
 Splitting these out is what lets a master entrypoint dispatch: each method keeps its OWN parser, so
-no parser ever accepts a flag that is meaningless for it, while the shared 25 fields cannot drift.
+no parser ever accepts a flag that is meaningless for it, while the shared 28 fields cannot drift.
 They already had: the same concept was called ``gen_judge_path`` on one side and
 ``gen_judge_weights`` on the other before this consolidation.
 
@@ -78,6 +78,7 @@ class BaseGenerationArguments:
     gen_temperature: float = field(default=1.0)
     gen_top_k: int = field(default=0)
     gen_top_p: float = field(default=1.0)
+    gen_seed: int = field(default=42, metadata={"help": "Seed for reproducible sampling."})
     gen_stratify: bool = field(default=False, metadata={"help": "Balance across length buckets."})
     gen_skip_perplexity: bool = field(default=False)
     gen_judge: str = field(
@@ -86,6 +87,34 @@ class BaseGenerationArguments:
                           "models, so any cross-run claim needs this."})
     gen_judge_path: str = field(
         default=None, metadata={"help": "Local weights for the judge, if not the hub id."})
+
+
+def validate_common_args(model_args, data_args, gen_args, *, expected_method):
+    """Validate the shared method contract before creating a run directory."""
+    method = str(model_args.method).strip().lower()
+    if method != expected_method:
+        raise ValueError(
+            f"{expected_method!r} entrypoint received method={model_args.method!r}; route through "
+            "train.py or pass a matching --method override."
+        )
+    model_args.method = method
+
+    if not 0.0 <= data_args.context_dropout <= 1.0:
+        raise ValueError("context_dropout must be between 0 and 1")
+    if (isinstance(model_args.anchor_trim, bool)
+            or not isinstance(model_args.anchor_trim, int)
+            or model_args.anchor_trim < 0):
+        raise ValueError("anchor_trim must be a non-negative integer")
+    if gen_args.gen_num_examples < -1:
+        raise ValueError("gen_num_examples must be -1 (all) or non-negative")
+    if gen_args.gen_num_samples <= 0:
+        raise ValueError("gen_num_samples must be positive")
+    if gen_args.gen_temperature < 0:
+        raise ValueError("gen_temperature must be non-negative")
+    if gen_args.gen_top_k < 0:
+        raise ValueError("gen_top_k must be non-negative")
+    if not 0.0 < gen_args.gen_top_p <= 1.0:
+        raise ValueError("gen_top_p must be in (0, 1]")
 
 
 def parse_config_and_cli(parser):
@@ -101,6 +130,11 @@ def parse_config_and_cli(parser):
                 json_cfg = json.load(handle)
             argv = []
             for key, value in json_cfg.items():
+                # JSON null means "use the dataclass default". Serialising it as the literal
+                # string "None" makes argparse reject optional numeric fields whenever a caller
+                # adds an otherwise unrelated trailing override.
+                if value is None:
+                    continue
                 argv += [f"--{key}", str(value)]
             argv += sys.argv[2:]
             return parser.parse_args_into_dataclasses(args=argv)

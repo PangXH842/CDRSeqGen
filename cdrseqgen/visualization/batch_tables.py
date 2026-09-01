@@ -278,6 +278,19 @@ RECOVERY_TABLES = {
             ("ESM-2 lc-only → +ag", "esm2", ("_LC", "_LC_AG")),
         ],
     },
+    "methods": {
+        "title": "Causal integration — H3 teacher-forced recovery (length policies differ)",
+        "label_header": "case",
+        "cases": [
+            ("OAS H3", "h3", "OAS", ""),
+            ("OAS H3 + partner", "h3", "OAS", "_LC"),
+        ],
+        "columns": [
+            ("scratch (masked)", "scratch", (BASE_CONTEXT,)),
+            ("scratch (causal)", "ar_scratch", (BASE_CONTEXT,)),
+        ],
+        "delta": True,
+    },
 }
 
 

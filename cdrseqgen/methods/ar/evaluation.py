@@ -27,9 +27,11 @@ import torch
 from cdrseqgen.data.dataset_ar import build_causal_prompt
 from cdrseqgen.data.dataset_common import framework_for_dataset
 from cdrseqgen.eval import ANCHOR_TRIM
-from cdrseqgen.eval.generative import (Draw, build_masked_judge_prompt, log_report, run_eval_loop,
-                                       select_indices, write_payload)
+from cdrseqgen.eval.generative import (Draw, SUMMARY_KEYS, aggregate, build_masked_judge_prompt,
+                                       log_report, run_eval_loop, select_indices,
+                                       write_confidence_figure, write_payload)
 from cdrseqgen.methods.ar.sampling import sample_loops
+from cdrseqgen.methods.common import logits_of
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,10 @@ class CausalStrategy:
         self.top_k, self.top_p = top_k, top_p
         self.max_new_tokens = max_new_tokens
         self._framework_cache = (None, None)
+        self.attempts = 0
+        self.complete_nonempty = 0
+        self.complete_empty = 0
+        self.incomplete = 0
 
     # --- framework lookup -------------------------------------------------------------------
     # `framework_for_dataset` already unwraps a Subset, so the eval side passes the SUBSET index
@@ -80,9 +86,17 @@ class CausalStrategy:
             top_k=self.top_k, top_p=self.top_p, max_new_tokens=self.max_new_tokens,
             generator=self.generator)
 
-        # An incomplete draw has no length the model chose, so it is dropped rather than scored as
-        # a short loop — the same rule the IgLM adapter applies to its own attempt budget.
-        kept = [r for r in results if r["complete"] and r["loop"]]
+        # Keep quality metrics conditional on a biologically non-empty completed loop, but retain
+        # every failed attempt in the run-level validity accounting. Otherwise frameworks where the
+        # model never emits EOS disappear and make the remaining sample look artificially healthy.
+        complete = [r for r in results if r["complete"]]
+        kept = [r for r in complete if r["loop"]]
+        incomplete = len(results) - len(complete)
+        empty = len(complete) - len(kept)
+        self.attempts += len(results)
+        self.complete_nonempty += len(kept)
+        self.complete_empty += empty
+        self.incomplete += incomplete
         if not kept:
             return None
         seqs = [r["loop"].upper() for r in kept]
@@ -93,7 +107,7 @@ class CausalStrategy:
             spans=[(prompt, self.tokenizer.encode(s)) for s in seqs],
             target_len=len(native),
             length_policy=self.payload_length_policy(),
-            record_extra={"attempts": len(results), "incomplete": len(results) - len(kept)},
+            record_extra={"attempts": len(results), "incomplete": incomplete, "empty": empty},
         )
 
     @torch.no_grad()
@@ -109,7 +123,7 @@ class CausalStrategy:
             ids = list(prompt) + list(answer_ids) + [self.tokenizer.eos_id]
             labels = [-100] * len(prompt) + list(answer_ids) + [self.tokenizer.eos_id]
             tensor = torch.tensor([ids], dtype=torch.long, device=self.device)
-            logits = self.model(input_ids=tensor)["logits"].float()
+            logits = logits_of(self.model(input_ids=tensor)).float()
             gold = torch.tensor([labels], dtype=torch.long, device=self.device)
             nll = torch.nn.functional.cross_entropy(
                 logits[:, :-1].reshape(-1, logits.size(-1)), gold[:, 1:].reshape(-1),
@@ -129,19 +143,25 @@ def run_causal_generative_eval(model, tokenizer, eval_dataset, *, device, judge_
                                judge_model=None, judge_tokenizer=None, num_examples=150,
                                num_samples=20, temperature=1.0, top_k=0, top_p=1.0,
                                max_new_tokens=40, stratify=False, seed=42,
-                               skip_perplexity=False, output_path=None, title="",
-                               anchor_trim=ANCHOR_TRIM):
+                               skip_perplexity=False, output_path=None, title="", judge_name=None,
+                               anchor_trim=ANCHOR_TRIM, meta=None):
     """Sample from held-out frameworks and write generation_eval.json, causal side."""
     import random
 
+    model.eval()
+    if isinstance(anchor_trim, bool) or not isinstance(anchor_trim, int) or anchor_trim < 0:
+        raise ValueError("anchor_trim must be a non-negative integer")
+
+    torch.manual_seed(seed)
     lengths = [framework_for_dataset(eval_dataset, i)["target_length"]
                for i in range(len(eval_dataset))]
     selected = select_indices(lengths, num_examples, stratify, random.Random(seed))
-    generator = torch.Generator(device="cpu").manual_seed(seed)
+    generator = torch.Generator(device=device).manual_seed(seed)
 
     strategy = CausalStrategy(
         model=model, tokenizer=tokenizer, device=device, generator=generator,
-        eval_dataset=eval_dataset, judge_dataset=judge_dataset or eval_dataset,
+        eval_dataset=eval_dataset,
+        judge_dataset=judge_dataset if judge_dataset is not None else eval_dataset,
         judge_tokenizer=judge_tokenizer, num_samples=num_samples, temperature=temperature,
         top_k=top_k, top_p=top_p, max_new_tokens=max_new_tokens)
 
@@ -150,9 +170,38 @@ def run_causal_generative_eval(model, tokenizer, eval_dataset, *, device, judge_
         skip_perplexity=skip_perplexity, judge_model=judge_model,
         judge_tokenizer=judge_tokenizer, anchor_trim=anchor_trim)
 
-    payload = {"method": "causal", "length_policy": strategy.payload_length_policy(),
-               "records": records}
-    log_report(records, title=title)
-    if output_path:
-        write_payload(payload, output_path, len(records))
+    attempts = strategy.attempts
+    validity = {
+        "frameworks_selected": len(selected),
+        "frameworks_with_valid_candidates": len(records),
+        "attempts": attempts,
+        "complete_nonempty": strategy.complete_nonempty,
+        "complete_empty": strategy.complete_empty,
+        "incomplete": strategy.incomplete,
+        "valid_generation_rate": strategy.complete_nonempty / attempts if attempts else None,
+        "completion_rate": ((strategy.complete_nonempty + strategy.complete_empty) / attempts
+                            if attempts else None),
+    }
+
+    payload = dict(meta or {})
+    payload.update({
+        "schema_version": "cdrseqgen.generation_eval.v1",
+        "method": "ar",
+        "judge": judge_name,
+        "length_policy": strategy.payload_length_policy(),
+        "anchor_trim_each_end": anchor_trim,
+        "decoding": {
+            "mode": "causal", "num_samples": num_samples, "temperature": temperature,
+            "top_k": top_k, "top_p": top_p, "max_new_tokens": max_new_tokens, "seed": seed,
+        },
+        "n_eval_total": len(eval_dataset),
+        "n_selected": len(selected),
+        "n_generated": len(records),
+        "generation_validity": validity,
+        "summary": {key: aggregate(records, key)[0] for key, _ in SUMMARY_KEYS},
+        "records": records,
+    })
+    log_report(records, title=title, judge_name=judge_name)
+    write_payload(payload, output_path, len(records))
+    write_confidence_figure(payload, output_path, title)
     return payload

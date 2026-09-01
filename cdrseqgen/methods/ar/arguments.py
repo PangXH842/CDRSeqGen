@@ -1,6 +1,6 @@
 """Causal run configuration: only what differs from the shared bases.
 
-The 25 fields both methods declare identically live in
+The 28 fields both methods declare identically live in
 :mod:`cdrseqgen.methods.common.arguments`, along with config/CLI parsing and run-directory setup.
 
 **What is deliberately absent**, because it has no causal meaning: ``masking_policy`` /
@@ -18,7 +18,8 @@ from transformers import HfArgumentParser, TrainingArguments
 
 from cdrseqgen.methods.common.arguments import (BaseDataArguments, BaseGenerationArguments,
                                                 BaseModelArguments, initialise_run,
-                                                parse_config_and_cli)
+                                                parse_config_and_cli,
+                                                validate_common_args)
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +47,7 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
     parser = HfArgumentParser((ModelArguments, DataArguments, GenerationArguments, TrainingArguments))
     model_args, data_args, gen_args, training_args = parse_config_and_cli(parser)
 
-    if not 0.0 <= data_args.context_dropout <= 1.0:
-        raise ValueError("context_dropout must be between 0 and 1")
-    if model_args.anchor_trim < 0:
-        raise ValueError("anchor_trim must be non-negative")
+    validate_common_args(model_args, data_args, gen_args, expected_method="ar")
     if gen_args.gen_max_new_tokens <= 0:
         raise ValueError("gen_max_new_tokens must be positive")
     # The collator emits prompt_lengths/target_lengths beside the model's inputs; the model's

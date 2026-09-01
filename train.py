@@ -11,7 +11,7 @@ so every pre-existing config keeps working untouched.
 **This file only routes.** Each method owns its own parser and its own ``entrypoint.main()``, in
 ``cdrseqgen/methods/<method>/entrypoint.py``. That is the point: a single shared parser would have to
 accept ``masking_policy`` and ``gen_length_mode`` from a causal run and ``gen_max_new_tokens`` from a
-masked one, and silently ignore whichever half did not apply. The 25 arguments the methods DO share
+masked one, and silently ignore whichever half did not apply. The 28 arguments the methods DO share
 are inherited from ``methods/common/arguments.py``, so they cannot drift — they already had, with
 the same field called ``gen_judge_path`` on one side and ``gen_judge_weights`` on the other.
 
@@ -30,23 +30,27 @@ DEFAULT_METHOD = "mlm"
 
 
 def resolve_method(argv):
-    """(method, argv-without-the-method-flag).
+    """Resolve the selected method while leaving its flag for the method-owned parser.
 
     A ``--method`` flag wins over the config, so a config can be run through the other pipeline
     deliberately; without it the config's own declaration decides, and a config that declares
     nothing is masked — which is every config written before 2026-09-01.
     """
     argv = list(argv)
-    if "--method" in argv:
-        index = argv.index("--method")
-        if index + 1 >= len(argv):
-            raise SystemExit("--method needs a value: " + " | ".join(METHODS))
-        method = argv[index + 1]
-        del argv[index:index + 2]
-        return method, argv
+    method_flags = []
+    for index, value in enumerate(argv[1:], start=1):
+        if value == "--method":
+            if index + 1 >= len(argv):
+                raise SystemExit("--method needs a value: " + " | ".join(METHODS))
+            method_flags.append(argv[index + 1])
+        elif value.startswith("--method="):
+            method_flags.append(value.split("=", 1)[1])
+    if method_flags:
+        return method_flags[-1].strip().lower(), argv
     if len(argv) >= 2 and argv[1].endswith(".json") and os.path.exists(argv[1]):
         with open(argv[1]) as handle:
-            return json.load(handle).get("method", DEFAULT_METHOD), argv
+            declared = json.load(handle).get("method", DEFAULT_METHOD)
+            return str(declared).strip().lower(), argv
     return DEFAULT_METHOD, argv
 
 
@@ -54,7 +58,8 @@ def main():
     method, argv = resolve_method(sys.argv)
     if method not in METHODS:
         raise SystemExit(f"Unknown method {method!r}. Choose one of: {', '.join(METHODS)}")
-    # The method's own setup_args reads sys.argv, so hand it the argv with --method removed.
+    # The method's own parser also consumes --method. Keeping it here makes a CLI override replace
+    # the config value in run_config.json instead of routing one way while recording another.
     sys.argv = argv
     import importlib
     importlib.import_module(METHODS[method]).main()

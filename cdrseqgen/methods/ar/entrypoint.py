@@ -12,7 +12,7 @@ from cdrseqgen.methods.ar.backbones import resolve
 from cdrseqgen.methods.ar.training import build_causal_trainer, get_datasets
 from cdrseqgen.methods.common import build_callbacks
 from cdrseqgen.train.logging import configure_logging, update_latest_link
-from cdrseqgen.train.record_results import plot_training_curves, save_training_csv
+from cdrseqgen.methods.common.training import run_training_pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ def post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_ar
     judge_model = judge_tokenizer = judge_dataset = None
     if gen_args.gen_judge:
         judge_model, judge_tokenizer, judge_dataset = build_judge(
-            gen_args.gen_judge, gen_args.gen_judge_weights,
+            gen_args.gen_judge, gen_args.gen_judge_path,
             data_path=data_args.data_path, max_len=data_args.max_len,
             target_region=data_args.target_region,
             include_partner_chain=data_args.include_partner_chain,
@@ -43,9 +43,17 @@ def post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_ar
         num_examples=gen_args.gen_num_examples, num_samples=gen_args.gen_num_samples,
         temperature=gen_args.gen_temperature, top_k=gen_args.gen_top_k, top_p=gen_args.gen_top_p,
         max_new_tokens=gen_args.gen_max_new_tokens, stratify=gen_args.gen_stratify,
-        seed=training_args.seed, skip_perplexity=gen_args.gen_skip_perplexity,
+        seed=gen_args.gen_seed, skip_perplexity=gen_args.gen_skip_perplexity,
+        judge_name=gen_args.gen_judge,
         output_path=os.path.join(training_args.output_dir, "generation_eval.json"),
-        title=training_args.run_name, anchor_trim=anchor_trim)
+        title=f"{training_args.run_name}   target={data_args.target_region}",
+        anchor_trim=anchor_trim,
+        meta={
+            "model_dir": training_args.output_dir,
+            "target_region": data_args.target_region,
+            "include_partner_chain": bool(data_args.include_partner_chain),
+            "include_antigen": bool(data_args.include_antigen),
+        })
 
 
 def main():
@@ -72,14 +80,7 @@ def main():
                                    callbacks=build_callbacks(model_args, training_args, logger),
                                    trim=model_args.anchor_trim)
 
-    if training_args.do_train:
-        trainer.train()
-        trainer.save_model(training_args.output_dir)
-    if training_args.do_eval:
-        trainer.evaluate()
-
-    save_training_csv(trainer, training_args.output_dir)
-    plot_training_curves(training_args.output_dir)
+    run_training_pipeline(trainer, training_args, tokenizer=tokenizer)
 
     if gen_args.run_generative_eval:
         try:

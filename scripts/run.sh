@@ -12,7 +12,7 @@
 #   protbert  ProtBert (general-protein baseline) on OAS heavy               (6)   [~1.6GB download]
 #   plm       igbert + protbert                                             (12)
 #   ar        Autoregressive OAS heavy (h1/h2/h3), base + _lc                 (6)
-#   compare   h3 masked + h3 causal, paired in ONE batch for a side-by-side    (4)
+#   compare   h3 masked (inferred length) + causal, one matched batch          (4)
 #   all       oas + antigen + lcdr (the scratch/esm2 matrices; PLMs opt-in)  (36)
 #
 # Scratch runs come first within each suite (cheap — a broken config fails fast before ESM-2/PLMs);
@@ -96,7 +96,9 @@ expand_suite() {
 CONFIGS=()
 declare -A SEEN=()
 NEEDS_SD2=0
+COMPARE_REQUESTED=0
 for suite in "${SUITES[@]}"; do
+    [[ "$suite" == "compare" ]] && COMPARE_REQUESTED=1
     while IFS= read -r cfg; do
         if [[ "$cfg" == __UNKNOWN__:* ]]; then
             echo "❌ Unknown suite '${cfg#__UNKNOWN__:}'. Use: oas antigen lcdr ar compare igbert protbert plm all"
@@ -140,13 +142,26 @@ fi
 
 export CUDA_VISIBLE_DEVICES=$GPU_ID
 
+SUCCESS_COUNT=0
+FAILED_COUNT=0
 for config in "${CONFIGS[@]}"; do
     echo ""
     echo "▶️ [$(date +'%Y-%m-%d %H:%M:%S')] Starting run: $config"
     echo "----------------------------------------------------------"
-    # || true so a crashed run doesn't abort the whole matrix.
-    python train.py "$config" || { echo "❌ WARNING: Run failed for $config"; true; }
-    echo "✅ Finished run: $config"
+    RUN_OVERRIDES=()
+    if [[ $COMPARE_REQUESTED -eq 1 &&
+          ( "$config" == "configs/h3_scratch.json" ||
+            "$config" == "configs/h3_scratch_lc.json" ) ]]; then
+        RUN_OVERRIDES=(--gen_length_mode inferred)
+        echo "⚖️  Matched compare: MLM generation uses inferred length (no native mask count)."
+    fi
+    if python train.py "$config" "${RUN_OVERRIDES[@]}"; then
+        ((SUCCESS_COUNT+=1))
+        echo "✅ Finished run: $config"
+    else
+        ((FAILED_COUNT+=1))
+        echo "❌ WARNING: Run failed and was skipped: $config"
+    fi
 done
 
 # --- Reporting: comparison tables + dashboards, written beside the runs ------------------------
@@ -161,6 +176,6 @@ python -m cdrseqgen.visualization.batch_plots --batch "$BATCH_DIR" \
   || echo "⚠️ Plot step failed; the runs are intact — rerun it against $BATCH_DIR"
 
 echo ""
-echo "🎉 Done (${#CONFIGS[@]} runs). Everything for this batch is in $BATCH_DIR/"
+echo "🎉 Done ($SUCCESS_COUNT/${#CONFIGS[@]} succeeded; $FAILED_COUNT failed). Artifacts are in $BATCH_DIR/"
 echo "   $(find "$BATCH_DIR" -maxdepth 1 -mindepth 1 -type d | wc -l) run dir(s), plus batch_tables.md and figures/ (one dashboard per dataset)."
 echo "   Ad-hoc cross-run charts: 'python -m cdrseqgen.visualization.linegraph_plotter'."

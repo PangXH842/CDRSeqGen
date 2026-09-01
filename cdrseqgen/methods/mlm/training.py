@@ -1,7 +1,6 @@
 """Main training pipeline. Dataset -> training -> generative eval
 
   * get_datasets             -- tokenizer + AntibodyInfillingDataset + the train/eval split
-  * run_training_pipeline    -- the do_train / do_eval loops, then the CSV and curves
   * post_training_generation -- sample from the finished model into generation_eval.json
 
 Notes:
@@ -18,11 +17,10 @@ import logging
 from typing import Tuple
 
 import torch
-from transformers import Trainer, TrainingArguments
 
 from cdrseqgen.data.dataset_common import select_split_indices
 from cdrseqgen.data.dataset_mlm import AntibodyInfillingDataset
-from cdrseqgen.train.record_results import save_training_csv, plot_training_curves
+from cdrseqgen.methods.common.training import run_training_pipeline  # re-export for old callers
 
 logger = logging.getLogger(__name__)
 
@@ -68,23 +66,6 @@ def get_datasets(model_args, data_args, training_args, backbone) -> Tuple[torch.
     return train_ds, eval_ds, tokenizer
 
 
-def run_training_pipeline(trainer: Trainer, training_args: TrainingArguments):
-    """Executes the train and eval loops based on the provided flags."""
-    if training_args.do_train:
-        logger.info("🚀 Starting Training...")
-        train_result = trainer.train()
-        trainer.save_model()
-        trainer.log_metrics("train", train_result.metrics)
-        trainer.save_metrics("train", train_result.metrics)
-
-    if training_args.do_eval:
-        logger.info("🔍 Starting Evaluation...")
-        metrics = trainer.evaluate()
-        trainer.log_metrics("eval", metrics)
-        trainer.save_metrics("eval", metrics)
-
-    save_training_csv(trainer, training_args.output_dir)
-    plot_training_curves(training_args.output_dir)
 
 
 def post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_args, training_args,

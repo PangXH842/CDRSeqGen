@@ -17,10 +17,11 @@ Current implemented features include:
 - **Context Dropout**: `context_dropout` trains one checkpoint that works with *and* without its optional context (partner chain / antigen drawn independently), instead of a model locked to the regime it was trained in
 - **Generative Sampling**: independent / iterative (Mask-Predict) decoding with temperature (`0` = greedy), top-k, top-p — samples a *library* of candidate loops instead of one argmax guess
 - **Explicit Length Policies**: fixed, bounded, and inferred-length MLM generation; inferred mode classifies one gap sentinel and expands it into residue masks without reading the native loop length
+- **Autoregressive Infilling**: causal span infilling with both framework flanks in the prompt, answer-only loss, rotary positions, and model-chosen loop length via `<eos>`
 - **Evaluation Metrics**: *recovery-side* — Sequence Recovery Rate (Per-Residue Accuracy), anchor-excluded core accuracy, anchor accuracy. *Design-side* — diversity, novelty, per-position entropy, pseudo-perplexity, plus judge-scored perplexity for cross-model comparison
 - **Matched External Benchmark**: versioned manifests, model-specific CDRSeqGen/IgLM adapters, shared contract validation and scoring, and optional independent-judge perplexity
 - **Logging & Visualization**: per-run `train.log` (the whole run's record, including the generative-eval table and any uncaught traceback), TensorBoard logging, csv metric extraction, multi-line graph plotter
-- **Extensible Architecture**: method packages isolate masked-LM assumptions so future autoregressive or encoder–decoder implementations can reuse shared data, metrics, artifacts, and benchmark contracts
+- **Extensible Architecture**: method packages isolate masked-LM and causal assumptions so additional methods can reuse shared data, metrics, artifacts, and benchmark contracts
 
 ---
 
@@ -67,11 +68,12 @@ Current implemented features include:
 
 ```text
 CDRSeqGen/
-├── configs/                    # 50 run configs (flat; run.sh references them by path).
+├── configs/                    # 55 run configs (flat; run.sh references them by path).
 │                               #   A config's "method" key selects the pipeline (default mlm)
 │   ├── h{1,2,3}_scratch[.json|_lc|_ag|_ag_lconly] + h{1,2,3}_esm2[...]
 │   ├── h{1,2,3}_igbert[.json|_lc] + h{1,2,3}_protbert[.json|_lc]
-│   └── l{1,2,3}_scratch[.json|_hc] + l{1,2,3}_esm2[.json|_hc]
+│   ├── l{1,2,3}_scratch[.json|_hc] + l{1,2,3}_esm2[.json|_hc]
+│   └── h{1,2,3}_ar_scratch[.json|_lc]
 ├── cdrseqgen/                  # Library package — grouped by concern (entrypoints stay at root)
 │   ├── artifacts.py            # Shared names for persisted run artifacts and legacy aliases
 │   ├── data/                   # ALL data code (the data itself lives in dataset/data/)
@@ -92,11 +94,12 @@ CDRSeqGen/
 │   │   ├── common/             # What every method needs to PRODUCE output. One implementation, so
 │   │   │   │                   #   the methods cannot drift — they already had, with the same field
 │   │   │   │                   #   called gen_judge_path on one side and gen_judge_weights on the other
-│   │   │   ├── arguments.py    # The 25 shared args + config/CLI parsing + run-directory setup;
+│   │   │   ├── arguments.py    # The 28 shared args + config/CLI parsing + run-directory setup;
 │   │   │   │                   #   each method subclasses and adds only its own
 │   │   │   ├── sampling.py     # warp_logits / ban_tokens / logits_of — so "top_p=0.9" means the
 │   │   │   │                   #   same thing on both sides of an AR-vs-MLM table
-│   │   │   └── callbacks.py    # build_callbacks: metric logging ALWAYS, early stopping on request
+│   │   │   ├── callbacks.py    # build_callbacks: metric logging ALWAYS, early stopping on request
+│   │   │   └── training.py     # shared train/eval lifecycle + standard finished-run artifacts
 │   │   ├── ar/                 # Autoregressive (2026-09-01). Data lives in data/dataset_ar.py;
 │   │   │   ├── backbones.py    #   this package owns model + training.
 │   │   │   │                   # Causal registry — resolve(model_type) -> CausalBackbone.
@@ -772,8 +775,9 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
 - **2026-09-01** -- Autoregressive method [new]: `methods/ar/` (causal decoder w/ rotary positions, backbone registry, training, decode-to-`<eos>` sampling, generative eval) + `data/dataset_ar.py`. Layout is `pt1 <mask> pt2 <sep> target <eos>` — both flanks in the prompt, loss on the answer only, length from `<eos>` instead of §10's length head
+- **2026-09-01** -- AR integration hardening: generation now uses `gen_seed` on the active device, records incomplete/empty EOS attempts and full provenance/summary artifacts, saves train/eval metrics like MLM, and the `compare` suite uses inferred MLM length and writes a masked-vs-causal table
 - **2026-09-01** -- `train.py` now dispatches on a config's `"method"` key; each method's `main()` moved to `methods/<method>/entrypoint.py`. All 49 existing configs default to `mlm`, untouched
-- **2026-09-01** -- `methods/common/` [new]: the 25 shared arguments + config/CLI parsing + run-dir setup, sampling primitives, callbacks. `methods/mlm/arguments.py` 303 -> 165 lines
+- **2026-09-01** -- `methods/common/` [new]: the 28 shared arguments + config/CLI parsing + run-dir setup, sampling primitives, callbacks, and the Trainer artifact lifecycle
 - **2026-09-01** -- `eval/generative.py` [new]: evaluation loop shared by both methods; a strategy owns only `draw()` and `self_scores()` (masked pseudo-perplexity vs causal true perplexity)
 - **2026-09-01** -- `build_judge`, `select_split_indices` and `ANCHOR_TRIM` moved to neutral homes — `eval/` and `data/` now import from no method package, and `ar/` has zero code deps on `mlm/`
 - **2026-09-01** -- Data modules renamed: `frameworks.py` / `dataset.py` / `causal.py` -> `dataset_common.py` / `dataset_mlm.py` / `dataset_ar.py`
@@ -876,6 +880,7 @@ The comparison must run both methods on the **same frozen examples**, with the s
   - [ ] `data/` scripts 
     - [ ] `dataset.py`, `frameworks.py` (0818)
     - [ ] `preprocess/` scripts
+  - [ ] `cdrseqgen/methods/common/`
   - [ ] `cdrseqgen/methods/mlm/` 
     - [ ] arguments, backbones
     - [ ] training
@@ -883,6 +888,7 @@ The comparison must run both methods on the **same frozen examples**, with the s
     - [ ] generation, case_generation
     - [ ] evaluation, recovery
     - [ ] length, length_predictor, variable_length_evaluation
+  - [ ] `cdrseqgen/methods/ar/`
   - [ ] `eval/metrics.py`  and `train/` artifact/logging scripts
   - [ ] `train.py` + `train/` (logging)
   - [ ] visualization scripts

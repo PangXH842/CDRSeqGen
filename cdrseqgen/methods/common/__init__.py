@@ -4,6 +4,7 @@
                      and run-directory setup. A method subclasses the bases and adds only its own.
   * sampling.py   -- logit shaping (temperature/top-k/top-p) and model-output normalisation
   * callbacks.py  -- Trainer callbacks: metric logging always, early stopping on request
+  * training.py   -- Trainer lifecycle and the standard finished-run artifacts
 
 The membership test: **things a method needs to PRODUCE output**. Turning records into model inputs
 belongs in ``data/dataset_common.py``; measuring outputs belongs in ``cdrseqgen/eval/``.

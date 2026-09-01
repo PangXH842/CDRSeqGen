@@ -118,20 +118,42 @@ def missing_sentinels(hf_tokenizer):
     vocab = hf_tokenizer.get_vocab()
     return [token for token in REQUIRED_SENTINELS if token not in vocab]
 
+def _prepare_hf_tokenizer(tok):
+    """Install the causal layout tokens and guarantee usable EOS/padding semantics."""
+    vocab = tok.get_vocab()
+    added = []
+
+    # Some causal tokenizers have no declared EOS. Register the existing literal token when there
+    # is one; otherwise add it as EOS (not merely as an unrelated additional special token).
+    if tok.eos_token_id is None:
+        if "<eos>" in vocab:
+            tok.eos_token = "<eos>"
+        else:
+            tok.add_special_tokens({"eos_token": "<eos>"})
+            added.append("<eos>")
+
+    layout_tokens = [token for token in ("<mask>", "<sep>") if token not in tok.get_vocab()]
+    if layout_tokens:
+        tok.add_special_tokens({"additional_special_tokens": layout_tokens})
+        added.extend(layout_tokens)
+
+    if tok.eos_token_id is None:
+        raise ValueError("causal tokenizer has no eos_token_id after sentinel setup")
+    if tok.pad_token_id is None:
+        tok.pad_token = tok.eos_token
+    return added
+
+
 
 def _hf_tokenizer(mt, pos, wrap):
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(mt)
-    added = missing_sentinels(tok)
+    added = _prepare_hf_tokenizer(tok)
     if added:
-        # The model must be resized to match; _load_hf_causal below does that from the same list.
-        tok.add_special_tokens({"additional_special_tokens": added})
         logger.warning(
             "🧩 %s lacks %s — added as new tokens. Their embeddings start RANDOM and the model has "
             "never seen this span-infilling format, so expect it to need more fine-tuning than a "
             "natively-infilling model like IgLM.", mt, added)
-    if tok.pad_token_id is None:
-        tok.pad_token = tok.eos_token          # HF causal LMs commonly ship without a pad token
     adapter = TokenizerAdapter.from_hf(tok, position_type=pos, uses_special_tokens=wrap)
     adapter.mask_id = tok.convert_tokens_to_ids("<mask>")
     adapter.chain_sep_id = tok.convert_tokens_to_ids("<sep>")
@@ -144,10 +166,12 @@ def _load_hf_causal(name_or_path):
     logger.info(f"🧬 Loading Hugging Face causal LM: {name_or_path}")
     model = AutoModelForCausalLM.from_pretrained(name_or_path)
     tok = AutoTokenizer.from_pretrained(name_or_path)
-    added = missing_sentinels(tok)
-    if added:
+    _prepare_hf_tokenizer(tok)
+    if model.get_input_embeddings().num_embeddings != len(tok):
         # Resize to the tokenizer the adapter will build, or the sentinel ids index out of bounds.
-        model.resize_token_embeddings(len(tok) + len(added))
+        model.resize_token_embeddings(len(tok))
+    model.config.eos_token_id = tok.eos_token_id
+    model.config.pad_token_id = tok.pad_token_id
     return model
 
 

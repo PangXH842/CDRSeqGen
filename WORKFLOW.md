@@ -111,12 +111,14 @@ CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_ar_scratch.json    # autoregre
 > **The `compare` suite is how the two methods get compared.** Putting a masked and a causal run in
 > the *same* batch folder means `batch_tables.md` and `figures/batch_<ds>.png` render them side by
 > side — `scratch (masked)` against `scratch (causal)` — from one round, rather than a manual merge
-> of two. `run.sh` needs no knowledge of methods for this: it invokes `python train.py <config>` and
-> the dispatcher routes on each config's `"method"` key.
+> of two. The dispatcher routes on each config's `"method"` key. For the two masked configs only,
+> `run.sh` also adds `--gen_length_mode inferred`, so the post-training generation panel withholds
+> native length from both methods; ordinary `oas` runs retain their configured fixed-native track.
 >
-> **⚠️ Read the recovery columns with the length caveat in mind.** These are teacher-forced
+> **⚠️ The recovery columns still carry a length caveat.** These are teacher-forced
 > best-epoch numbers, and the masked model is handed the loop length while the causal one predicts
-> its own. For a fair generation comparison use the length-free track on both sides (see Step 5).
+> its own. The compare suite's *generation* panel is length-free on both sides; its checkpoint-
+> selection recovery table is an integration diagnostic, not the fair design comparison.
 
 **Every run lives at `results/runs/<batch>/<run>/` — always two levels under `runs/`.** A `run.sh` round shares one batch
 folder; a standalone `train.py` gets a batch folder of its own, so `results/` never collects loose run
@@ -559,8 +561,8 @@ separate 130-line functions that had already drifted apart in four ways (progres
 summary statistic, empty-mask guard) — differences that make two tracks quietly incomparable.
 
 Length policy, checkpoint-specific classification, mask expansion, and independent-versus-iterative
-decoder dispatch live in [`cdrseqgen/methods/mlm/`](cdrseqgen/methods/mlm/). Future autoregressive
-and encoder-decoder methods can be added beside `mlm/` without inheriting its mask-token,
+decoder dispatch live in [`cdrseqgen/methods/mlm/`](cdrseqgen/methods/mlm/). The causal method lives
+beside it in `methods/ar/`; future methods can do the same without inheriting MLM mask-token,
 pseudo-perplexity, or length-expansion assumptions. The MLM primitives are shared by `generate.py`,
 both held-out evaluation paths, and the CDRSeqGen benchmark adapter — all of which now reach the
 decoder through the single `sample_length_conditioned_spans` entry point, so a fixed length is

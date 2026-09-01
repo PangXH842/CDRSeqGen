@@ -20,10 +20,6 @@ Notes:
     exists. It does NOT update results/runs/latest — train.py does that once the datasets have loaded, so
     a config rejected by get_datasets cannot take the pointer from the last usable batch.
 """
-import os
-import sys
-import json
-import logging
 from dataclasses import dataclass, field
 from typing import Tuple
 
@@ -34,20 +30,9 @@ from cdrseqgen.methods.mlm.length import resolve_generation_length_policy
 from cdrseqgen.methods.common.arguments import (BaseDataArguments,
                                                 BaseGenerationArguments,
                                                 BaseModelArguments,
-                                                initialise_run,
-                                                parse_config_and_cli)
+                                                initialise_run, parse_config_and_cli,
+                                                validate_common_args)
 from cdrseqgen.methods.mlm.losses import loss_config_from_args
-from cdrseqgen.methods.mlm.recovery import ANCHOR_TRIM
-from cdrseqgen.train.logging import (
-    RUN_SUFFIX_ENV,
-    attach_file_logging,
-    dataset_tag,
-    results_root,
-    unique_run_dir,
-    write_run_config,
-)
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -129,7 +114,6 @@ class GenerationArguments(BaseGenerationArguments):
     gen_length_temperature: float = field(
         default=1.0, metadata={"help": "Temperature for sampling the learned length distribution."}
     )
-    gen_seed: int = field(default=42, metadata={"help": "Seed for reproducible sampling."})
 
 
 def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, TrainingArguments]:
@@ -137,6 +121,7 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
     parser = HfArgumentParser((ModelArguments, DataArguments, GenerationArguments, TrainingArguments))
     model_args, data_args, gen_args, training_args = parse_config_and_cli(parser)
 
+    validate_common_args(model_args, data_args, gen_args, expected_method="mlm")
     data_args.masking_policy = normalize_masking_policy(data_args.masking_policy)
     loss_config = loss_config_from_args(model_args, training_args)
     model_args.loss_type = loss_config.loss_type
