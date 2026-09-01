@@ -66,8 +66,28 @@ We use `.json` configuration files to manage hyperparameters cleanly. The traine
 
 **Run a Single Experiment:**
 ```bash
-CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_scratch.json
+CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_scratch.json       # masked-LM
+CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_ar_scratch.json    # autoregressive
 ```
+
+> **One entrypoint, two methods.** `train.py` dispatches on the config's `"method"` key — absent
+> means `mlm`, so all 49 pre-existing configs are untouched. `--method ar` overrides it, for running
+> a config through the other pipeline deliberately. Each method owns its own parser and
+> `main()` in `cdrseqgen/methods/<method>/entrypoint.py`; `train.py` only routes.
+>
+> Both write the *same* files to the *same* place — `epoch_metrics.csv`, the four curve PNGs,
+> `run_config.json`, `train.log`, `generation_eval.json` — so every plotter and table generator in
+> Step 3 reads a causal run unchanged. Runs are tagged `h3_OAS_ar_scratch`, the `ar` marker keeping
+> them distinct from the masked run of the same loop, dataset and context.
+>
+> **⚠️ Comparing the two is itself a matched-comparison problem.** The masked fixed-native track
+> *hands the model the loop length* — 4.05 bits on H3 (see "How to read the numbers" in the README)
+> — while a causal model must predict its own via `<eos>`. An AR-versus-MLM table built from
+> masked fixed-native numbers flatters the causal side for a reason unrelated to the objective.
+> Compare length-free on both sides: `evaluate.py --length_mode inferred` is the masked half.
+
+**What the causal method does NOT have yet:** a counterpart to `generate.py`, so the curated
+`showcase/*.json` frameworks cannot be run against a causal checkpoint.
 
 **Run an Automated Experiment Suite:** [`scripts/run.sh`](scripts/run.sh) takes a GPU id and one or more suite names, skips to the next config if one fails, and writes the round's tables and dashboards into the batch folder when it finishes (Step 3).
 ```bash
@@ -78,11 +98,25 @@ CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_scratch.json
 ./scripts/run.sh 4 lcdr           # OAS light matrix (l1/l2/l3, heavy-chain context)    (12)
 ./scripts/run.sh 4 oas lcdr       # combine suites — deduped, run in order              (24)
 
+# Autoregressive, and the paired comparison
+./scripts/run.sh 4 ar             # causal OAS heavy (h1/h2/h3), base + _lc               (6)
+./scripts/run.sh 4 compare        # h3 masked + h3 causal in ONE batch, side by side      (4)
+
 # Antibody/protein-BERT PLM backbones on OAS heavy (first run downloads a ~1.6GB model each)
 ./scripts/run.sh 4 igbert         # IgBert (antibody-specific)                           (6)
 ./scripts/run.sh 4 protbert       # ProtBert (general-protein baseline)                  (6)
 ./scripts/run.sh 4 plm            # both (igbert + protbert)                            (12)
 ```
+
+> **The `compare` suite is how the two methods get compared.** Putting a masked and a causal run in
+> the *same* batch folder means `batch_tables.md` and `figures/batch_<ds>.png` render them side by
+> side — `scratch (masked)` against `scratch (causal)` — from one round, rather than a manual merge
+> of two. `run.sh` needs no knowledge of methods for this: it invokes `python train.py <config>` and
+> the dispatcher routes on each config's `"method"` key.
+>
+> **⚠️ Read the recovery columns with the length caveat in mind.** These are teacher-forced
+> best-epoch numbers, and the masked model is handed the loop length while the causal one predicts
+> its own. For a fair generation comparison use the length-free track on both sides (see Step 5).
 
 **Every run lives at `results/runs/<batch>/<run>/` — always two levels under `runs/`.** A `run.sh` round shares one batch
 folder; a standalone `train.py` gets a batch folder of its own, so `results/` never collects loose run

@@ -18,10 +18,10 @@ import logging
 from typing import Tuple
 
 import torch
-from sklearn.model_selection import train_test_split
 from transformers import Trainer, TrainingArguments
 
-from cdrseqgen.data.dataset import AntibodyInfillingDataset
+from cdrseqgen.data.dataset_common import select_split_indices
+from cdrseqgen.data.dataset_mlm import AntibodyInfillingDataset
 from cdrseqgen.train.record_results import save_training_csv, plot_training_curves
 
 logger = logging.getLogger(__name__)
@@ -48,41 +48,11 @@ def get_datasets(model_args, data_args, training_args, backbone) -> Tuple[torch.
         context_dropout_seed=training_args.seed,
     )
 
-    # Data split
-    selected_eval_split = data_args.eval_split.strip()
-    if len(full_dataset) > 0 and all('split' in entry for entry in full_dataset.data):
-        available = sorted({entry['split'] for entry in full_dataset.data})
-        train_idx = [i for i, entry in enumerate(full_dataset.data) if entry['split'] == 'train']
-        if selected_eval_split:
-            if selected_eval_split == 'train' or selected_eval_split not in available:
-                raise ValueError(
-                    f"eval_split={selected_eval_split!r} is invalid; available non-training splits: "
-                    f"{[s for s in available if s != 'train']}"
-                )
-            val_idx = [i for i, entry in enumerate(full_dataset.data)
-                       if entry['split'] == selected_eval_split]
-        elif 'test' in available:
-            # Early stopping and load_best_model_at_end both read this split, so an unset
-            # eval_split used to select checkpoints on the final holdout without saying so.
-            raise ValueError(
-                f"eval_split is unset and {data_args.data_path} carries a 'test' split, so every "
-                "non-train entry — the test partition — would drive early stopping and "
-                "best-checkpoint selection. Declare it: 'validation' while tuning, 'test' only "
-                "once the settings are frozen. Available non-training splits: "
-                f"{[s for s in available if s != 'train']}"
-            )
-        else:
-            # No test partition to protect: every non-train entry is the evaluation set.
-            val_idx = [i for i, entry in enumerate(full_dataset.data) if entry['split'] != 'train']
-    else:
-        if selected_eval_split:
-            raise ValueError("eval_split requires a processed dataset with named split fields")
-        # random train/val split, arg: data_args.test_size
-        train_idx, val_idx = train_test_split(
-            range(len(full_dataset)),
-            test_size=data_args.test_size,
-            random_state=training_args.seed
-        )
+    # Data split — shared guard; see dataset_common.select_split_indices for why it is not
+    # reimplemented here.
+    train_idx, val_idx, eval_label = select_split_indices(
+        full_dataset.data, data_args.eval_split, data_path=data_args.data_path,
+        seed=training_args.seed, test_size=data_args.test_size)
 
     # These lightweight views share parsed records/tokenizer but not masking behavior. Training may
     # reveal native residues; validation must always begin with the entire loop masked or recovery
@@ -91,7 +61,6 @@ def get_datasets(model_args, data_args, training_args, backbone) -> Tuple[torch.
     train_ds = torch.utils.data.Subset(full_dataset, train_idx)
     eval_ds = torch.utils.data.Subset(eval_full_dataset, val_idx)
 
-    eval_label = selected_eval_split or "all non-train"
     masking_note = f", full-span probability={mixed_full_span_probability:.2f}" \
         if masking_policy == "mixed" else ""
     logger.info(f"📊 Data loaded: {len(train_ds)} train ({masking_policy}{masking_note}), "

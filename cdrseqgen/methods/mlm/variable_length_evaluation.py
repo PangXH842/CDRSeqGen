@@ -12,7 +12,7 @@ how many residues to fill.
 
 import logging
 
-from cdrseqgen.data.dataset import framework_for_dataset
+from cdrseqgen.data.dataset_mlm import framework_for_dataset
 from cdrseqgen.methods.mlm.evaluation import Draw
 from cdrseqgen.methods.mlm.generation import (
     prepare_fixed_length_prompt,
@@ -76,6 +76,15 @@ class VariableLengthStrategy:
             length_policy=length_metadata,
             record_extra={"generated_lengths": [len(sequence) for sequence in seqs]},
         )
+
+    def self_scores(self, drawn):
+        """Same pseudo-perplexity as the fixed-native track; the spans differ, the scoring does not."""
+        from cdrseqgen.methods.mlm.sampling import pseudo_log_likelihood
+        return [
+            pseudo_log_likelihood(self.model, input_ids, mask_positions, token_ids,
+                                  self.tokenizer.special_ids, self.tokenizer.mask_id, self.device)[1]
+            for input_ids, mask_positions, token_ids in drawn.spans
+        ]
 
     def judge_inputs(self, i, seq):
         """Rebuild the judge's prompt at this candidate's own length, not the native one.

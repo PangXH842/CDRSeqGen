@@ -1,115 +1,63 @@
-"""Training entrypoint, processes configs from batch jsons/CLI, loads functions from `cdrseqgen/train/`.
+"""Training entrypoint — dispatches to the method a config declares.
 
-Usage (in CLI):
-  * python train.py configs/h3_scratch.json
-  * python train.py configs/h3_scratch.json --learning_rate 3e-4 --num_train_epochs 20
+    python train.py configs/h3_scratch.json                 # masked-LM (the default)
+    python train.py configs/h3_ar_scratch.json              # autoregressive
+    python train.py configs/h3_scratch.json --learning_rate 3e-4 --num_train_epochs 20
+    python train.py --method ar --target_region h3          # bare CLI, no config file
 
-Trailing flags override the JSON rather than replacing it, so any TrainingArguments field is tunable
-without writing a new config. Batch rounds go through scripts/run.sh, which exports
-CDRSEQGEN_RESULTS_ROOT so every run of the round shares one batch folder.
+The method comes from the config's ``"method"`` key, or a ``--method`` flag, and defaults to ``mlm``
+so every pre-existing config keeps working untouched.
+
+**This file only routes.** Each method owns its own parser and its own ``entrypoint.main()``, in
+``cdrseqgen/methods/<method>/entrypoint.py``. That is the point: a single shared parser would have to
+accept ``masking_policy`` and ``gen_length_mode`` from a causal run and ``gen_max_new_tokens`` from a
+masked one, and silently ignore whichever half did not apply. The 25 arguments the methods DO share
+are inherited from ``methods/common/arguments.py``, so they cannot drift — they already had, with
+the same field called ``gen_judge_path`` on one side and ``gen_judge_weights`` on the other.
+
+Trailing flags override the JSON rather than replacing it. Batch rounds go through scripts/run.sh,
+which exports CDRSEQGEN_RESULTS_ROOT so every run of the round shares one batch folder.
 """
-import functools
+import json
+import os
+import sys
 
-from transformers import set_seed
-
-from cdrseqgen.data.dataset import collate_fn
-from cdrseqgen.methods.mlm.arguments import setup_args
-from cdrseqgen.methods.mlm.backbones import resolve
-from cdrseqgen.methods.mlm.losses import MLMLossTrainer, loss_config_from_args
-from cdrseqgen.methods.mlm.recovery import compute_metrics
-from cdrseqgen.methods.mlm.training import (
-    get_datasets,
-    post_training_generation,
-    run_training_pipeline,
-)
-from cdrseqgen.train.logging import LogMetricsCallback, configure_logging, update_latest_link
-
-configure_logging()
+METHODS = {
+    "mlm": "cdrseqgen.methods.mlm.entrypoint",
+    "ar": "cdrseqgen.methods.ar.entrypoint",
+}
+DEFAULT_METHOD = "mlm"
 
 
-def build_callbacks(model_args, training_args, logger):
-    """Trainer callbacks: metric logging always, early stopping only when a config asks for it."""
-    callbacks = [LogMetricsCallback()]  # Required for train.log to record training process
+def resolve_method(argv):
+    """(method, argv-without-the-method-flag).
 
-    if model_args.early_stopping_patience and model_args.early_stopping_patience > 0:
-        from transformers import EarlyStoppingCallback
-        callbacks.append(EarlyStoppingCallback(
-            early_stopping_patience=model_args.early_stopping_patience,
-            early_stopping_threshold=model_args.early_stopping_threshold,
-        ))
-        logger.info(f"⏱️  Early stopping ON: patience={model_args.early_stopping_patience} evals on "
-                    f"'{training_args.metric_for_best_model}' (threshold {model_args.early_stopping_threshold}).")
-    return callbacks
+    A ``--method`` flag wins over the config, so a config can be run through the other pipeline
+    deliberately; without it the config's own declaration decides, and a config that declares
+    nothing is masked — which is every config written before 2026-09-01.
+    """
+    argv = list(argv)
+    if "--method" in argv:
+        index = argv.index("--method")
+        if index + 1 >= len(argv):
+            raise SystemExit("--method needs a value: " + " | ".join(METHODS))
+        method = argv[index + 1]
+        del argv[index:index + 2]
+        return method, argv
+    if len(argv) >= 2 and argv[1].endswith(".json") and os.path.exists(argv[1]):
+        with open(argv[1]) as handle:
+            return json.load(handle).get("method", DEFAULT_METHOD), argv
+    return DEFAULT_METHOD, argv
 
 
 def main():
-    import logging
-    logger = logging.getLogger(__name__)
-
-    model_args, data_args, gen_args, training_args = setup_args()
-    set_seed(training_args.seed)
-    loss_config = loss_config_from_args(model_args, training_args)
-    logger.info(
-        "🎯 Loss: %s (core=%g, anchor=%g, trim=%d, label_smoothing=%g)",
-        loss_config.loss_type,
-        loss_config.core_weight,
-        loss_config.anchor_weight,
-        loss_config.anchor_trim,
-        loss_config.label_smoothing,
-    )
-
-    backbone = resolve(model_args.model_type)
-    train_dataset, eval_dataset, tokenizer = get_datasets(model_args, data_args, training_args, backbone)
-    # Only now is this a real run: a rejected config (an undeclared eval_split, say) must not take
-    # results/runs/latest away from the last batch that actually produced results.
-    update_latest_link(training_args.output_dir)
-
-    # load_training_model ignores the scratch-only kwargs for pretrained backbones (**kw)
-    model = backbone.load_training_model(
-        model_args.model_type,
-        vocab_size=tokenizer.vocab_size,
-        hidden_size=model_args.hidden_size,
-        num_layers=model_args.num_layers,
-        num_attention_heads=model_args.num_attention_heads,
-        intermediate_size=model_args.intermediate_size,
-        max_len=data_args.max_len,
-    )
-
-    trainer = MLMLossTrainer(
-        model=model,
-        args=training_args,
-        loss_config=loss_config,
-        train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
-        data_collator=functools.partial(collate_fn, pad_token_id=tokenizer.pad_id),
-        compute_metrics=functools.partial(compute_metrics, trim=loss_config.anchor_trim),
-        callbacks=build_callbacks(model_args, training_args, logger),
-    )
-
-    run_training_pipeline(trainer, training_args)
-
-    length_predictor = None
-    if training_args.do_train and data_args.train_length_predictor:
-        from cdrseqgen.methods.mlm.length_predictor import fit_length_predictor
-        length_predictor = fit_length_predictor(
-            trainer.model,
-            tokenizer,
-            train_dataset,
-            eval_dataset,
-            output_dir=training_args.output_dir,
-            device=training_args.device,
-            epochs=data_args.length_predictor_epochs,
-            learning_rate=data_args.length_predictor_learning_rate,
-            batch_size=data_args.length_predictor_batch_size,
-            seed=training_args.seed,
-        )
-
-    if gen_args.run_generative_eval:
-        post_training_generation(
-            trainer, tokenizer, eval_dataset, data_args, gen_args, training_args,
-            anchor_trim=loss_config.anchor_trim,
-            length_predictor=length_predictor,
-        )
+    method, argv = resolve_method(sys.argv)
+    if method not in METHODS:
+        raise SystemExit(f"Unknown method {method!r}. Choose one of: {', '.join(METHODS)}")
+    # The method's own setup_args reads sys.argv, so hand it the argv with --method removed.
+    sys.argv = argv
+    import importlib
+    importlib.import_module(METHODS[method]).main()
 
 
 if __name__ == "__main__":

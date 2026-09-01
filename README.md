@@ -1,8 +1,8 @@
 <!-- Note to AI: Edits allowed OUTSIDE of MANUAL PROTECTION ZONES and INSIDE of AI ACCESS ZONES -->
 # CDRSeqGen: Modular Antibody Infilling Framework
 
-**Date Updated:** 2026-08-31
-**Status:** Candidate confidence scores, loss functions, visualization rework; pending additions: autoregressive, encoder-decoder
+**Date Updated:** 2026-09-01
+**Status:** Autoregressive method implemented end to end (data, causal decoder, backbone registry, training, sampling, generative evaluation) behind a dispatching `train.py` — **no results yet**, first runs pending. Pending additions: encoder-decoder
 
 ## Project Overview
 CDRSeqGen is a computational immunology framework designed to predict antibody loop sequences given the surrounding framework context. 
@@ -67,17 +67,21 @@ Current implemented features include:
 
 ```text
 CDRSeqGen/
-├── configs/                    # 48 run configs (flat; run.sh references them by path)
+├── configs/                    # 50 run configs (flat; run.sh references them by path).
+│                               #   A config's "method" key selects the pipeline (default mlm)
 │   ├── h{1,2,3}_scratch[.json|_lc|_ag|_ag_lconly] + h{1,2,3}_esm2[...]
 │   ├── h{1,2,3}_igbert[.json|_lc] + h{1,2,3}_protbert[.json|_lc]
 │   └── l{1,2,3}_scratch[.json|_hc] + l{1,2,3}_esm2[.json|_hc]
 ├── cdrseqgen/                  # Library package — grouped by concern (entrypoints stay at root)
 │   ├── artifacts.py            # Shared names for persisted run artifacts and legacy aliases
 │   ├── data/                   # ALL data code (the data itself lives in dataset/data/)
-│   │   ├── frameworks.py       # Method-NEUTRAL: tokenizers, framework/target split, context
-│   │   │                       #   injection + capping. No masking — an AR/enc-dec method
-│   │   │                       #   subclasses AntibodyFrameworkDataset and lays out its own inputs
-│   │   ├── dataset.py          # Masked-LM view: masking policies, mask layout, labels, collator
+│   │   ├── dataset_common.py   # Method-NEUTRAL: tokenizers, framework/target split, context
+│   │   │                       #   injection + capping, and select_split_indices (the shared
+│   │   │                       #   eval_split guard — never duplicate it per method)
+│   │   ├── dataset_mlm.py      # Masked-LM view: masking policies, mask layout, labels, collator
+│   │   ├── dataset_ar.py       # Autoregressive view (2026-09-01): pt1 <mask> pt2 <sep> target
+│   │   │                       #   <eos> — both flanks in the prompt so the model can condition on
+│   │   │                       #   FR4; loss on the answer only; length learned via <eos>
 │   │   └── preprocess/         # Offline: raw → processed JSON (run once per dataset)
 │   │       ├── oas_paired.py       # OAS paired repertoires + the leakage-safe clustered split
 │   │       ├── sabdab2.py          # SAbDab2 structures (adds antigen; split ships with the data)
@@ -85,8 +89,35 @@ CDRSeqGen/
 │   │       ├── download_oas_paired.sh  # Fetch OAS paired repertoires → dataset/data/raw/
 │   │       └── download_sabdab2.sh     # Fetch SAbDab2 splits → dataset/data/raw/ (CWD-independent)
 │   ├── methods/                # Complete generation methods; no cross-method mask assumptions
+│   │   ├── common/             # What every method needs to PRODUCE output. One implementation, so
+│   │   │   │                   #   the methods cannot drift — they already had, with the same field
+│   │   │   │                   #   called gen_judge_path on one side and gen_judge_weights on the other
+│   │   │   ├── arguments.py    # The 25 shared args + config/CLI parsing + run-directory setup;
+│   │   │   │                   #   each method subclasses and adds only its own
+│   │   │   ├── sampling.py     # warp_logits / ban_tokens / logits_of — so "top_p=0.9" means the
+│   │   │   │                   #   same thing on both sides of an AR-vs-MLM table
+│   │   │   └── callbacks.py    # build_callbacks: metric logging ALWAYS, early stopping on request
+│   │   ├── ar/                 # Autoregressive (2026-09-01). Data lives in data/dataset_ar.py;
+│   │   │   ├── backbones.py    #   this package owns model + training.
+│   │   │   │                   # Causal registry — resolve(model_type) -> CausalBackbone.
+│   │   │   │                   #   hf_decoder ADDS the layout's sentinels to a pretrained LM and
+│   │   │   │                   #   resizes it: those rows start random (see its docstring)
+│   │   │   ├── training.py     # get_datasets + teacher-forced core/anchor metrics + Trainer.
+│   │   │   │                   #   No masking view (nothing to hide), no loss registry (§13)
+│   │   │   ├── sampling.py     # Causal decode to <eos>. Replaces the masked side's sampling +
+│   │   │   │                   #   generation + length + length_predictor: the model picks its
+│   │   │   │                   #   own length, so §10's gap-sentinel head has no counterpart
+│   │   │   ├── arguments.py    # Causal args: subclasses the shared bases, adds gen_max_new_tokens
+│   │   │   ├── entrypoint.py   # main() for the causal pipeline; train.py dispatches here
+│   │   │   ├── evaluation.py   # CausalStrategy for the SHARED loop in eval/generative.py —
+│   │   │   │                   #   decode-to-eos draws, TRUE (not pseudo) perplexity, per-candidate
+│   │   │   │                   #   judge prompts since causal lengths vary
+│   │   │   └── models/
+│   │   │       └── transformer.py  # Causal decoder, ROTARY positions (§8: absolute positions lock
+│   │   │                       #   a checkpoint to its context regime; causal prompts vary in length)
 │   │   └── mlm/                # Masked-LM training, generation, and native evaluation
-│   │       ├── arguments.py        # MLM model/data/generation arguments + run setup
+│   │       ├── arguments.py        # MLM args: shared bases + loss_type/core/anchor weights
+│   │       ├── entrypoint.py       # main() for the masked pipeline; train.py dispatches here
 │   │       ├── backbones.py        # Masked-LM registry — resolve(model_type) -> Backbone
 │   │       ├── losses.py           # Shared loss registry + Trainer bridge for every MLM backbone
 │   │       ├── training.py         # Datasets, Trainer lifecycle, post-training evaluation
@@ -103,8 +134,11 @@ CDRSeqGen/
 │   ├── train/                  # Method-neutral run logging and artifact reporting
 │   │   ├── logging.py          # Logging, run dirs/latest, complete run_config.json
 │   │   └── record_results.py   # epoch_metrics.csv + training-curve PNGs
-│   ├── eval/
-│   │   └── metrics.py          # Architecture-neutral sequence/design metrics
+│   ├── eval/                   # Architecture-neutral evaluation. Imports from NO method package.
+│   │   ├── metrics.py          # Sequence/design metrics + ANCHOR_TRIM / MIN_CORE_COVERAGE
+│   │   └── generative.py       # The shared eval loop (2026-09-01): select -> draw -> score ->
+│   │                           #   judge -> write. A *strategy* owns draw() and self_scores(),
+│   │                           #   the only two steps a method cannot share
 │   └── visualization/          # Run artifacts -> charts and tables. No GPU, no model loading.
 │       ├── plot_style.py           # Shared palette, axes furniture, empty panels, saving
 │       ├── linegraph_plotter.py    # Chart type: lines with optional spread bands (+ CLI)
@@ -141,12 +175,16 @@ CDRSeqGen/
 │                               #   native, each carrying its provenance and intent
 ├── misc/
 │   └── CDRSeqGen260814.drawio.png  # Project workflow diagram
-├── train.py                    # Entrypoint — masked-LM training
+├── train.py                    # Entrypoint — dispatches to mlm or ar
+│                               #   Dispatches on the config's "method" key; each method's own
+│                               #   main() lives in methods/<method>/entrypoint.py
 ├── generate.py                 # Entrypoint — candidate generation on supplied frameworks
 ├── evaluate.py                 # Entrypoint — held-out generative evaluation (+ --judge)
 ├── fit_mlm_length.py           # Add MLM length artifacts to an older checkpoint
 ├── scripts/
-│   ├── run.sh                  # Unified runner: ./scripts/run.sh <gpu> [oas|antigen|lcdr|igbert|protbert|plm|all ...]
+│   ├── run.sh                  # Unified runner: ./scripts/run.sh <gpu> [oas|antigen|lcdr|ar|
+│                               #   compare|igbert|protbert|plm|all ...]. Method-agnostic —
+│                               #   train.py routes on each config's "method" key
 │   ├── sweep.sh                # Unified sweep: h3 | pilot | arch | loss | quick presets
 │   └── unit_tests.sh           # Unit test runner (sets PYTHONPATH; no GPU or data needed)
 ├── env.sh
@@ -665,7 +703,9 @@ Antigen sequences (up to ~2,300 residues for large multi-chain complexes) made t
 ### 6. Extensibility Principles
 The recurring rule: **a new capability is added in one place, and the rest of the pipeline stays oblivious.** Five seams:
 
-- **New generation method** → a package beside [`methods/mlm/`](cdrseqgen/methods/mlm/), subclassing `AntibodyFrameworkDataset` from [`data/frameworks.py`](cdrseqgen/data/frameworks.py). *Added 2026-08-31*: the framework/target split, context injection and length capping are now method-neutral, and `TokenizerAdapter.mask_id` is optional — requiring a mask token was the one thing that made a causal tokenizer impossible to construct. `dataset.py` is now just the masked-LM view of that base, and re-exports the moved names so existing imports are unchanged. The benchmark contract was already method-agnostic, as [`adapters/iglm.py`](benchmark/adapters/iglm.py) demonstrates.
+- **New generation method** → a package beside [`methods/mlm/`](cdrseqgen/methods/mlm/), subclassing `AntibodyFrameworkDataset` from [`data/dataset_common.py`](cdrseqgen/data/dataset_common.py), plus an `entrypoint.py` that [`train.py`](train.py) dispatches to on the config's `"method"` key. **Exercised 2026-09-01** by [`methods/ar/`](cdrseqgen/methods/ar/), which is a third the size of the masked package — the difference is the length-policy layer, the gap-sentinel head, the second eval track and the loss registry, none of which a causal model can need.
+
+  Adding the second method is what made the shared layers honest, and each extraction was checked against two implementations rather than guessed from one: `select_split_indices` (the eval-split guard — a second copy could recontaminate one method's results silently), `eval/generative.py` (the evaluation loop; a *strategy* owns only `draw()` and `self_scores()`), `build_judge` (§11 rests on one judge scoring both models), and `methods/common/` (arguments, sampling, callbacks). The last one caught a live defect: the causal entrypoint had quietly dropped `LogMetricsCallback`, reintroducing the empty-`train.log` regression fixed on 2026-07-29. *Added 2026-08-31*: the framework/target split, context injection and length capping are now method-neutral, and `TokenizerAdapter.mask_id` is optional — requiring a mask token was the one thing that made a causal tokenizer impossible to construct. `dataset_mlm.py` is now just the masked-LM view of that base, and re-exports the moved names so existing imports are unchanged. The benchmark contract was already method-agnostic, as [`adapters/iglm.py`](benchmark/adapters/iglm.py) demonstrates.
 - **New masked-LM backbone** → one `Backbone` entry in [`backbones.py`](cdrseqgen/methods/mlm/backbones.py) (§2) — the entrypoints and `dataset.py` never learn about it.
 - **New target loop** → change the `target_region` string (§1); masking logic is untouched.
 - **New context** → one boolean flag (`include_partner_chain`, `include_antigen`), resolved symmetrically (§3–4).
@@ -731,8 +771,17 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
-- **2026-08-31** -- Data layer split (`frameworks.py`) for mlm to make way for autoregressive dataset class
+- **2026-09-01** -- Autoregressive method [new]: `methods/ar/` (causal decoder w/ rotary positions, backbone registry, training, decode-to-`<eos>` sampling, generative eval) + `data/dataset_ar.py`. Layout is `pt1 <mask> pt2 <sep> target <eos>` — both flanks in the prompt, loss on the answer only, length from `<eos>` instead of §10's length head
+- **2026-09-01** -- `train.py` now dispatches on a config's `"method"` key; each method's `main()` moved to `methods/<method>/entrypoint.py`. All 49 existing configs default to `mlm`, untouched
+- **2026-09-01** -- `methods/common/` [new]: the 25 shared arguments + config/CLI parsing + run-dir setup, sampling primitives, callbacks. `methods/mlm/arguments.py` 303 -> 165 lines
+- **2026-09-01** -- `eval/generative.py` [new]: evaluation loop shared by both methods; a strategy owns only `draw()` and `self_scores()` (masked pseudo-perplexity vs causal true perplexity)
+- **2026-09-01** -- `build_judge`, `select_split_indices` and `ANCHOR_TRIM` moved to neutral homes — `eval/` and `data/` now import from no method package, and `ar/` has zero code deps on `mlm/`
+- **2026-09-01** -- Data modules renamed: `frameworks.py` / `dataset.py` / `causal.py` -> `dataset_common.py` / `dataset_mlm.py` / `dataset_ar.py`
+- **2026-09-01** -- `run.sh`: added `ar` and `compare` suites. `compare` puts masked + causal h3 in ONE batch so `batch_plots` renders them side by side
+- **2026-09-01** -- `run.sh` fix: the dataset gate checked `processed_oas_data.json` while every config declares `processed_oas_tuning.json` — it now reads each config's own `data_path`
+- **2026-09-01** -- Fix: the causal entrypoint had dropped `LogMetricsCallback`, reintroducing the empty-`train.log` regression from 07-29. Caught by sharing `build_callbacks`
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-08-31** -- Data layer split (`frameworks.py`) for mlm to make way for autoregressive dataset class
 - **2026-08-31** -- Former `test/` dir split into `showcase/` (jsons for inference) and `unit_tests/` (for examining train scripts)
 - **2026-08-31** -- Auto figure plotting after hyperparameter & loss sweeps, in sweep dir instead of separate `figures/` folder
 - **2026-08-31** -- Data visualization rework, run/sweep type -> table/graph plotters

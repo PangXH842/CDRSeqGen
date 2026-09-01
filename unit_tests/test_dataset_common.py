@@ -1,6 +1,6 @@
 """The method-neutral data seam: what a non-masked method can build on.
 
-`frameworks.py` was split out of `dataset.py` so an autoregressive or encoder-decoder method can
+`dataset_common.py` was split out of `dataset_mlm.py` so an autoregressive or encoder-decoder method can
 reuse framework/target splitting, context injection and length capping without inheriting masking.
 These tests pin the two properties that make that seam real:
 
@@ -16,8 +16,8 @@ import unittest
 
 import torch
 
-from cdrseqgen.data.dataset import AntibodyInfillingDataset
-from cdrseqgen.data.frameworks import (AntibodyFrameworkDataset, AntibodyTokenizer,
+from cdrseqgen.data.dataset_mlm import AntibodyInfillingDataset
+from cdrseqgen.data.dataset_common import (AntibodyFrameworkDataset, AntibodyTokenizer,
                                        TokenizerAdapter, framework_for_dataset, inject_context)
 
 CHAIN = {"fwr1": "AAAA", "cdr1": "CC", "fwr2": "DDDD", "cdr2": "EE",

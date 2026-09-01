@@ -11,8 +11,8 @@ Notes:
   * Both sampling methods can handle temperature=0 (greedy) cases
 """
 import torch
+from cdrseqgen.methods.common import NEG_INF, ban_tokens, warp_logits
 
-NEG_INF = float("-inf")
 
 
 def _logits_of(outputs):
@@ -25,46 +25,9 @@ def _logits_of(outputs):
         raise ValueError(f"Cannot extract logits from {type(outputs)}")
 
 
-def _ban(logits, banned_ids):
-    """Set banned token logits to -inf (softmax probability = 0)"""
-    if banned_ids:
-        logits[..., list(banned_ids)] = NEG_INF
-    return logits
+_ban = ban_tokens   # kept as a local alias so existing call sites are untouched
 
 
-def warp_logits(logits, temperature=1.0, top_k=0, top_p=1.0):
-    """Apply temperature, then top-k, then top-p to softmax logits
-
-    Cases:
-      * temperature = 0: greedy, should not use this function
-      * top_k = 0: disabled, all logits kept, ~ top_k = inf
-      * top_p = 1.0: all low probability tail tokens kept
-
-    Note:
-      * top_p keeps at least 1 highest-probability token
-    """
-    if temperature and temperature > 0:
-        logits = logits / temperature
-
-    if top_k and top_k > 0:
-        k = min(top_k, logits.size(-1))
-        kth = torch.topk(logits, k, dim=-1).values[..., -1, None]
-        logits = logits.masked_fill(logits < kth, NEG_INF)      # set all remaining logits to -inf
-
-    if top_p and 0.0 < top_p < 1.0:
-        sorted_logits, sorted_idx = torch.sort(logits, descending=True, dim=-1)
-        cumulative = torch.softmax(sorted_logits, dim=-1).cumsum(dim=-1)
-        # Drop tokens once the cumulative mass exceeds top_p, but always keep the first (shift right)
-        remove_sorted = cumulative > top_p
-        remove_sorted[..., 1:] = remove_sorted[..., :-1].clone()
-        remove_sorted[..., 0] = False
-        remove = torch.zeros_like(remove_sorted).scatter(-1, sorted_idx, remove_sorted)
-        logits = logits.masked_fill(remove, NEG_INF)            # set tail logits (>top_p) to -inf
-
-    return logits
-
-
-@torch.no_grad()
 def sample_independent(model, input_ids, mask_positions, banned_ids, *, device,
                      num_samples=1, temperature=1.0, top_k=0, top_p=1.0, generator=None):
     """Sample each masked position independently in one forward pass"""

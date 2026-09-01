@@ -22,7 +22,7 @@ import logging
 import numpy as np
 from transformers import EvalPrediction
 
-from cdrseqgen.eval import MIN_CORE_COVERAGE
+from cdrseqgen.eval import MIN_CORE_COVERAGE, ANCHOR_TRIM as _ANCHOR_TRIM
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 # residues (predicted ~80-100% regardless of model) from the hypervariable "core" that is actually
 # being designed. The raw whole-span `accuracy` is dominated by the anchors and can mask a real
 # effect on the core (see README Known Issues). Override with env ANCHOR_TRIM if needed.
-ANCHOR_TRIM = int(os.environ.get("ANCHOR_TRIM", "2"))
+# Re-exported from cdrseqgen.eval so a neutral module never imports from a method.
+ANCHOR_TRIM = _ANCHOR_TRIM
 
 _warned_low_core_coverage = False
 

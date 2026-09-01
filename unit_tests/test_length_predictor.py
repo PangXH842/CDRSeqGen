@@ -7,7 +7,7 @@ from unittest.mock import patch
 import torch
 
 from cdrseqgen.artifacts import LENGTH_CONFIG_FILENAME, LENGTH_HEAD_FILENAME
-from cdrseqgen.data.dataset import AntibodyTokenizer, TokenizerAdapter
+from cdrseqgen.data.dataset_mlm import AntibodyTokenizer, TokenizerAdapter
 from cdrseqgen.methods.mlm.generation import sample_length_conditioned_spans
 from cdrseqgen.methods.mlm.length import resolve_length_policy
 from cdrseqgen.methods.mlm.length_predictor import (

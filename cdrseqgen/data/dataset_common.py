@@ -10,9 +10,9 @@ paired-chain or antigen context comes with them, and how that context is capped 
   * AntibodyFrameworkDataset -- processed JSON -> (pt1, target, pt2, context) per entry
   * framework_for_dataset    -- one entry's framework parts, by index
 
-Split out of ``dataset.py`` on 2026-08-31 so a non-masked method can reuse it. The masked-LM view --
+Split out of ``dataset_mlm.py`` on 2026-08-31 so a non-masked method can reuse it. The masked-LM view --
 masking policies, ``assemble_masked_input``, ``AntibodyInfillingDataset`` and its collator -- stays
-in ``dataset.py`` and builds on ``AntibodyFrameworkDataset``. An autoregressive or encoder-decoder
+in ``dataset_mlm.py`` and builds on ``AntibodyFrameworkDataset``. An autoregressive or encoder-decoder
 method subclasses the same base and lays its own inputs out, rather than inheriting a mask token it
 has no use for.
 
@@ -21,9 +21,12 @@ have a mask token, and requiring one was the concrete thing coupling this layer 
 """
 import hashlib
 import json
+import logging
 
 import torch
 from torch.utils.data import Dataset
+
+logger = logging.getLogger(__name__)
 
 
 class AntibodyTokenizer:
@@ -257,3 +260,44 @@ def framework_for_dataset(dataset, index):
     if not hasattr(dataset, "framework_parts"):
         raise TypeError("variable-length generation requires a dataset with framework_parts()")
     return dataset.framework_parts(index)
+
+
+def select_split_indices(records, eval_split, *, data_path, seed, test_size=0.1):
+    """(train_idx, eval_idx, eval_label) for a processed dataset's named splits.
+
+    Shared by every method rather than reimplemented per method, and deliberately so: this is the
+    guard added on 2026-08-18 after an unset ``eval_split`` had been selecting checkpoints on the
+    **test** partition in every batch through 08-17, which is still the largest caveat in the
+    README. A second copy that drifted would recontaminate one method's results silently, and the
+    logic has no method-specific content — it reads only each record's ``split`` field.
+    """
+    selected = (eval_split or "").strip()
+    if records and all("split" in entry for entry in records):
+        available = sorted({entry["split"] for entry in records})
+        train_idx = [i for i, entry in enumerate(records) if entry["split"] == "train"]
+        if selected:
+            if selected == "train" or selected not in available:
+                raise ValueError(
+                    f"eval_split={selected!r} is invalid; available non-training splits: "
+                    f"{[s for s in available if s != 'train']}")
+            eval_idx = [i for i, entry in enumerate(records) if entry["split"] == selected]
+        elif "test" in available:
+            # Early stopping and load_best_model_at_end both read this split, so an unset
+            # eval_split used to select checkpoints on the final holdout without saying so.
+            raise ValueError(
+                f"eval_split is unset and {data_path} carries a 'test' split, so every non-train "
+                "entry — the test partition — would drive early stopping and best-checkpoint "
+                "selection. Declare it: 'validation' while tuning, 'test' only once the settings "
+                f"are frozen. Available non-training splits: "
+                f"{[s for s in available if s != 'train']}")
+        else:
+            # No test partition to protect: every non-train entry is the evaluation set.
+            eval_idx = [i for i, entry in enumerate(records) if entry["split"] != "train"]
+        return train_idx, eval_idx, (selected or "all non-train")
+
+    if selected:
+        raise ValueError("eval_split requires a processed dataset with named split fields")
+    from sklearn.model_selection import train_test_split
+    train_idx, eval_idx = train_test_split(range(len(records)), test_size=test_size,
+                                           random_state=seed)
+    return list(train_idx), list(eval_idx), "random split"

@@ -7,7 +7,7 @@ import torch
 from torch import nn
 
 from cdrseqgen.artifacts import LENGTH_CONFIG_FILENAME, LENGTH_HEAD_FILENAME
-from cdrseqgen.data.dataset import AntibodyTokenizer, TokenizerAdapter
+from cdrseqgen.data.dataset_mlm import AntibodyTokenizer, TokenizerAdapter
 from cdrseqgen.methods.mlm.length_predictor import fit_length_predictor
 
 

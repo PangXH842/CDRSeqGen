@@ -1,0 +1,60 @@
+"""Causal run configuration: only what differs from the shared bases.
+
+The 25 fields both methods declare identically live in
+:mod:`cdrseqgen.methods.common.arguments`, along with config/CLI parsing and run-directory setup.
+
+**What is deliberately absent**, because it has no causal meaning: ``masking_policy`` /
+``mixed_full_span_probability`` (nothing is masked), the loss registry (§13 settled that
+re-weighting core against anchor moves nothing), ``gen_decoding`` (one causal decoder, not an
+independent/iterative choice), and the length policy plus ``train_length_predictor`` — the model
+ends its own loop with ``<eos>``, which is the whole reason §10's gap-sentinel head has no
+counterpart here.
+"""
+import logging
+from dataclasses import dataclass, field
+from typing import Tuple
+
+from transformers import HfArgumentParser, TrainingArguments
+
+from cdrseqgen.methods.common.arguments import (BaseDataArguments, BaseGenerationArguments,
+                                                BaseModelArguments, initialise_run,
+                                                parse_config_and_cli)
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ModelArguments(BaseModelArguments):
+    method: str = field(default="ar", metadata={"help": "Selects the causal pipeline."})
+
+
+@dataclass
+class DataArguments(BaseDataArguments):
+    """Causal training needs nothing the base does not already carry."""
+
+
+@dataclass
+class GenerationArguments(BaseGenerationArguments):
+    gen_max_new_tokens: int = field(
+        default=40,
+        metadata={"help": "Decode cap. A draw that never emits <eos> within it is incomplete and "
+                          "is dropped rather than scored as a short loop."})
+
+
+def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, TrainingArguments]:
+    """Parse config/CLI, validate, then create and log the run directory."""
+    parser = HfArgumentParser((ModelArguments, DataArguments, GenerationArguments, TrainingArguments))
+    model_args, data_args, gen_args, training_args = parse_config_and_cli(parser)
+
+    if not 0.0 <= data_args.context_dropout <= 1.0:
+        raise ValueError("context_dropout must be between 0 and 1")
+    if model_args.anchor_trim < 0:
+        raise ValueError("anchor_trim must be non-negative")
+    if gen_args.gen_max_new_tokens <= 0:
+        raise ValueError("gen_max_new_tokens must be positive")
+    # The collator emits prompt_lengths/target_lengths beside the model's inputs; the model's
+    # **_kwargs absorbs them, but Trainer would otherwise strip them as unused columns.
+    training_args.remove_unused_columns = False
+
+    initialise_run(model_args, data_args, gen_args, training_args, marker="ar")
+    return model_args, data_args, gen_args, training_args

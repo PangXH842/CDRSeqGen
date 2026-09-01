@@ -11,6 +11,8 @@
 #   igbert    IgBert (antibody PLM) on OAS heavy                              (6)   [~1.6GB download]
 #   protbert  ProtBert (general-protein baseline) on OAS heavy               (6)   [~1.6GB download]
 #   plm       igbert + protbert                                             (12)
+#   ar        Autoregressive OAS heavy (h1/h2/h3), base + _lc                 (6)
+#   compare   h3 masked + h3 causal, paired in ONE batch for a side-by-side    (4)
 #   all       oas + antigen + lcdr (the scratch/esm2 matrices; PLMs opt-in)  (36)
 #
 # Scratch runs come first within each suite (cheap — a broken config fails fast before ESM-2/PLMs);
@@ -51,6 +53,19 @@ LCDR_CONFIGS=(
     configs/l2_esm2.json configs/l2_esm2_hc.json
     configs/l3_esm2.json configs/l3_esm2_hc.json
 )
+# Autoregressive: same loops as the OAS suite, causal method. train.py routes on each config's
+# "method" key, so nothing here needs to know which pipeline runs.
+AR_CONFIGS=(
+    configs/h1_ar_scratch.json configs/h1_ar_scratch_lc.json
+    configs/h2_ar_scratch.json configs/h2_ar_scratch_lc.json
+    configs/h3_ar_scratch.json configs/h3_ar_scratch_lc.json
+)
+# Paired masked/causal h3 runs in ONE batch folder, so batch_tables.md and batch_<ds>.png compare
+# the two methods side by side from a single round rather than a manual merge of two.
+COMPARE_CONFIGS=(
+    configs/h3_scratch.json configs/h3_ar_scratch.json
+    configs/h3_scratch_lc.json configs/h3_ar_scratch_lc.json
+)
 IGBERT_CONFIGS=(
     configs/h1_igbert.json configs/h1_igbert_lc.json
     configs/h2_igbert.json configs/h2_igbert_lc.json
@@ -70,6 +85,8 @@ expand_suite() {
         igbert)   printf '%s\n' "${IGBERT_CONFIGS[@]}" ;;
         protbert) printf '%s\n' "${PROTBERT_CONFIGS[@]}" ;;
         plm)      printf '%s\n' "${IGBERT_CONFIGS[@]}" "${PROTBERT_CONFIGS[@]}" ;;
+        ar)       printf '%s\n' "${AR_CONFIGS[@]}" ;;
+        compare)  printf '%s\n' "${COMPARE_CONFIGS[@]}" ;;
         all)      printf '%s\n' "${OAS_CONFIGS[@]}" "${ANTIGEN_CONFIGS[@]}" "${LCDR_CONFIGS[@]}" ;;
         *)        printf '__UNKNOWN__:%s\n' "$1" ;;
     esac
@@ -78,18 +95,17 @@ expand_suite() {
 # --- Resolve requested suites into a deduped, order-preserving config list ---------------------
 CONFIGS=()
 declare -A SEEN=()
-NEEDS_OAS=0
 NEEDS_SD2=0
 for suite in "${SUITES[@]}"; do
     while IFS= read -r cfg; do
         if [[ "$cfg" == __UNKNOWN__:* ]]; then
-            echo "❌ Unknown suite '${cfg#__UNKNOWN__:}'. Use: oas antigen lcdr igbert protbert plm all"
+            echo "❌ Unknown suite '${cfg#__UNKNOWN__:}'. Use: oas antigen lcdr ar compare igbert protbert plm all"
             exit 1
         fi
         [[ -n "${SEEN[$cfg]}" ]] && continue
         SEEN[$cfg]=1
         CONFIGS+=("$cfg")
-        if [[ "$cfg" == *_ag*.json ]]; then NEEDS_SD2=1; else NEEDS_OAS=1; fi
+        [[ "$cfg" == *_ag*.json ]] && NEEDS_SD2=1
     done < <(expand_suite "$suite")
 done
 
@@ -105,11 +121,17 @@ echo "📦 Batch dir: $BATCH_DIR"
 echo "=========================================================="
 
 # --- Fail fast if the processed data a suite needs isn't there yet -----------------------------
-if [[ $NEEDS_OAS -eq 1 && ! -f dataset/data/processed/processed_oas_data.json ]]; then
-    echo "❌ Missing dataset/data/processed/processed_oas_data.json — run:"
-    echo "     python -m cdrseqgen.data.preprocess.oas_paired"
-    exit 1
-fi
+# Gate on the file the configs actually declare, not on a fixed name: every OAS config now points
+# at processed_oas_tuning.json (three-way), so checking processed_oas_data.json passed while telling
+# you nothing about whether the run could start.
+for cfg in "${CONFIGS[@]}"; do
+    need=$(python -c "import json,sys; print(json.load(open(sys.argv[1])).get('data_path',''))" "$cfg")
+    if [[ -n "$need" && ! -f "$need" ]]; then
+        echo "❌ $cfg needs $need, which does not exist."
+        echo "   Create it with the preprocessing commands in WORKFLOW.md Step 1."
+        exit 1
+    fi
+done
 if [[ $NEEDS_SD2 -eq 1 && ! -f dataset/data/processed/processed_sabdab2_data.json ]]; then
     echo "❌ Missing dataset/data/processed/processed_sabdab2_data.json — run:"
     echo "     bash cdrseqgen/data/preprocess/download_sabdab2.sh && python -m cdrseqgen.data.preprocess.sabdab2"

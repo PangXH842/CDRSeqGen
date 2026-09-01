@@ -4,7 +4,7 @@ from unittest.mock import patch
 import torch
 
 from benchmark.adapters.iglm import IgLMSampler
-from cdrseqgen.data.dataset import AntibodyTokenizer, TokenizerAdapter
+from cdrseqgen.data.dataset_mlm import AntibodyTokenizer, TokenizerAdapter
 from cdrseqgen.methods.mlm.evaluation import run_generative_eval
 from cdrseqgen.eval.metrics import calculate
 from cdrseqgen.methods.mlm.generation import GeneratedSpan
