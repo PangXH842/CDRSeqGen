@@ -778,17 +778,8 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **2026-09-02** -- The six `*_ar_*` configs raised to `max_len: 256`, so a 40-token reserve no longer forces flank truncation on typical OAS frameworks
 - **2026-09-02** -- Fix: `eval/generative.py` called `pseudo_log_likelihood` without importing it — the judge path crashed for **both** methods. Now a deferred import, mirroring `build_judge`'s registry import. Nothing in the 291-test suite touched the judge; two tests added
 - **2026-09-02** -- `FAMILY_LABELS` shared by `batch_tables` and `batch_plots`. Causal runs now appear in the Findings §7 design table, which had rendered empty for AR batches because the family tuple was hardcoded to scratch/ESM-2
-- **2026-09-01** -- Autoregressive method [new]: `methods/ar/` (causal decoder w/ rotary positions, backbone registry, training, decode-to-`<eos>` sampling, generative eval) + `data/dataset_ar.py`. Layout is `pt1 <mask> pt2 <sep> target <eos>` — both flanks in the prompt, loss on the answer only, length from `<eos>` instead of §10's length head
-- **2026-09-01** -- AR integration hardening: generation now uses `gen_seed` on the active device, records incomplete/empty EOS attempts and full provenance/summary artifacts, saves train/eval metrics like MLM, and the `compare` suite uses inferred MLM length and writes a masked-vs-causal table
-- **2026-09-01** -- `train.py` now dispatches on a config's `"method"` key; each method's `main()` moved to `methods/<method>/entrypoint.py`. All 49 existing configs default to `mlm`, untouched
-- **2026-09-01** -- `methods/common/` [new]: the 28 shared arguments + config/CLI parsing + run-dir setup, sampling primitives, callbacks, and the Trainer artifact lifecycle
-- **2026-09-01** -- `eval/generative.py` [new]: evaluation loop shared by both methods; a strategy owns only `draw()` and `self_scores()` (masked pseudo-perplexity vs causal true perplexity)
-- **2026-09-01** -- `build_judge`, `select_split_indices` and `ANCHOR_TRIM` moved to neutral homes — `eval/` and `data/` now import from no method package, and `ar/` has zero code deps on `mlm/`
-- **2026-09-01** -- Data modules renamed: `frameworks.py` / `dataset.py` / `causal.py` -> `dataset_common.py` / `dataset_mlm.py` / `dataset_ar.py`
-- **2026-09-01** -- `run.sh`: added `ar` and `compare` suites. `compare` puts masked + causal h3 in ONE batch so `batch_plots` renders them side by side
-- **2026-09-01** -- `run.sh` fix: the dataset gate checked `processed_oas_data.json` while every config declares `processed_oas_tuning.json` — it now reads each config's own `data_path`
-- **2026-09-01** -- Fix: the causal entrypoint had dropped `LogMetricsCallback`, reintroducing the empty-`train.log` regression from 07-29. Caught by sharing `build_callbacks`
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-09-01** -- **AUTOREGRESSIVE UPDATE** (`methods/ar/`) (can be run directly with `run.sh <gpu> ar`)
 - **2026-08-31** -- Data layer split (`frameworks.py`) for mlm to make way for autoregressive dataset class
 - **2026-08-31** -- Former `test/` dir split into `showcase/` (jsons for inference) and `unit_tests/` (for examining train scripts)
 - **2026-08-31** -- Auto figure plotting after hyperparameter & loss sweeps, in sweep dir instead of separate `figures/` folder
