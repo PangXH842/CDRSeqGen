@@ -79,7 +79,8 @@ class CausalStrategy:
 
     def draw(self, i):
         framework = self.framework(i)
-        prompt, _ = build_causal_prompt(self.tokenizer, framework, reserve=self.max_new_tokens)
+        # No reserve override: the prompt must match the one training built for this framework.
+        prompt, _ = build_causal_prompt(self.tokenizer, framework)
         results = sample_loops(
             self.model, self.tokenizer, prompt, device=self.device,
             num_samples=self.num_samples, temperature=self.temperature,

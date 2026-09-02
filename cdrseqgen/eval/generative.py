@@ -270,6 +270,12 @@ def score_with_judge(strategy, i, seqs, judge_model, judge_tokenizer, device):
     be paired with its own recovery downstream — a compacted list silently misaligns as soon as
     one candidate is skipped.
     """
+    # Deferred, like build_judge's registry import: the judge is always a MASKED LM whatever
+    # produced the candidate, so scoring it with a pseudo-log-likelihood is the judge's own
+    # requirement — but importing a method package at module level would invert the dependency and
+    # make cdrseqgen.eval depend on cdrseqgen.methods.
+    from cdrseqgen.methods.mlm.sampling import pseudo_log_likelihood
+
     perplexities = []
     for seq in seqs:
         prompt = strategy.judge_inputs(i, seq)

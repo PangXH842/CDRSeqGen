@@ -92,18 +92,48 @@ class CapTests(unittest.TestCase):
         os.unlink(self.path)
 
     def test_capping_truncates_context_not_the_answer(self):
-        for max_len in (64, 32, 16):
+        # max_len must clear LOOP_LENGTH_RESERVE + the three layout tokens; below that the reserve
+        # itself cannot fit and the example is refused rather than silently truncated.
+        for max_len in (128, 64, 44):
             item = CausalInfillingDataset(self.path, self.adapter, target_region="h3",
                                           max_len=max_len, include_partner_chain=True)[0]
             self.assertLessEqual(len(item["input_ids"]), max_len)
             self.assertEqual(item["target_len"], 5)            # loop survives intact
 
-    def test_a_max_len_too_small_for_the_answer_is_refused(self):
+    def test_a_max_len_too_small_for_the_reserve_is_refused(self):
         # Honouring it would mean cutting the training target; fail where the cause is named.
         ds = CausalInfillingDataset(self.path, self.adapter, target_region="h3", max_len=7)
         with self.assertRaises(ValueError) as ctx:
             ds[0]
         self.assertIn("max_len", str(ctx.exception))
+
+    def test_the_generation_prompt_is_byte_identical_to_the_training_one(self):
+        """The bug this fix exists for.
+
+        The reserve used to be the native loop length at training and `max_new_tokens` at
+        generation, so `inject_context` trimmed the flanks differently in the two paths. With
+        max_len=128 that produced an 87-token prompt at sampling against 110 at training: the model
+        met a framework 23 tokens shorter than anything it had trained on, and stopped emitting
+        <eos> entirely (P(eos) ~ 1e-4 free-running against 0.91 teacher-forced). The prompt must be
+        a function of (framework, max_len) alone, because generation cannot know the length it is
+        trying to predict.
+        """
+        for max_len in (64, 128, 256):
+            ds = CausalInfillingDataset(self.path, self.adapter, target_region="h3",
+                                        max_len=max_len, include_partner_chain=True)
+            item = ds[0]
+            trained_prompt = item["input_ids"].tolist()[:item["prompt_len"]]
+            generated_prompt, _ = build_causal_prompt(self.adapter, ds.framework_parts(0))
+            self.assertEqual(trained_prompt, generated_prompt, f"diverged at max_len={max_len}")
+
+    def test_a_loop_longer_than_the_reserve_is_refused(self):
+        # Otherwise the assembled example could overflow max_len without anyone noticing.
+        from cdrseqgen.data.dataset_ar import LOOP_LENGTH_RESERVE
+        framework = {"pt1": "AAAA", "pt2": "HHHH", "target": "G" * (LOOP_LENGTH_RESERVE + 1),
+                     "target_length": LOOP_LENGTH_RESERVE + 1, "partner_chain": None,
+                     "antigen": None, "max_len": 256}
+        with self.assertRaises(ValueError):
+            build_causal_prompt(self.adapter, framework)
 
     def test_generation_can_reserve_a_length_it_does_not_know(self):
         # At sampling time the loop length is exactly what is unknown, so reserve is explicit.

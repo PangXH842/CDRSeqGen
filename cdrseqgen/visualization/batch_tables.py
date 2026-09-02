@@ -372,6 +372,15 @@ def _recovery_table(name, runs):
     return markdown_table(spec["title"], headers, rows, alignments)
 
 
+# Model families a batch can hold, in display order. `ar_scratch` is how a causal run's name
+# parses (h3_OAS_ar_scratch -> model "ar_scratch"); `batch_plots` imports this so a family added
+# here shows up in both the tables and the dashboards.
+FAMILY_LABELS = {
+    "scratch": "scratch (masked)",
+    "esm2": "ESM-2 (masked)",
+    "ar_scratch": "scratch (causal)",
+}
+
 GEN_KEYS = [
     ("aar_mean", "recovery"),
     ("diversity_hamming", "diversity"),
@@ -421,14 +430,21 @@ def _retrieval_rows(runs):
 
 
 def _design_rows(runs):
+    """H1 against H3, every family that left a generative eval in this batch.
+
+    H1 and H3 are the two poles of Findings §6/§7 -- near-retrieval against genuine design -- so the
+    table shows those two loops rather than all six. Families come from `FAMILY_LABELS`, which is
+    what lets a causal run appear here at all: `ar_scratch` writes the same `generation_eval.json`
+    as a masked run, and before it was listed the AR batches rendered this table empty.
+    """
     rows = []
     for loop in ("h1", "h3"):
-        for family in ("scratch", "esm2"):
+        for family, family_label in FAMILY_LABELS.items():
             run_dir = runs.get((loop, "OAS", "", family))
             means = _gen_means(os.path.join(run_dir, "generation_eval.json")) if run_dir else None
             if not means:
                 continue
-            label = f"{loop.upper()} {'scratch' if family == 'scratch' else 'ESM-2'}"
+            label = f"{loop.upper()} {family_label}"
             rows.append((
                 label,
                 f"{means['aar_mean']:.3f}",

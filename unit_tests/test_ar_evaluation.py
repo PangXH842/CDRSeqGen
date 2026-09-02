@@ -221,3 +221,56 @@ class ValidityAccountingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JudgeScoringTests(unittest.TestCase):
+    """`score_with_judge` had no test at all, which is how a NameError reached a GPU run.
+
+    The extraction of the shared eval loop left `pseudo_log_likelihood` unimported in
+    `eval/generative.py`. Every existing test ran with the judge disabled, so the whole suite passed
+    while the one metric §11 says decides the AR-versus-MLM comparison could not be computed.
+    """
+
+    def test_the_judge_path_runs_end_to_end(self):
+        import torch
+        from cdrseqgen.eval.generative import score_with_judge
+
+        adapter = causal_adapter()
+
+        class StubJudge:
+            """A masked LM standing in for IgBert: uniform logits over the vocabulary."""
+            def __call__(self, input_ids=None, **_):
+                return {"logits": torch.zeros(input_ids.shape[0], input_ids.shape[1],
+                                              adapter.vocab_size)}
+            def eval(self):
+                return self
+
+        class StubStrategy:
+            def judge_inputs(self, i, seq):
+                # A prompt whose mask count matches the candidate, as the real ones do.
+                return [adapter.mask_id] * len(seq), list(range(len(seq)))
+
+        scores = score_with_judge(StubStrategy(), 0, ["ACD", "ACDE"], StubJudge(), adapter, "cpu")
+        self.assertEqual(len(scores), 2)
+        self.assertTrue(all(s is not None and s > 0 for s in scores),
+                        f"judge returned {scores}")
+
+    def test_a_tokenizer_length_disagreement_scores_none_rather_than_mis_scoring(self):
+        import torch
+        from cdrseqgen.eval.generative import score_with_judge
+
+        adapter = causal_adapter()
+
+        class StubJudge:
+            def __call__(self, input_ids=None, **_):
+                return {"logits": torch.zeros(input_ids.shape[0], input_ids.shape[1],
+                                              adapter.vocab_size)}
+            def eval(self):
+                return self
+
+        class MismatchedStrategy:
+            def judge_inputs(self, i, seq):
+                return [adapter.mask_id] * 2, [0, 1]      # always 2 masks, whatever the candidate
+
+        scores = score_with_judge(MismatchedStrategy(), 0, ["ACDEF"], StubJudge(), adapter, "cpu")
+        self.assertEqual(scores, [None])   # positional, so a skipped candidate stays aligned

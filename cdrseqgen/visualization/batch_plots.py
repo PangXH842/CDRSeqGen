@@ -35,18 +35,18 @@ import matplotlib.pyplot as plt
 
 from cdrseqgen.visualization import plot_style
 from cdrseqgen.visualization.bargraph_plotter import BarSeries, draw_grouped_bars
-from cdrseqgen.visualization.batch_tables import _epoch_metrics, discover_runs, recovery_summary
+from cdrseqgen.visualization.batch_tables import (
+    FAMILY_LABELS, _epoch_metrics, discover_runs, recovery_summary)
 from cdrseqgen.visualization.scatterplot_plotter import ScatterSeries, draw_scatter
 
 GENERATION_EVAL_FILENAME = "generation_eval.json"
 
 LOOP_ORDER = ("h1", "h2", "h3", "l1", "l2", "l3")
-# Families a dashboard can show side by side. `ar_scratch` is how a causal run's name parses
-# (h3_OAS_ar_scratch -> model "ar_scratch"), which is what lets one batch hold both methods and
-# compare them in a single figure — the point of run.sh's `compare` suite.
-FAMILIES = ("scratch", "esm2", "ar_scratch")
-FAMILY_LABELS = {"scratch": "scratch (masked)", "esm2": "ESM-2 (masked)",
-                 "ar_scratch": "scratch (causal)"}
+# Families a dashboard can show side by side, shared with `batch_tables` so a family added there
+# appears in both. `ar_scratch` is how a causal run's name parses (h3_OAS_ar_scratch -> model
+# "ar_scratch"), which is what lets one batch hold both methods and compare them in a single
+# figure — the point of run.sh's `compare` suite.
+FAMILIES = tuple(FAMILY_LABELS)
 
 
 def _loops_present(runs, dataset):

@@ -99,18 +99,33 @@ def causal_adapter(tokenizer=None, position_type="absolute"):
 # prompt <mask> + prompt <sep> + answer <eos>
 LAYOUT_SPECIAL_TOKENS = 3
 
+# How much room the prompt leaves for the answer when capping context to max_len.
+#
+# FIXED, and used identically by training and generation. It was previously the native loop length
+# at training and `max_new_tokens` at generation, which made the prompt a function of a
+# generation-time parameter: with max_len=128 the same framework produced an 87-token prompt at
+# sampling against 110 at training, so the model met a framework 23 tokens shorter than anything it
+# had trained on and never reached a state where <eos> was likely (P(eos) ~ 1e-4 free-running
+# against 0.91 teacher-forced). A constant makes the prompt a deterministic function of
+# (framework, max_len) alone, which is the only way generation can reproduce the training prompt
+# without knowing the length it is trying to predict.
+#
+# 40 covers every CDR loop in both datasets (H3 tops out around 34).
+LOOP_LENGTH_RESERVE = 40
 
-def build_causal_prompt(tokenizer, framework, *, reserve=None):
+
+def build_causal_prompt(tokenizer, framework, *, reserve=LOOP_LENGTH_RESERVE):
     """Return (prompt_ids, meta) for one framework: ``pt1 <mask> pt2 <sep>``.
 
-    `reserve` is how many answer positions to keep room for when capping context. Training passes
-    the native loop length; generation passes the longest loop it is willing to sample, since the
-    true length is precisely what is unknown there.
+    `reserve` is how many answer positions the cap keeps room for. **Leave it at the default.** It
+    is deliberately a constant rather than the native length, so that the prompt a model trains on
+    and the prompt it generates from are byte-identical — see LOOP_LENGTH_RESERVE. Passing the
+    native length here would also leak it into how hard the flanks are trimmed, which is exactly the
+    information a length-free track must not receive.
     """
     t = tokenizer
     pt1_ids = t.encode(framework["pt1"])
     pt2_ids = t.encode(framework["pt2"])
-    reserve = framework["target_length"] if reserve is None else reserve
 
     # Reserve the answer AND the three layout tokens, so a capped prompt still leaves room to finish.
     pt1_ids, pt2_ids = inject_context(
@@ -131,6 +146,10 @@ def build_causal_prompt(tokenizer, framework, *, reserve=None):
             f"its <mask>/<sep>/<eos> needs at least {minimum} positions, and truncating it would "
             f"corrupt the training target. Raise max_len to >= {minimum}."
         )
+    if framework["target_length"] > reserve:
+        raise ValueError(
+            f"loop of {framework['target_length']} residues exceeds the {reserve}-position reserve, "
+            f"so the assembled example could overflow max_len. Raise LOOP_LENGTH_RESERVE.")
     return prompt, {"pt1_len": len(pt1_ids), "pt2_len": len(pt2_ids), "reserve": reserve}
 
 

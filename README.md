@@ -774,6 +774,10 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
+- **2026-09-02** -- **Fix: causal prompt divergence (invalidates the 09-01 AR checkpoints).** The flank budget was `reserve=target_length` at training but `reserve=max_new_tokens` at generation, so with `max_len: 128` the model was trained on 110-token prompts and sampled with 87-token ones — it met off-distribution frameworks at generation and never emitted `<eos>` (free-running P(eos) ≈ 1e-4 against 0.91 teacher-forced). `LOOP_LENGTH_RESERVE = 40` is now a fixed constant used identically by both paths, with a guard when a loop exceeds it. Any length figure from batch `20260901_171316` is contaminated — the reserve leaked the native length into flank truncation — and must not be quoted
+- **2026-09-02** -- The six `*_ar_*` configs raised to `max_len: 256`, so a 40-token reserve no longer forces flank truncation on typical OAS frameworks
+- **2026-09-02** -- Fix: `eval/generative.py` called `pseudo_log_likelihood` without importing it — the judge path crashed for **both** methods. Now a deferred import, mirroring `build_judge`'s registry import. Nothing in the 291-test suite touched the judge; two tests added
+- **2026-09-02** -- `FAMILY_LABELS` shared by `batch_tables` and `batch_plots`. Causal runs now appear in the Findings §7 design table, which had rendered empty for AR batches because the family tuple was hardcoded to scratch/ESM-2
 - **2026-09-01** -- Autoregressive method [new]: `methods/ar/` (causal decoder w/ rotary positions, backbone registry, training, decode-to-`<eos>` sampling, generative eval) + `data/dataset_ar.py`. Layout is `pt1 <mask> pt2 <sep> target <eos>` — both flanks in the prompt, loss on the answer only, length from `<eos>` instead of §10's length head
 - **2026-09-01** -- AR integration hardening: generation now uses `gen_seed` on the active device, records incomplete/empty EOS attempts and full provenance/summary artifacts, saves train/eval metrics like MLM, and the `compare` suite uses inferred MLM length and writes a masked-vs-causal table
 - **2026-09-01** -- `train.py` now dispatches on a config's `"method"` key; each method's `main()` moved to `methods/<method>/entrypoint.py`. All 49 existing configs default to `mlm`, untouched
@@ -872,6 +876,13 @@ The comparison must run both methods on the **same frozen examples**, with the s
 - [ ] Fix circular `metric_for_best_model` checkpoint selection on loss sweeps
 - [ ] Re-run the 07-24 batch under core-based checkpoint selection (those 36 runs predate the fix; their saved weights were picked on whole-span)
 - [ ] Lock the Phase-2 objective + primary metric with advisor
+
+**Autoregressive method — next steps**
+- [ ] **Retrain all six `ar` configs.** The 09-01 checkpoints learned a length-dependent prompt and are void; the batch is re-running under the fixed `LOOP_LENGTH_RESERVE` (see Changelog 09-02)
+- [ ] **Answer the length question on H3, not H1.** `<eos>` hits 150/150 exact length on H1, but §6 puts 98% of held-out H1 loops verbatim in training, so that measures retrieval. The comparison against §10's length head (9.24% exact / 3.64 MAE; mode baseline 10.52% / 3.28) is only meaningful on H3, where every held-out loop is unseen by construction
+- [ ] A causal counterpart to [`generate.py`](generate.py) — `showcase/*.json` currently cannot run against a causal checkpoint, so the method has training and batch evaluation but no single-sequence inference path
+- [ ] A pretrained causal backbone through `methods/ar/backbones.py` (the registry exists; only `scratch` is registered), making causal scratch-vs-pretrained the mirror of the masked scratch-vs-ESM-2 axis
+- [ ] **Automate one GPU + real-judge smoke run.** Three defects reached live runs past a fully green 293-test suite — the device mismatch, the prompt divergence and the missing `pseudo_log_likelihood` import — because every test stubs the model and none touches the judge. An opt-in end-to-end test at ~30 steps would have caught all three
 <!-- AI ACCESS ZONE ENDS -->
 
 - [ ] Project flowchart (0814, outdated)
