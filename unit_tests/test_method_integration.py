@@ -8,9 +8,11 @@ from unittest.mock import Mock, patch
 
 from transformers import HfArgumentParser, TrainingArguments
 
+from cdrseqgen.data.dataset_ar import CAUSAL_DECODE_STEPS, LOOP_LENGTH_RESERVE
 from cdrseqgen.methods.ar.arguments import (DataArguments as ARDataArguments,
                                             GenerationArguments as ARGenerationArguments,
-                                            ModelArguments as ARModelArguments)
+                                            ModelArguments as ARModelArguments,
+                                            validate_args as validate_ar_args)
 from cdrseqgen.methods.common.arguments import (
     BaseDataArguments,
     BaseGenerationArguments,
@@ -132,6 +134,14 @@ class SharedTrainingLifecycleTests(unittest.TestCase):
 
 
 class CausalConfigTests(unittest.TestCase):
+    def test_decode_cap_covers_the_reserve_but_cannot_overrun_the_prompt_budget(self):
+        generation = ARGenerationArguments()
+        self.assertEqual(generation.gen_max_new_tokens, LOOP_LENGTH_RESERVE + 1)
+        self.assertEqual(generation.gen_max_new_tokens, CAUSAL_DECODE_STEPS)
+        generation.gen_max_new_tokens += 1
+        with self.assertRaisesRegex(ValueError, "max_new_tokens"):
+            validate_ar_args(ARModelArguments(), ARDataArguments(), generation)
+
     def test_all_causal_configs_select_on_core_recovery(self):
         configs = sorted(Path("configs").glob("*_ar_*.json"))
         self.assertEqual(len(configs), 6)
@@ -140,11 +150,59 @@ class CausalConfigTests(unittest.TestCase):
                 config = json.loads(path.read_text())
                 self.assertEqual(config["metric_for_best_model"], "core_accuracy")
 
-    def test_compare_suite_withholds_native_length_from_mlm_generation(self):
+    def test_compare_suite_matches_every_budget_across_the_two_methods(self):
+        """A head-to-head is only a comparison if the arms differ in method and nothing else.
+
+        Three settings diverge between h3_scratch.json and h3_ar_scratch.json, and all three have
+        to be forced onto the masked arm: the length policy (the masked side would otherwise be
+        handed the native mask count), max_len (128 truncates the flanks of 12% of OAS heavy
+        chains, where the causal arm's 256 truncates none), and gen_top_p (1.0 against 0.9 is a
+        different sampling policy).
+        """
         script = Path("scripts/run.sh").read_text()
         self.assertIn('"configs/h3_scratch.json"', script)
         self.assertIn('"configs/h3_scratch_lc.json"', script)
-        self.assertIn("RUN_OVERRIDES=(--gen_length_mode inferred)", script)
+        for flag in ("--gen_length_mode inferred", "--max_len 256", "--gen_top_p 0.9"):
+            with self.subTest(flag=flag):
+                self.assertIn(flag, script)
+
+    def test_the_compare_overrides_match_what_the_causal_configs_declare(self):
+        """The forced values are read off the AR configs, so a config edit cannot silently unmatch
+        the pair without this failing."""
+        script = Path("scripts/run.sh").read_text()
+        for name in ("h3_ar_scratch.json", "h3_ar_scratch_lc.json"):
+            config = json.loads((Path("configs") / name).read_text())
+            with self.subTest(config=name):
+                self.assertIn(f"--max_len {config['max_len']}", script)
+                self.assertIn(f"--gen_top_p {config['gen_top_p']}", script)
+
+    def test_a_corpus_override_survives_the_compare_overrides(self):
+        """`RUN_OVERRIDES=` in the compare branch would silently drop --data_path; it must append.
+
+        A compare batch on a second corpus is exactly when both are needed at once, and the failure
+        would be invisible: the run would train on the config's declared corpus and be named after
+        it, so the batch table would look consistent while measuring the wrong data.
+        """
+        script = Path("scripts/run.sh").read_text()
+        self.assertIn('RUN_OVERRIDES+=(--data_path "$DATA_PATH")', script)
+        self.assertIn("RUN_OVERRIDES+=(--gen_length_mode inferred", script)
+        self.assertNotIn("RUN_OVERRIDES=(--gen_length_mode", script)
+
+    def test_a_second_oas_corpus_gets_its_own_dataset_tag(self):
+        """Two donor sets have two test splits, so they must not share a run-name tag."""
+        from cdrseqgen.train.logging import dataset_tag
+        self.assertEqual(dataset_tag("dataset/data/processed/processed_oas_tuning.json"), "OAS")
+        self.assertEqual(dataset_tag("dataset/data/processed/processed_oas_multi.json"), "OAS4")
+        self.assertEqual(dataset_tag("dataset/data/processed/processed_sabdab2_data.json"), "SD2")
+
+    def test_batch_and_sweep_runners_fail_after_reporting_failed_trials(self):
+        batch_script = Path("scripts/run.sh").read_text()
+        sweep_script = Path("scripts/sweep.sh").read_text()
+        self.assertIn("[[ $FAILED_COUNT -eq 0 ]] || exit 1", batch_script)
+        self.assertIn("if [[ $ROUND_FAILURES -gt 0 ]]; then", sweep_script)
+        self.assertIn('-f "$RUNDIR/generation_eval.json"', sweep_script)
+        self.assertIn('-f "$COMPLETED_RUN/generation_eval.json"', sweep_script)
+        self.assertIn("exit 1", sweep_script)
 
 
 

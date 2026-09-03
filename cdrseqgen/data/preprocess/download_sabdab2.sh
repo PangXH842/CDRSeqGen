@@ -9,7 +9,15 @@
 # Usage:  bash cdrseqgen/data/preprocess/download_sabdab2.sh
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# THREE levels up: this script lives at <repo>/cdrseqgen/data/preprocess/, so ../.. only reaches
+# <repo>/cdrseqgen. It used to, and silently downloaded into <repo>/cdrseqgen/dataset/data/raw/ --
+# which .gitignore does not cover, since its `dataset/data/` pattern is anchored to the repo root.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+if [[ ! -d "$ROOT/cdrseqgen" || ! -f "$ROOT/train.py" ]]; then
+    echo "❌ Resolved repo root '$ROOT' does not look like CDRSeqGen (no cdrseqgen/ + train.py)."
+    echo "   Refusing to create a data tree there."
+    exit 1
+fi
 DEST="$ROOT/dataset/data/raw/sabdab2/"
 
 mkdir -p "$DEST"

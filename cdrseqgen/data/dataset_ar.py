@@ -112,16 +112,27 @@ LAYOUT_SPECIAL_TOKENS = 3
 #
 # 40 covers every CDR loop in both datasets (H3 tops out around 34).
 LOOP_LENGTH_RESERVE = 40
+# Decoding has to leave one additional step for the terminator. A 40-residue loop is complete
+# only after the 41st prediction emits <eos>.
+CAUSAL_DECODE_STEPS = LOOP_LENGTH_RESERVE + 1
 
 
-def build_causal_prompt(tokenizer, framework, *, reserve=LOOP_LENGTH_RESERVE):
+def validate_causal_decode_steps(max_new_tokens):
+    """Return a decode cap that fits the prompt's fixed answer budget."""
+    if (isinstance(max_new_tokens, bool) or not isinstance(max_new_tokens, int)
+            or not 1 <= max_new_tokens <= CAUSAL_DECODE_STEPS):
+        raise ValueError(
+            f"max_new_tokens must be an integer in [1, {CAUSAL_DECODE_STEPS}]: prompts reserve "
+            f"{LOOP_LENGTH_RESERVE} residues plus one <eos> step")
+    return max_new_tokens
+
+
+def build_causal_prompt(tokenizer, framework):
     """Return (prompt_ids, meta) for one framework: ``pt1 <mask> pt2 <sep>``.
 
-    `reserve` is how many answer positions the cap keeps room for. **Leave it at the default.** It
-    is deliberately a constant rather than the native length, so that the prompt a model trains on
-    and the prompt it generates from are byte-identical — see LOOP_LENGTH_RESERVE. Passing the
-    native length here would also leak it into how hard the flanks are trimmed, which is exactly the
-    information a length-free track must not receive.
+    The answer reserve is deliberately not an argument. It must stay independent of both native
+    length and generation settings so training and inference build byte-identical prompts; making
+    it overridable would leave the prompt-divergence bug one keyword away from returning.
     """
     t = tokenizer
     pt1_ids = t.encode(framework["pt1"])
@@ -129,7 +140,7 @@ def build_causal_prompt(tokenizer, framework, *, reserve=LOOP_LENGTH_RESERVE):
 
     # Reserve the answer AND the three layout tokens, so a capped prompt still leaves room to finish.
     pt1_ids, pt2_ids = inject_context(
-        t, pt1_ids, pt2_ids, reserve + LAYOUT_SPECIAL_TOKENS,
+        t, pt1_ids, pt2_ids, LOOP_LENGTH_RESERVE + LAYOUT_SPECIAL_TOKENS,
         partner_seq=framework["partner_chain"], antigen_seq=framework["antigen"],
         max_len=framework["max_len"],
     )
@@ -139,18 +150,23 @@ def build_causal_prompt(tokenizer, framework, *, reserve=LOOP_LENGTH_RESERVE):
     # just <mask><sep>, and a max_len below reserve+3 can only be honoured by cutting the loop the
     # model is supposed to learn. Silently returning an over-length example would surface much later
     # as a position-embedding overflow, so fail here, where the cause is named.
-    minimum = reserve + LAYOUT_SPECIAL_TOKENS
+    minimum = LOOP_LENGTH_RESERVE + LAYOUT_SPECIAL_TOKENS
     if framework["max_len"] < minimum:
         raise ValueError(
-            f"max_len={framework['max_len']} cannot hold a {reserve}-residue loop: the answer plus "
+            f"max_len={framework['max_len']} cannot hold a {LOOP_LENGTH_RESERVE}-residue loop: "
+            "the answer plus "
             f"its <mask>/<sep>/<eos> needs at least {minimum} positions, and truncating it would "
             f"corrupt the training target. Raise max_len to >= {minimum}."
         )
-    if framework["target_length"] > reserve:
+    if framework["target_length"] > LOOP_LENGTH_RESERVE:
         raise ValueError(
-            f"loop of {framework['target_length']} residues exceeds the {reserve}-position reserve, "
+            f"loop of {framework['target_length']} residues exceeds the "
+            f"{LOOP_LENGTH_RESERVE}-position reserve, "
             f"so the assembled example could overflow max_len. Raise LOOP_LENGTH_RESERVE.")
-    return prompt, {"pt1_len": len(pt1_ids), "pt2_len": len(pt2_ids), "reserve": reserve}
+    return prompt, {
+        "pt1_len": len(pt1_ids), "pt2_len": len(pt2_ids),
+        "reserve": LOOP_LENGTH_RESERVE,
+    }
 
 
 class CausalInfillingDataset(AntibodyFrameworkDataset):
@@ -196,6 +212,4 @@ def causal_collate_fn(batch, pad_token_id=0):
         "input_ids": input_ids_padded,
         "labels": labels_padded,
         "attention_mask": attention_mask,
-        "prompt_lengths": torch.tensor([b["prompt_len"] for b in batch], dtype=torch.long),
-        "target_lengths": torch.tensor([b["target_len"] for b in batch], dtype=torch.long),
     }

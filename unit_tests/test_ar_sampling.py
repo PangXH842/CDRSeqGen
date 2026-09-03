@@ -7,7 +7,11 @@ import unittest
 
 import torch
 
-from cdrseqgen.data.dataset_ar import CausalTokenizer, causal_adapter
+from cdrseqgen.data.dataset_ar import (
+    LOOP_LENGTH_RESERVE,
+    CausalTokenizer,
+    causal_adapter,
+)
 from cdrseqgen.methods.ar.sampling import _left_pad, sample_loops
 
 
@@ -68,6 +72,14 @@ class DecodeTests(unittest.TestCase):
         self.assertEqual(out[0]["loop"], "ACDE")
         self.assertEqual(out[0]["length"], 4)
         self.assertTrue(out[0]["complete"])
+
+    def test_default_budget_can_finish_the_full_reserved_loop(self):
+        residue = self.tok.tok_to_id["A"]
+        model = StubModel(
+            len(self.tok.vocab), [residue] * LOOP_LENGTH_RESERVE, self.adapter.eos_id)
+        out = sample_loops(model, self.adapter, [1, 2], device="cpu", temperature=0)
+        self.assertTrue(out[0]["complete"])
+        self.assertEqual(out[0]["length"], LOOP_LENGTH_RESERVE)
 
     def test_greedy_returns_exactly_one_candidate(self):
         # Matches the masked sampler's convention so --temperature 0 behaves the same either side.

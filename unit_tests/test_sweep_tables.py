@@ -106,6 +106,70 @@ class TrialSelectionTests(unittest.TestCase):
             self.assertIsNone(trials[0]["score"])
 
 
+class CheckpointAndValidityTests(unittest.TestCase):
+    def test_epoch_scores_follow_the_checkpoint_selection_metric(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            map_path = _build_sweep(tmp, [("cross_entropy", 42, 0.32, None)])
+            run_dir = os.path.join(tmp, "run_cross_entropy_42")
+            with open(os.path.join(run_dir, "epoch_metrics.csv"), "w", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(["epoch", "eval_loss", "eval_accuracy", "eval_core_accuracy"])
+                writer.writerow([1, 0.9, 0.50, 0.90])
+                writer.writerow([2, 0.8, 0.80, 0.40])
+            with open(os.path.join(run_dir, "run_config.json"), "w") as handle:
+                json.dump({
+                    "metric_for_best_model": "accuracy",
+                    "greater_is_better": True,
+                }, handle)
+
+            core_trial = load_trials(map_path, "core")[0]
+            whole_trial = load_trials(map_path, "whole")[0]
+            self.assertEqual(core_trial["selection_metric"], "eval_accuracy")
+            self.assertEqual(core_trial["best_epoch"], 2.0)
+            self.assertEqual(core_trial["score"], 0.40)
+            self.assertEqual(whole_trial["score"], 0.80)
+            self.assertEqual(
+                rank_settings([core_trial], higher_is_better=True)[0]["selection_metric"],
+                "eval_accuracy",
+            )
+
+    def test_length_rankers_include_invalid_attempts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            map_path = _build_sweep(tmp, [("cross_entropy", 42, 0.32, None)])
+            run_dir = os.path.join(tmp, "run_cross_entropy_42")
+            payload = {
+                # Conditional metrics look perfect because only one valid draw survived.
+                "summary": {"length_match_rate": 1.0, "length_absolute_error_mean": 0.0},
+                "generation_validity": {
+                    "attempts": 20,
+                    "complete_nonempty": 1,
+                    "incomplete": 19,
+                    "valid_generation_rate": 0.05,
+                    "fixed_length_acceptance_rate": 0.05,
+                    "length_absolute_error_mean_capped": 9.5,
+                },
+            }
+            with open(os.path.join(run_dir, "generation_eval.json"), "w") as handle:
+                json.dump(payload, handle)
+
+            self.assertEqual(load_trials(map_path, "length_match")[0]["score"], 0.05)
+            self.assertEqual(load_trials(map_path, "length_mae")[0]["score"], 9.5)
+            self.assertEqual(load_trials(map_path, "valid_rate")[0]["score"], 0.05)
+
+    def test_legacy_conditional_mae_is_unranked_when_decodes_were_invalid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            map_path = _build_sweep(tmp, [("cross_entropy", 42, 0.32, None)])
+            run_dir = os.path.join(tmp, "run_cross_entropy_42")
+            with open(os.path.join(run_dir, "generation_eval.json"), "w") as handle:
+                json.dump({
+                    "summary": {"length_absolute_error_mean": 0.0},
+                    "generation_validity": {
+                        "attempts": 20, "valid_generation_rate": 0.05,
+                    },
+                }, handle)
+            self.assertIsNone(load_trials(map_path, "length_mae")[0]["score"])
+
+
 class ReportingNeverFailsTheRunTests(unittest.TestCase):
     """scripts/run.sh and scripts/sweep.sh call these after the GPU work has already succeeded."""
 

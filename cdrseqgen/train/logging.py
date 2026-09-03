@@ -45,9 +45,15 @@ LOG_FILENAME = "train.log"
 # problem (rate limiting, a failed download) is not hidden; only the per-request noise is.
 NOISY_LOGGERS = ("httpx", "httpcore", "urllib3", "filelock", "huggingface_hub")
 
+# First match wins, so a more specific corpus must precede the general one. The tag is what keeps
+# incomparable test sets off one axis (see visualization/batch_plots), and a corpus built from a
+# different donor set has a different test split — so it needs its own tag even though it is still
+# OAS. Without the `oas_multi` entry ahead of `oas`, a 4-donor run would be named `h3_OAS_scratch`,
+# indistinguishable from a single-donor one, and the batch tables would silently merge the two.
 DATASET_TAGS = [
-    ("sabdab2", "SD2"),
-    ("oas",     "OAS"),
+    ("sabdab2",   "SD2"),
+    ("oas_multi", "OAS4"),   # Jaffe 2022, all four donors, naive B cells (2026-09-03)
+    ("oas",       "OAS"),
 ]
 UNKNOWN_DATASET_TAG = "DS"
 

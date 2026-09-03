@@ -111,13 +111,8 @@ def causal_compute_metrics(eval_pred, *, trim=ANCHOR_TRIM):
 
 def build_causal_trainer(model, training_args, train_ds, eval_ds, tokenizer, callbacks=None,
                          trim=ANCHOR_TRIM):
-    """A plain HF Trainer: unlike the masked side there is no external loss to bridge.
-
-    ``remove_unused_columns`` stays off because the collator emits ``prompt_lengths`` /
-    ``target_lengths`` alongside the model's inputs; the model's ``**_kwargs`` absorbs them.
-    """
+    """A plain HF Trainer: unlike the masked side there is no external loss to bridge."""
     import functools
-    training_args.remove_unused_columns = False
     return Trainer(
         model=model,
         args=training_args,

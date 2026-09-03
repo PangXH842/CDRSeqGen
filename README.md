@@ -2,13 +2,13 @@
 # CDRSeqGen: Modular Antibody Infilling Framework
 
 **Date Updated:** 2026-09-01
-**Status:** Autoregressive method implemented end to end (data, causal decoder, backbone registry, training, sampling, generative evaluation) behind a dispatching `train.py` — **no results yet**, first runs pending. Pending additions: encoder-decoder
+**Status:** Autoregressive method implemented end to end (data, causal decoder, backbone registry, training, sampling, generative evaluation) behind a dispatching `train.py`. **First results in (2026-09-02/03, single seed):** on H3 the causal `<eos>` matches the native length 8.3% of the time at 3.80 MAE — below the modal-length baseline, and statistically indistinguishable from §10's separate length head. Two candidate explanations are excluded: decoding temperature (greedy is no better) and learning rate (a 10x screen resolves nothing). Next: whether the ceiling is data-limited, via the four-donor corpus. Pending additions: encoder-decoder
 
 ## Project Overview
 CDRSeqGen is a computational immunology framework designed to predict antibody loop sequences given the surrounding framework context. 
 
 Current implemented features include: 
-- **Data Preprocessing**: standardize data into Bio-Object JSON format (IMGT), current datasets: OAS (21106 paired sequences) and SAbDab2 (3984 paired + antigen structures)
+- **Data Preprocessing**: standardize data into Bio-Object JSON format (IMGT), current datasets: OAS (21106 paired sequences, one donor; a four-donor 156k corpus is downloaded and awaiting its first preprocess) and SAbDab2 (3984 paired + antigen structures). One preprocessing run can merge any number of donor CSVs into a single corpus, splitting once over the merged set
 - **Addressing Data Leakage**: clustered OAS splitting with optional train/validation/test partitions that keep clonal near-duplicates together
 - **Task-Agnostic Masking**: masking training method for all 6 CDR loops individually by target selection
 - **Pluggable Backbone PLMs**: supports various PLMs, current list: custom transformer (scratch), ESM-2, IgBert, ProtBert
@@ -722,6 +722,9 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 *(current as of 2026-08-31; update per commit)*
 
 ### Open problems
+- **The `OAS4` corpus confounds donor with disease, by construction.** Jaffe 2022 contains exactly four donors and no more (all 580 catalogued paired runs probed 2026-09-03), and their conditions do not overlap: Donor-1 and Donor-2 are SARS-CoV-2, Donor-3 healthy, Donor-4 CMV. A donor-held-out split is therefore also a disease-held-out split, and neither effect can be attributed separately. Mitigated but not removed by every run being **Naive-B-Cells**: naive repertoires are largely pre-antigen-selection, so disease shapes them far less than it shapes memory or plasmablast compartments. Recorded before any `OAS4` experiment was run.
+- **More donors would cost B-cell-type purity.** 96 further donors exist across the other 18 paired studies, but only **one** naive paired run among them (Woodruff_2020); the rest are unsorted, memory, or plasmablast. Somatic hypermutation differs sharply between those compartments, and it lands hardest on the germline-encoded H1/H2 — the loops §6 already shows to be retrieval-bound. Any expansion past four donors must record `BType` per entry (`read_oas_metadata` does not capture it today) and stratify on it, or the heterogeneity becomes invisible in the merged corpus.
+- **`OAS4` results are not comparable to any earlier OAS number.** A different donor set is a different test split. The `oas_multi -> OAS4` tag keeps the two apart in run names and batch tables mechanically, but no table should place them on one axis — the same rule the `_OAS` / `_SD2` tags exist to enforce.
 - **The split only controls the loop it clusters on.** `add_split_field` clusters heavy CDR3, so the holdout is leakage-safe for H3 and **not** for H1/H2/L1/L2/L3 — 98% of OAS test H1s appear verbatim in train (Findings §6). Every non-H3 number in this README is therefore retrieval-bounded and should not be read as generalisation. Fix: cluster on the *target* CDR (per-loop split), a contained change to `add_split_field`; then re-run the OAS matrix.
 - **The first learned H3 length head is below its naive baseline.** It reaches 9.24% exact accuracy / 3.64 MAE versus 10.52% / 3.28 for always predicting length 15 (Finding §10). Before treating inferred MLM generation as a competitive method, evaluate probability calibration and top-k length coverage, then test a representation or objective that actually learns the framework-to-length signal.
 - **Training still optimizes recovery, not design.** The masked-LM objective rewards reproducing the native loop; the generative metrics only *measure* design quality after the fact — nothing trains for it. Findings §7 shows the two can disagree outright (H1: 0.99 recovery, 0.002 diversity). A design-aligned objective stays open (Phase 2). Re-weighting tokens *within* the masked-LM objective has now been tested and does not help (§13), so this needs a different objective class rather than a better weighting.
@@ -774,13 +777,10 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
-- **2026-09-03** -- `run.sh` batch folders carry the suites that produced them (`<timestamp>_ar`, `_oas_lcdr`, `_all`), matching `sweep.sh`'s `<timestamp>_sweep_<preset>`. Pre-09-03 batches stay bare timestamps and still parse — nothing reads meaning from a batch name
-- **2026-09-03** -- Reclaimed 52 GB of `results/`: HF intermediate `checkpoint-*/` dirs (each run's root `model.safetensors` is byte-identical to its best checkpoint, verified across every run) and the weights of the three selection-on-holdout batches (0724/0729/0817), whose metrics are kept
-- **2026-09-02** -- **Fix: causal prompt divergence (invalidates the 09-01 AR checkpoints).** The flank budget was `reserve=target_length` at training but `reserve=max_new_tokens` at generation, so with `max_len: 128` the model was trained on 110-token prompts and sampled with 87-token ones — it met off-distribution frameworks at generation and never emitted `<eos>` (free-running P(eos) ≈ 1e-4 against 0.91 teacher-forced). `LOOP_LENGTH_RESERVE = 40` is now a fixed constant used identically by both paths, with a guard when a loop exceeds it. Any length figure from batch `20260901_171316` is contaminated — the reserve leaked the native length into flank truncation — and must not be quoted
-- **2026-09-02** -- The six `*_ar_*` configs raised to `max_len: 256`, so a 40-token reserve no longer forces flank truncation on typical OAS frameworks
-- **2026-09-02** -- Fix: `eval/generative.py` called `pseudo_log_likelihood` without importing it — the judge path crashed for **both** methods. Now a deferred import, mirroring `build_judge`'s registry import. Nothing in the 291-test suite touched the judge; two tests added
-- **2026-09-02** -- `FAMILY_LABELS` shared by `batch_tables` and `batch_plots`. Causal runs now appear in the Findings §7 design table, which had rendered empty for AR batches because the family tuple was hardcoded to scratch/ESM-2
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-09-03** -- Expanded OAS corpus (8 csvs, 4 donors, total 156268 paired entries)
+- **2026-09-03** -- Hyperparameter sweep for autoregressive (optimal: 1e-4 LR, 0.06 warm-up, 0.01 weight decay)
+- **2026-09-02** -- AR prompt fix for training vs generation (native length was leaked into flank truncation)
 - **2026-09-01** -- **AUTOREGRESSIVE UPDATE** (`methods/ar/`) (can be run directly with `run.sh <gpu> ar`)
 - **2026-08-31** -- Data layer split (`frameworks.py`) for mlm to make way for autoregressive dataset class
 - **2026-08-31** -- Former `test/` dir split into `showcase/` (jsons for inference) and `unit_tests/` (for examining train scripts)
@@ -811,8 +811,6 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **2026-07-27** -- `data/preprocess/common.py`[new]: common scaffolding for csv -> json data preprocessing scripts
 - **2026-07-27** -- moved and renamed preprocessing scripts to `data/preprocess/`, removed separate dataset README file
 - **2026-07-24** -- Generate `run_config.json` for each training run
-- **2026-07-24** -- fixed `results/runs/latest/` symlink to latest batch (to verify further)
-- **2026-07-24** -- `linegraph_plotter.py`: moved to new `utils/` folder
 - **2026-07-24** -- `sampling.py`: handled greedy algo for both independent and iterative decoders
 
 ---
@@ -871,8 +869,12 @@ The comparison must run both methods on the **same frozen examples**, with the s
 - [ ] Lock the Phase-2 objective + primary metric with advisor
 
 **Autoregressive method — next steps**
-- [ ] **Retrain all six `ar` configs.** The 09-01 checkpoints learned a length-dependent prompt and are void; the batch is re-running under the fixed `LOOP_LENGTH_RESERVE` (see Changelog 09-02)
-- [ ] **Answer the length question on H3, not H1.** `<eos>` hits 150/150 exact length on H1, but §6 puts 98% of held-out H1 loops verbatim in training, so that measures retrieval. The comparison against §10's length head (9.24% exact / 3.64 MAE; mode baseline 10.52% / 3.28) is only meaningful on H3, where every held-out loop is unseen by construction
+- [x] **Retrain all six `ar` configs** under the fixed `LOOP_LENGTH_RESERVE`. Done 2026-09-02, batch `20260902_164544_ar`; `valid_rate` ~1.0 confirms the `<eos>` mechanism is healthy post-fix
+- [x] **Answer the length question on H3, not H1.** H1/H2 are perfect (1.000 length, 1.000 core, 0.000 diversity) and meaningless — §6's retrieval regime. On H3: **8.3% exact length, 3.80 MAE**, against §10's length head at 9.24%/3.64 and a modal-length baseline at 10.52%/3.28. `<eos>` does **not** beat the length head, and both sit below the constant baseline on the natural length distribution
+- [x] **Exclude decoding as the cause** (2026-09-03). A temperature sweep on the trained checkpoint cuts MAE only 4.31 -> 3.48 from T=1.0 to greedy, and exact-match never moves off ~8%. The model's mean length is well calibrated (16.11 vs 16.17 native) but under-dispersed, correlating 0.396 with the target — it hedges toward the mean rather than reading the framework
+- [x] **Exclude learning rate as the cause** (2026-09-03, `20260903_155940_sweep_h3`). 3e-4/1e-3/3e-3 x 2 seeds: every metric unresolved, rankings mutually contradictory, and the shipped `1e-4` matches or beats all three. Teacher-forced core moves 0.0005 across a 10x range against a 0.006 noise floor
+- [ ] **Test whether the length ceiling is data-limited** on the four-donor corpus (`OAS4`, ~156k from 21k). Two mechanistically unrelated approaches — a length head and `<eos>` — plateau at 8-9%, which starts to look like a property of the task at this data scale rather than of either method. That claim is only testable by changing the scale
+- [ ] **Sweep capacity** (`arch` preset) on the expanded corpus rather than the current one: at 0.8M parameters capacity and data scale plausibly interact, so an answer at 21k would not transfer
 - [ ] A causal counterpart to [`generate.py`](generate.py) — `showcase/*.json` currently cannot run against a causal checkpoint, so the method has training and batch evaluation but no single-sequence inference path
 - [ ] A pretrained causal backbone through `methods/ar/backbones.py` (the registry exists; only `scratch` is registered), making causal scratch-vs-pretrained the mirror of the masked scratch-vs-ESM-2 axis
 - [ ] **Automate one GPU + real-judge smoke run.** Three defects reached live runs past a fully green 293-test suite — the device mismatch, the prompt divergence and the missing `pseudo_log_likelihood` import — because every test stubs the model and none touches the judge. An opt-in end-to-end test at ~30 steps would have caught all three

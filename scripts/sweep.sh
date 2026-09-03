@@ -112,11 +112,12 @@ case "$SELECT_METRIC" in
   *) echo "ERROR: SELECT_METRIC must be core_accuracy|accuracy, got '$SELECT_METRIC'"; exit 1 ;;
 esac
 case "$RANK_METRIC" in
-  core|whole|judge_ppl|diversity|gen_core) ;;
-  *) echo "ERROR: RANK_METRIC must be core|whole|judge_ppl|diversity|gen_core, got '$RANK_METRIC'"
+  core|whole|judge_ppl|diversity|gen_core|length_mae|length_match|valid_rate) ;;
+  *) echo "ERROR: RANK_METRIC must be core|whole|judge_ppl|diversity|gen_core|length_mae|length_match|valid_rate,"
+     echo "       got '$RANK_METRIC'"
      exit 1 ;;
 esac
-if [[ "$RANK_METRIC" =~ ^(judge_ppl|diversity|gen_core)$ ]] && [[ "$GEN_EVAL" != "true" ]]; then
+if [[ "$RANK_METRIC" =~ ^(judge_ppl|diversity|gen_core|length_mae|length_match|valid_rate)$ ]] && [[ "$GEN_EVAL" != "true" ]]; then
   echo "ERROR: RANK_METRIC=$RANK_METRIC needs generation_eval.json — set GEN_EVAL=true"; exit 1
 fi
 
@@ -251,14 +252,18 @@ echo "output=$OUT"
 echo "======================================================================"
 
 i=0
+ROUND_FAILURES=0
 while IFS=$'\t' read -r lr wu wd ep hs nl loss cw aw seed; do
   i=$((i + 1))
 
-  # Resume: a completed grid point is never re-run, so an interrupted sweep continues.
-  if awk -F '\t' -v a="$lr" -v b="$wu" -v c="$wd" -v d="$ep" -v e="$hs" -v f="$nl" \
+  # Resume only from a completed run whose artifacts satisfy this invocation. In particular, an
+  # older training-only run must be revisited when a generation-based ranking is requested later.
+  COMPLETED_RUN=$(awk -F '\t' -v a="$lr" -v b="$wu" -v c="$wd" -v d="$ep" -v e="$hs" -v f="$nl" \
          -v g="$loss" -v h="$cw" -v j="$aw" -v k="$seed" \
     'NR > 1 && $1==a && $2==b && $3==c && $4==d && $5==e && $6==f && $7==g && $8==h \
-     && $9==j && $10==k && $12=="completed" {found=1} END {exit !found}' "$MAP"; then
+     && $9==j && $10==k && $12=="completed" {run=$13} END {print run}' "$MAP")
+  if [[ -n "$COMPLETED_RUN" && -f "$COMPLETED_RUN/epoch_metrics.csv" &&
+        ( "$GEN_EVAL" != "true" || -f "$COMPLETED_RUN/generation_eval.json" ) ]]; then
     echo "[$i/$total] SKIP completed: lr=$lr wu=$wu wd=$wd ep=$ep loss=$loss cw=$cw aw=$aw seed=$seed"
     continue
   fi
@@ -302,15 +307,18 @@ while IFS=$'\t' read -r lr wu wd ep hs nl loss cw aw seed; do
     "${EXTRA_ARGS[@]}" \
     > "$LOG" 2>&1; then
     RUNDIR=$(grep -oE "Workspace initialized at: .*" "$LOG" | tail -1 | sed 's/.*at: //')
-    if [[ -n "$RUNDIR" && -f "$RUNDIR/epoch_metrics.csv" ]]; then
+    if [[ -n "$RUNDIR" && -f "$RUNDIR/epoch_metrics.csv" &&
+          ( "$GEN_EVAL" != "true" || -f "$RUNDIR/generation_eval.json" ) ]]; then
       STATUS=completed
       echo "          OK: $RUNDIR"
     else
       STATUS=incomplete
-      echo "          INCOMPLETE: training exited 0 but metrics/run path missing; see $LOG"
+      ROUND_FAILURES=$((ROUND_FAILURES + 1))
+      echo "          INCOMPLETE: training exited 0 but a required run/metric artifact is missing; see $LOG"
     fi
   else
     STATUS=failed; RUNDIR=""
+    ROUND_FAILURES=$((ROUND_FAILURES + 1))
     echo "          FAILED: see $LOG"
   fi
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
@@ -326,6 +334,12 @@ done < "$GRID_FILE"
   || echo "⚠️ Summary step failed; the runs are intact — rerun it against $OUT"
 "$PYTHON" -m cdrseqgen.visualization.sweep_plots --sweep "$OUT" \
   || echo "⚠️ Plot step failed; the runs are intact — rerun it against $OUT"
+
+if [[ $ROUND_FAILURES -gt 0 ]]; then
+  echo ""
+  echo "❌ Sweep finished with $ROUND_FAILURES failed/incomplete trial(s). Artifacts are in $OUT/"
+  exit 1
+fi
 
 echo ""
 echo "🎉 Sweep complete. Everything for this sweep is in $OUT/"

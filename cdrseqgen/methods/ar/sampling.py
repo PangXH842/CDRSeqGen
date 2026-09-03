@@ -25,6 +25,7 @@ rather than silently truncated, because a truncated loop is not a length the mod
 """
 import torch
 
+from cdrseqgen.data.dataset_ar import CAUSAL_DECODE_STEPS, validate_causal_decode_steps
 from cdrseqgen.methods.common import ban_tokens, logits_of, warp_logits
 
 
@@ -41,13 +42,14 @@ def _left_pad(prompts, pad_id, device):
 
 @torch.no_grad()
 def sample_loops(model, tokenizer, prompt_ids, *, device, num_samples=1, temperature=1.0,
-                 top_k=0, top_p=1.0, max_new_tokens=40, generator=None):
+                 top_k=0, top_p=1.0, max_new_tokens=CAUSAL_DECODE_STEPS, generator=None):
     """Decode `num_samples` loops from one prompt.
 
     Returns a list of dicts: ``{"loop": str, "length": int, "complete": bool}``. ``complete`` is
     False when <eos> never arrived inside ``max_new_tokens`` — such a draw has no length the model
     chose, so a caller should treat it as a failure rather than a short loop.
     """
+    validate_causal_decode_steps(max_new_tokens)
     greedy = temperature == 0
     draws = 1 if greedy else num_samples
     model.eval()

@@ -50,9 +50,18 @@ def optional_text(value):
     return text or None
 
 
-def add_io_args(parser, *, input_default, output_default, input_help):
-    """Attach common io args"""
-    parser.add_argument("--input_file", default=input_default, help=input_help)
+def add_io_args(parser, *, input_default, output_default, input_help, multiple=False):
+    """Attach common io args.
+
+    `multiple` makes --input_file variadic, for a preprocessor that builds ONE corpus from several
+    source files (OAS paired, where a corpus is several donors' repertoires). It stays off by
+    default so single-source preprocessors keep a plain string.
+    """
+    if multiple:
+        default = [input_default] if isinstance(input_default, str) else list(input_default)
+        parser.add_argument("--input_file", nargs="+", default=default, help=input_help)
+    else:
+        parser.add_argument("--input_file", default=input_default, help=input_help)
     parser.add_argument("--output_file", default=output_default, help="Path to the output JSON file")
     parser.add_argument("--limit", type=int, default=None,
                         help="Only process the first N rows after filtering (for sanity-checking).")

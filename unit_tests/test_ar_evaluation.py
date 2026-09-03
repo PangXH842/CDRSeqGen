@@ -163,11 +163,16 @@ class ValidityAccountingTests(unittest.TestCase):
             drawn = strategy.draw(0)
 
         self.assertEqual(drawn.seqs, ["AC"])
-        self.assertEqual(drawn.record_extra, {"attempts": 3, "incomplete": 1, "empty": 1})
+        self.assertEqual(drawn.record_extra, {
+            "attempts": 3, "incomplete": 1, "empty": 1, "length_matches": 0,
+            "length_absolute_error_sum_capped": 12,
+        })
         self.assertEqual(strategy.attempts, 3)
         self.assertEqual(strategy.complete_nonempty, 1)
         self.assertEqual(strategy.complete_empty, 1)
         self.assertEqual(strategy.incomplete, 1)
+        self.assertEqual(strategy.length_matches, 0)
+        self.assertEqual(strategy.length_absolute_error_capped, 12)
         os.unlink(path)
 
     def test_payload_matches_the_shared_schema_and_records_validity(self):
@@ -187,8 +192,11 @@ class ValidityAccountingTests(unittest.TestCase):
         self.assertEqual(payload["n_selected"], 1)
         self.assertEqual(payload["n_generated"], 1)
         self.assertIn("aar_mean", payload["summary"])
-        self.assertEqual(payload["generation_validity"]["attempts"], 1)
-        self.assertEqual(payload["generation_validity"]["valid_generation_rate"], 1.0)
+        validity = payload["generation_validity"]
+        self.assertEqual(validity["attempts"], 1)
+        self.assertEqual(validity["valid_generation_rate"], 1.0)
+        self.assertEqual(validity["fixed_length_acceptance_rate"], 0.0)
+        self.assertEqual(validity["length_absolute_error_mean_capped"], 3.0)
         os.unlink(path)
 
     def test_a_zero_validity_run_still_reports_its_attempt_budget(self):
@@ -213,14 +221,13 @@ class ValidityAccountingTests(unittest.TestCase):
             temperature=0, max_new_tokens=3, skip_perplexity=True)
 
         self.assertEqual(payload["n_generated"], 0)
-        self.assertEqual(payload["generation_validity"]["attempts"], 1)
-        self.assertEqual(payload["generation_validity"]["incomplete"], 1)
-        self.assertEqual(payload["generation_validity"]["valid_generation_rate"], 0.0)
+        validity = payload["generation_validity"]
+        self.assertEqual(validity["attempts"], 1)
+        self.assertEqual(validity["incomplete"], 1)
+        self.assertEqual(validity["valid_generation_rate"], 0.0)
+        self.assertEqual(validity["fixed_length_acceptance_rate"], 0.0)
+        self.assertEqual(validity["length_absolute_error_mean_capped"], 2.0)
         os.unlink(path)
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class JudgeScoringTests(unittest.TestCase):
@@ -274,3 +281,7 @@ class JudgeScoringTests(unittest.TestCase):
 
         scores = score_with_judge(MismatchedStrategy(), 0, ["ACDEF"], StubJudge(), adapter, "cpu")
         self.assertEqual(scores, [None])   # positional, so a skipped candidate stays aligned
+
+
+if __name__ == "__main__":
+    unittest.main()

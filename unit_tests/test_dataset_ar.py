@@ -15,8 +15,15 @@ import unittest
 import torch
 
 from cdrseqgen.data.dataset_common import AntibodyFrameworkDataset, AntibodyTokenizer
-from cdrseqgen.data.dataset_ar import (CausalInfillingDataset, CausalTokenizer, build_causal_prompt,
-                                   causal_adapter, causal_collate_fn)
+from cdrseqgen.data.dataset_ar import (
+    CAUSAL_DECODE_STEPS,
+    LOOP_LENGTH_RESERVE,
+    CausalInfillingDataset,
+    CausalTokenizer,
+    build_causal_prompt,
+    causal_adapter,
+    causal_collate_fn,
+)
 
 CHAIN = {"fwr1": "AAAA", "cdr1": "CC", "fwr2": "DDDD", "cdr2": "EE",
          "fwr3": "FFFF", "cdr3": "GGGGG", "fwr4": "HHHH"}
@@ -135,13 +142,14 @@ class CapTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_causal_prompt(self.adapter, framework)
 
-    def test_generation_can_reserve_a_length_it_does_not_know(self):
-        # At sampling time the loop length is exactly what is unknown, so reserve is explicit.
+    def test_the_fixed_reserve_cannot_be_overridden(self):
+        # Native length or decode settings must never affect flank truncation again.
         ds = AntibodyFrameworkDataset(self.path, self.adapter, target_region="h3", max_len=64)
-        # reserve=50 leaves a budget of 64-53=11 for 20 residues of flank, so context must give way.
-        short, _ = build_causal_prompt(self.adapter, ds.framework_parts(0), reserve=5)
-        long, _ = build_causal_prompt(self.adapter, ds.framework_parts(0), reserve=50)
-        self.assertGreater(len(short), len(long))              # a longer reserve caps context harder
+        with self.assertRaises(TypeError):
+            build_causal_prompt(self.adapter, ds.framework_parts(0), reserve=5)
+
+    def test_the_decode_budget_includes_an_eos_step(self):
+        self.assertEqual(CAUSAL_DECODE_STEPS, LOOP_LENGTH_RESERVE + 1)
 
 
 class SharedWithTheMaskedMethodTests(unittest.TestCase):
@@ -174,6 +182,14 @@ class CollateTests(unittest.TestCase):
         self.assertEqual(batch["input_ids"].shape, batch["labels"].shape)
         self.assertEqual(batch["attention_mask"][1].sum().item(), len(items[1]["input_ids"]))
         self.assertTrue(torch.all(batch["labels"][1, len(items[1]["labels"]):] == -100))
+        self.assertEqual(set(batch), {"input_ids", "labels", "attention_mask"})
+
+        # Generic AutoModelForCausalLM implementations need not accept arbitrary metadata kwargs.
+        class StrictModel:
+            def __call__(self, input_ids, labels, attention_mask):
+                return input_ids, labels, attention_mask
+
+        StrictModel()(**batch)
         os.unlink(path)
 
 

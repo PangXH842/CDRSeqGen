@@ -38,6 +38,38 @@ python -m cdrseqgen.data.preprocess.oas_paired \
     --split cluster --test_size 0.1 --validation_size 0.1 --seed 42
 ```
 
+**Run a suite against a second corpus** with `DATA_PATH=<processed.json> ./scripts/run.sh <gpu>
+<suite>`, the same override `sweep.sh` takes — no duplicate configs. The run name picks up that
+corpus's `dataset_tag`, so `processed_oas_multi.json` produces `h3_OAS4_ar_scratch` and can never be
+confused in a batch table with a single-donor `h3_OAS_ar_scratch`. Add a `DATASET_TAGS` entry
+*before* the general `oas` one for any new corpus; first match wins.
+
+`download_oas_paired.sh` downloads **and extracts** — it verifies each archive with `gunzip -t`
+before unpacking (a truncated OAS CSV reads without complaint in pandas), keeps the `.gz` so a bad
+extraction never costs another download, and skips work that is already done, so re-running it is
+cheap.
+
+**Several donors, one corpus.** `--input_file` takes any number of CSVs. They are read with their
+own metadata rows, concatenated, and *then* split once:
+```bash
+python -m cdrseqgen.data.preprocess.oas_paired \
+    --input_file dataset/data/raw/oas/*_Paired_All.csv \
+    --output_file dataset/data/processed/processed_oas_multi.json \
+    --split cluster --test_size 0.1 --validation_size 0.1 --seed 42
+```
+**The split must be assigned once over the merged corpus, which is why merging happens here rather
+than by concatenating finished JSONs.** `add_split_field` clusters heavy CDR3s and allocates whole
+clusters; run per file, each file gets an independent clustering, and one clonal family can land in
+`train` from donor A and in `test` from donor B — the merged file would look perfectly well-formed.
+
+Every entry carries `source.subject`, so a donor-held-out split is possible later; the sidecar lists
+`donors` and a per-file `sources` breakdown. `--dedup exact` (the default) drops repeated
+heavy+light amino-acid pairs across the whole corpus — public clones recur across donors, and with
+`--split random` or `none` nothing else stops an identical pair straddling the holdout. Under
+`--split cluster` identical pairs already share a cluster, so dedup changes the corpus size but not
+its leakage properties; `--dedup none` reproduces pre-2026-09-03 behaviour. Clustering is O(n²):
+~18 s at 21 k sequences, ~10 min at 120 k, ~3 h at 500 k.
+
 **SAbDab2**: currently including 3984 structures - paired with resolved antigen, remaining >10k structures without antigen pending future inclusion
 ```bash
 python -m cdrseqgen.data.preprocess.sabdab2 \
@@ -119,6 +151,13 @@ CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_ar_scratch.json    # autoregre
 > best-epoch numbers, and the masked model is handed the loop length while the causal one predicts
 > its own. The compare suite's *generation* panel is length-free on both sides; its checkpoint-
 > selection recovery table is an integration diagnostic, not the fair design comparison.
+>
+> `run.sh` forces three overrides onto the masked arm so the pair is actually matched: inferred
+> length (no native mask count), `max_len 256` and `gen_top_p 0.9`. The last two are config
+> defaults that silently differed — `h3_scratch.json` ships `max_len 128`, which truncates the
+> flanks of **12.1% of OAS heavy chains** (2544/21106) while the causal arm at 256 truncates none,
+> and the masked default `gen_top_p` is 1.0 against the AR configs' 0.9. A compare run is therefore
+> not comparable to the Findings masked numbers, which use 128 and 1.0.
 
 **Every run lives at `results/runs/<batch>/<run>/` — always two levels under `runs/`.** A `run.sh` round shares one batch
 folder; a standalone `train.py` gets a batch folder of its own, so `results/` never collects loose run
@@ -259,10 +298,21 @@ DRY_RUN=1 ./scripts/sweep.sh 4 loss       # print the grid, train nothing
 Every dimension (`LRS`, `WARMUPS`, `WEIGHT_DECAYS`, `EPOCH_LIST`, `SEEDS`, `HIDDEN_SIZES`,
 `NUM_LAYERS`, `MAX_EPOCHS`, `PATIENCE`, `LOSS_TYPES`, `CORE_WEIGHTS`, `ANCHOR_WEIGHTS`) is
 env-overridable, so a preset only supplies defaults. Four knobs control what each trial is scored on:
-`RANK_METRIC` (`core` | `whole` | `judge_ppl` | `diversity` | `gen_core`), `SELECT_METRIC`
+`RANK_METRIC` (`core` | `whole` | `judge_ppl` | `diversity` | `gen_core` | `length_mae` |
+`length_match` | `valid_rate`), `SELECT_METRIC`
 (`core_accuracy` | `accuracy`), `GEN_EVAL` (`true`/`false`), and `GEN_EXAMPLES`/`GEN_SAMPLES`, which
 shrink the generative eval — it runs once per trial, so the 150×20 default would dominate a 9-trial
 sweep. The `loss` preset uses 100×10.
+
+**Sweeping a causal config** needs a free-running `RANK_METRIC`. `sweep.sh` is already
+method-neutral — it passes the base config to `train.py`, which dispatches on the config's `method`
+key, so `./scripts/sweep.sh <gpu> <preset> configs/h3_ar_scratch.json` runs unmodified. But the
+defaults (`core`, and `SELECT_METRIC=core_accuracy`) are **teacher-forced**, and for a causal model
+teacher-forcing supplies the true loop prefix: a checkpoint can score 0.400 there while matching the
+native length 8% of the time free-running (2026-09-02). Use `length_match` for exact completed,
+non-empty lengths per **all attempts**, `length_mae` for cutoff-penalized attempt-level error, and
+`valid_rate` to screen EOS/empty failures directly. `gen_core` and `judge_ppl` are the other
+free-running choices; all require `GEN_EVAL=true`.
 
 **`SELECT_METRIC` picks each trial's best checkpoint**, and it carries the same circularity as
 ranking: `core_accuracy` is what a core-weighted objective optimises, so selecting on it advantages
@@ -276,8 +326,9 @@ changes the very quantity `core` measures, so ranking on it partly rewards the o
 optimising its own metric. The independent judge does not share that bias.
 
 The script refuses a dataset without explicit `train`/`validation`/`test` labels, forces
-`--eval_split validation`, ranks settings by mean best-epoch validation core recovery across seeds,
-writes `runs.tsv`, `summary.tsv` and `objective_comparison.png`, never selects the test partition, skips already-completed grid
+`--eval_split validation`, selects each run's checkpoint on `SELECT_METRIC`, and ranks settings
+across seeds on `RANK_METRIC`. It writes `runs.tsv`, `summary.tsv` and
+`objective_comparison.png`, never selects the test partition, skips completed grid
 points on resume, and sets `CDRSEQGEN_SKIP_LATEST=1` so exploratory trials do not replace the main
 usable batch. It also flags a winner whose margin falls below the ~0.006 seed-noise floor as a tie.
 

@@ -7,6 +7,11 @@
 # Writes one batch folder per round, named `results/runs/<timestamp>_<suites>` — e.g. `..._ar`,
 # `..._oas_lcdr`, `..._all` — so a round is identifiable from `ls` alone.
 #
+# DATA_PATH=<processed.json> ./scripts/run.sh <gpu> <suite>   runs a suite against a DIFFERENT
+# corpus without duplicating configs, the same override sweep.sh takes. The run name picks up that
+# corpus's dataset tag (dataset_tag in cdrseqgen/train/logging.py), so runs on two corpora cannot
+# collide in one batch table — which is the whole reason the override is safe to offer.
+#
 # Suites (combine freely, e.g. `./scripts/run.sh 4 oas lcdr`):
 #   oas       OAS heavy CDRs (h1/h2/h3), scratch+esm2, base + _lc            (12)
 #   antigen   SAbDab2 heavy antigen matrix (_ag / _ag_lconly)                (12)
@@ -26,6 +31,8 @@ GPU_ID=${1:-0}
 shift 2>/dev/null
 SUITES=("$@")
 [[ ${#SUITES[@]} -eq 0 ]] && SUITES=("all")
+# Empty means "whatever each config declares"; set it to run a suite on another corpus.
+DATA_PATH=${DATA_PATH:-}
 
 # Activate the environment (Adjust the path if your conda init is different)
 source ~/miniconda3/etc/profile.d/conda.sh
@@ -140,14 +147,23 @@ echo "=========================================================="
 # Gate on the file the configs actually declare, not on a fixed name: every OAS config now points
 # at processed_oas_tuning.json (three-way), so checking processed_oas_data.json passed while telling
 # you nothing about whether the run could start.
-for cfg in "${CONFIGS[@]}"; do
-    need=$(python -c "import json,sys; print(json.load(open(sys.argv[1])).get('data_path',''))" "$cfg")
-    if [[ -n "$need" && ! -f "$need" ]]; then
-        echo "❌ $cfg needs $need, which does not exist."
+if [[ -n "$DATA_PATH" ]]; then
+    if [[ ! -f "$DATA_PATH" ]]; then
+        echo "❌ DATA_PATH=$DATA_PATH does not exist."
         echo "   Create it with the preprocessing commands in WORKFLOW.md Step 1."
         exit 1
     fi
-done
+    echo "📄 Corpus override: every run uses $DATA_PATH (not the path its config declares)."
+else
+    for cfg in "${CONFIGS[@]}"; do
+        need=$(python -c "import json,sys; print(json.load(open(sys.argv[1])).get('data_path',''))" "$cfg")
+        if [[ -n "$need" && ! -f "$need" ]]; then
+            echo "❌ $cfg needs $need, which does not exist."
+            echo "   Create it with the preprocessing commands in WORKFLOW.md Step 1."
+            exit 1
+        fi
+    done
+fi
 if [[ $NEEDS_SD2 -eq 1 && ! -f dataset/data/processed/processed_sabdab2_data.json ]]; then
     echo "❌ Missing dataset/data/processed/processed_sabdab2_data.json — run:"
     echo "     bash cdrseqgen/data/preprocess/download_sabdab2.sh && python -m cdrseqgen.data.preprocess.sabdab2"
@@ -163,11 +179,20 @@ for config in "${CONFIGS[@]}"; do
     echo "▶️ [$(date +'%Y-%m-%d %H:%M:%S')] Starting run: $config"
     echo "----------------------------------------------------------"
     RUN_OVERRIDES=()
+    [[ -n "$DATA_PATH" ]] && RUN_OVERRIDES+=(--data_path "$DATA_PATH")
     if [[ $COMPARE_REQUESTED -eq 1 &&
           ( "$config" == "configs/h3_scratch.json" ||
             "$config" == "configs/h3_scratch_lc.json" ) ]]; then
-        RUN_OVERRIDES=(--gen_length_mode inferred)
-        echo "⚖️  Matched compare: MLM generation uses inferred length (no native mask count)."
+        # Three things must match for a masked-vs-causal head-to-head, and only the first was
+        # being forced. The other two are config defaults that happen to differ:
+        #   max_len   -- the causal layout needs 256 (framework + a 40-residue reserve + 3 layout
+        #                tokens), while h3_scratch.json ships 128. 12% of OAS heavy chains exceed
+        #                128 tokens, so the masked arm was seeing TRUNCATED flanks on those
+        #                examples while the causal arm saw complete ones.
+        #   gen_top_p -- the AR configs pin 0.9; the masked default is 1.0, i.e. no nucleus
+        #                filtering at all. Different sampling policies are not a comparison.
+        RUN_OVERRIDES+=(--gen_length_mode inferred --max_len 256 --gen_top_p 0.9)
+        echo "⚖️  Matched compare: MLM uses inferred length, max_len 256, top_p 0.9 (matching AR)."
     fi
     if python train.py "$config" "${RUN_OVERRIDES[@]}"; then
         ((SUCCESS_COUNT+=1))
@@ -190,6 +215,11 @@ python -m cdrseqgen.visualization.batch_plots --batch "$BATCH_DIR" \
   || echo "⚠️ Plot step failed; the runs are intact — rerun it against $BATCH_DIR"
 
 echo ""
-echo "🎉 Done ($SUCCESS_COUNT/${#CONFIGS[@]} succeeded; $FAILED_COUNT failed). Artifacts are in $BATCH_DIR/"
+if [[ $FAILED_COUNT -gt 0 ]]; then
+    echo "❌ Done with failures ($SUCCESS_COUNT/${#CONFIGS[@]} succeeded; $FAILED_COUNT failed). Artifacts are in $BATCH_DIR/"
+else
+    echo "🎉 Done ($SUCCESS_COUNT/${#CONFIGS[@]} succeeded). Artifacts are in $BATCH_DIR/"
+fi
 echo "   $(find "$BATCH_DIR" -maxdepth 1 -mindepth 1 -type d | wc -l) run dir(s), plus batch_tables.md and figures/ (one dashboard per dataset)."
 echo "   Ad-hoc cross-run charts: 'python -m cdrseqgen.visualization.linegraph_plotter'."
+[[ $FAILED_COUNT -eq 0 ]] || exit 1

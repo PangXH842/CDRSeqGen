@@ -260,6 +260,9 @@ def build_entries(csv_path, limit=None, source_metadata=None):
             "source": {
                 "dataset": source_metadata["dataset"],
                 "run": source_metadata["run"],
+                # The donor, not the sequencing run: one subject spans many runs, so a
+                # donor-held-out split can only be built if this travels with the entry.
+                "subject": source_metadata.get("subject"),
             },
             "isotype": row['Isotype_heavy'],
             "heavy": build_chain(heavy_regions, row['sequence_alignment_aa_heavy'], heavy_imgt),
@@ -271,12 +274,68 @@ def build_entries(csv_path, limit=None, source_metadata=None):
     return processed_data
 
 
+def build_corpus(csv_paths, limit=None, dedup=True):
+    """Build ONE entry list from several OAS paired CSVs, each read with its own metadata.
+
+    Concatenation happens here, before any split is assigned, and that ordering is the whole point.
+    `add_split_field` clusters heavy CDR3s and allocates WHOLE clusters to train/validation/test, so
+    running it per file would give each file an independent clustering — one clonal family could
+    then land in train from donor A's file and in test from donor B's, and the merged JSON would
+    look perfectly well-formed. Splitting once over the merged list is what makes a multi-donor
+    corpus leakage-safe.
+
+    `limit` is per file, since it exists to sanity-check a source rather than to size the corpus.
+
+    Returns (entries, per_file, stats). `per_file` carries each source's metadata plus how many
+    entries it contributed, so the sidecar can show the composition.
+    """
+    entries, per_file = [], []
+    seen = {}
+    duplicates = 0
+
+    for path in csv_paths:
+        metadata = read_oas_metadata(path)
+        print(f"\n=== {path} (run {metadata['run']}, subject {metadata.get('subject')}) ===")
+        built = build_entries(path, limit=limit, source_metadata=metadata)
+
+        kept = 0
+        for entry in built:
+            if dedup:
+                # The biological identity, not sequence_id: ids are assigned per run and say
+                # nothing about whether two rows are the same antibody.
+                key = (entry["heavy"]["full_aa"], entry["light"]["full_aa"])
+                if key in seen:
+                    duplicates += 1
+                    continue
+                seen[key] = True
+            entries.append(entry)
+            kept += 1
+
+        per_file.append({**metadata, "path": str(path), "entries": kept})
+        print(f"    contributed {kept} entr{'y' if kept == 1 else 'ies'}")
+
+    donors = sorted({str(m.get("subject")) for m in per_file})
+    species = sorted({m["species"] for m in per_file})
+    stats = {"duplicates_dropped": duplicates, "donors": donors, "species": species}
+
+    print(f"\nCorpus: {len(entries)} entries from {len(csv_paths)} file(s), "
+          f"{len(donors)} donor(s): {', '.join(donors)}")
+    if duplicates:
+        print(f"        dropped {duplicates} duplicate heavy+light pair(s) "
+              f"(--dedup none keeps them)")
+    if len(species) > 1:
+        print(f"        WARNING: mixed species in one corpus: {', '.join(species)}")
+    return entries, per_file, stats
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Preprocess OAS paired antibody data.")
     add_io_args(parser,
                 input_default="dataset/data/raw/1287169_1_Paired_All.csv",
                 output_default="dataset/data/processed/processed_oas_data.json",
-                input_help="Path to the OAS paired CSV")
+                input_help="One or more OAS paired CSVs. Several files become ONE corpus: they are "
+                           "concatenated first and the split is assigned once over the merged set.",
+                multiple=True)
     parser.add_argument("--split", choices=["cluster", "random", "none"], default="cluster",
                         help="Train/test 'split' field to attach. 'none' = the original behaviour, "
                              "omit it and let train.py split randomly at load; 'random' = that same "
@@ -289,16 +348,25 @@ if __name__ == "__main__":
     parser.add_argument("--cluster_identity", type=float, default=0.85,
                         help="Min heavy-CDR3 identity to group sequences into one clonal cluster.")
     parser.add_argument("--seed", type=int, default=42, help="Seed for reproducible cluster/random split.")
+    parser.add_argument("--dedup", choices=["exact", "none"], default="exact",
+                        help="Drop repeated heavy+light amino-acid pairs across the whole corpus. "
+                             "Public/convergent clones recur across donors, and with --split "
+                             "random or none nothing else stops an identical pair straddling the "
+                             "holdout. 'none' reproduces pre-2026-09-03 behaviour.")
     args = parser.parse_args()
 
-    source_metadata = read_oas_metadata(args.input_file)
-    data = build_entries(args.input_file, limit=args.limit, source_metadata=source_metadata)
+    data, per_file, stats = build_corpus(args.input_file, limit=args.limit,
+                                         dedup=args.dedup == "exact")
+    # Once, over the merged corpus — see build_corpus on why this must not run per file.
     add_split_field(data, args.split, args.test_size, args.seed, args.cluster_identity,
                     validation_size=args.validation_size)
     write_processed(data, args.output_file)
     write_processed_metadata(args.output_file, {
         "dataset": "OAS paired",
-        "source": source_metadata,
+        # Always a list, one element per input CSV, even for a single file: a corpus that can be
+        # several donors should not change shape depending on how many it happens to hold.
+        "sources": per_file,
+        "donors": stats["donors"],
         "records": len(data),
         "preprocessing": {
             "productive_pairs_only": True,
@@ -309,5 +377,7 @@ if __name__ == "__main__":
             "cluster_identity": args.cluster_identity if args.split == "cluster" else None,
             "seed": args.seed,
             "limit": args.limit,
+            "dedup": args.dedup,
+            "duplicates_dropped": stats["duplicates_dropped"],
         },
     })

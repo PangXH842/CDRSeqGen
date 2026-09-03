@@ -24,7 +24,7 @@ import math
 
 import torch
 
-from cdrseqgen.data.dataset_ar import build_causal_prompt
+from cdrseqgen.data.dataset_ar import CAUSAL_DECODE_STEPS, build_causal_prompt
 from cdrseqgen.data.dataset_common import framework_for_dataset
 from cdrseqgen.eval import ANCHOR_TRIM
 from cdrseqgen.eval.generative import (Draw, SUMMARY_KEYS, aggregate, build_masked_judge_prompt,
@@ -42,7 +42,8 @@ class CausalStrategy:
     supplies_native_length = False
 
     def __init__(self, *, model, tokenizer, device, generator, eval_dataset, judge_dataset,
-                 judge_tokenizer, num_samples, temperature, top_k, top_p, max_new_tokens=40):
+                 judge_tokenizer, num_samples, temperature, top_k, top_p,
+                 max_new_tokens=CAUSAL_DECODE_STEPS):
         self.model, self.tokenizer, self.device = model, tokenizer, device
         self.generator = generator
         self.eval_dataset, self.judge_dataset = eval_dataset, judge_dataset
@@ -55,6 +56,9 @@ class CausalStrategy:
         self.complete_nonempty = 0
         self.complete_empty = 0
         self.incomplete = 0
+
+        self.length_matches = 0
+        self.length_absolute_error_capped = 0
 
     # --- framework lookup -------------------------------------------------------------------
     # `framework_for_dataset` already unwraps a Subset, so the eval side passes the SUBSET index
@@ -81,6 +85,7 @@ class CausalStrategy:
         framework = self.framework(i)
         # No reserve override: the prompt must match the one training built for this framework.
         prompt, _ = build_causal_prompt(self.tokenizer, framework)
+        native = framework["target"].upper().strip()
         results = sample_loops(
             self.model, self.tokenizer, prompt, device=self.device,
             num_samples=self.num_samples, temperature=self.temperature,
@@ -95,20 +100,33 @@ class CausalStrategy:
         incomplete = len(results) - len(complete)
         empty = len(complete) - len(kept)
         self.attempts += len(results)
+        length_matches = sum(
+            r["complete"] and bool(r["loop"]) and len(r["loop"]) == len(native)
+            for r in results)
+        # An unterminated draw has no chosen length. Its cutoff length is still useful for sweep
+        # ranking as long as it is penalized by at least one residue rather than looking exact when
+        # the cutoff happens to equal the native length.
+        capped_errors = [max(1, abs(len(r["loop"]) - len(native))) if not r["complete"]
+                         else abs(len(r["loop"]) - len(native)) for r in results]
         self.complete_nonempty += len(kept)
         self.complete_empty += empty
         self.incomplete += incomplete
+        self.length_matches += length_matches
+        self.length_absolute_error_capped += sum(capped_errors)
         if not kept:
             return None
         seqs = [r["loop"].upper() for r in kept]
-        native = framework["target"].upper().strip()
         return Draw(
             native=native,
             seqs=seqs,
             spans=[(prompt, self.tokenizer.encode(s)) for s in seqs],
             target_len=len(native),
             length_policy=self.payload_length_policy(),
-            record_extra={"attempts": len(results), "incomplete": incomplete, "empty": empty},
+            record_extra={
+                "attempts": len(results), "incomplete": incomplete, "empty": empty,
+                "length_matches": length_matches,
+                "length_absolute_error_sum_capped": sum(capped_errors),
+            },
         )
 
     @torch.no_grad()
@@ -143,7 +161,7 @@ class CausalStrategy:
 def run_causal_generative_eval(model, tokenizer, eval_dataset, *, device, judge_dataset=None,
                                judge_model=None, judge_tokenizer=None, num_examples=150,
                                num_samples=20, temperature=1.0, top_k=0, top_p=1.0,
-                               max_new_tokens=40, stratify=False, seed=42,
+                               max_new_tokens=CAUSAL_DECODE_STEPS, stratify=False, seed=42,
                                skip_perplexity=False, output_path=None, title="", judge_name=None,
                                anchor_trim=ANCHOR_TRIM, meta=None):
     """Sample from held-out frameworks and write generation_eval.json, causal side."""
@@ -182,6 +200,12 @@ def run_causal_generative_eval(model, tokenizer, eval_dataset, *, device, judge_
         "valid_generation_rate": strategy.complete_nonempty / attempts if attempts else None,
         "completion_rate": ((strategy.complete_nonempty + strategy.complete_empty) / attempts
                             if attempts else None),
+        "length_matches": strategy.length_matches,
+        # Unlike summary.length_match_rate/length_absolute_error_mean, these denominators retain
+        # incomplete and empty attempts, so a sweep cannot improve by dropping failed decodes.
+        "fixed_length_acceptance_rate": strategy.length_matches / attempts if attempts else None,
+        "length_absolute_error_mean_capped": (
+            strategy.length_absolute_error_capped / attempts if attempts else None),
     }
 
     payload = dict(meta or {})

@@ -16,6 +16,7 @@ from typing import Tuple
 
 from transformers import HfArgumentParser, TrainingArguments
 
+from cdrseqgen.data.dataset_ar import CAUSAL_DECODE_STEPS, validate_causal_decode_steps
 from cdrseqgen.methods.common.arguments import (BaseDataArguments, BaseGenerationArguments,
                                                 BaseModelArguments, initialise_run,
                                                 parse_config_and_cli,
@@ -37,9 +38,15 @@ class DataArguments(BaseDataArguments):
 @dataclass
 class GenerationArguments(BaseGenerationArguments):
     gen_max_new_tokens: int = field(
-        default=40,
-        metadata={"help": "Decode cap. A draw that never emits <eos> within it is incomplete and "
-                          "is dropped rather than scored as a short loop."})
+        default=CAUSAL_DECODE_STEPS,
+        metadata={"help": "Decode steps including <eos>. A draw that never emits <eos> within "
+                          "the cap is incomplete and is dropped rather than scored as a loop."})
+
+
+def validate_args(model_args, data_args, gen_args):
+    """Validate causal-only limits in addition to the shared method contract."""
+    validate_common_args(model_args, data_args, gen_args, expected_method="ar")
+    validate_causal_decode_steps(gen_args.gen_max_new_tokens)
 
 
 def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, TrainingArguments]:
@@ -47,12 +54,7 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
     parser = HfArgumentParser((ModelArguments, DataArguments, GenerationArguments, TrainingArguments))
     model_args, data_args, gen_args, training_args = parse_config_and_cli(parser)
 
-    validate_common_args(model_args, data_args, gen_args, expected_method="ar")
-    if gen_args.gen_max_new_tokens <= 0:
-        raise ValueError("gen_max_new_tokens must be positive")
-    # The collator emits prompt_lengths/target_lengths beside the model's inputs; the model's
-    # **_kwargs absorbs them, but Trainer would otherwise strip them as unused columns.
-    training_args.remove_unused_columns = False
+    validate_args(model_args, data_args, gen_args)
 
     initialise_run(model_args, data_args, gen_args, training_args, marker="ar")
     return model_args, data_args, gen_args, training_args
