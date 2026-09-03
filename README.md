@@ -185,9 +185,10 @@ CDRSeqGen/
 ├── evaluate.py                 # Entrypoint — held-out generative evaluation (+ --judge)
 ├── fit_mlm_length.py           # Add MLM length artifacts to an older checkpoint
 ├── scripts/
-│   ├── run.sh                  # Unified runner: ./scripts/run.sh <gpu> [oas|antigen|lcdr|ar|
-│                               #   compare|igbert|protbert|plm|all ...]. Method-agnostic —
-│                               #   train.py routes on each config's "method" key
+│   ├── run.sh                  # Unified runner: ./scripts/run.sh <gpu>[,<gpu>…] [suite ...]
+│                               #   Suites name their method first: mlm_heavy | mlm_light |
+│                               #   mlm_antigen | mlm_igbert | mlm_protbert | mlm_plm |
+│                               #   ar_heavy | compare | all. Several GPUs shard the round
 │   ├── sweep.sh                # Unified sweep: h3 | pilot | arch | loss | quick presets
 │   └── unit_tests.sh           # Unit test runner (sets PYTHONPATH; no GPU or data needed)
 ├── env.sh
@@ -777,11 +778,16 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
+- **2026-09-03** -- `run.sh` suites renamed to name their method first: `oas` -> `mlm_heavy`, `lcdr` -> `mlm_light`, `ar` -> `ar_heavy`, `antigen`/`igbert`/`protbert`/`plm` -> `mlm_*`. The old set picked a different axis each time — `oas` a dataset (though `lcdr`/`ar`/`igbert` are equally OAS), `lcdr` a loop set, `ar` a method, `antigen` a context — which stopped being cosmetic once suite names became part of the batch folder name and `dataset_tag` grew a second OAS corpus. Hard rename; an old name errors and names its replacement
+- **2026-09-03** -- `run.sh` takes several GPUs (`./scripts/run.sh 2,5,6 mlm_heavy ar_heavy`) and shards a round's runs across them round-robin, one process per device — batch runs are independent, so that is where the parallelism is. One shared batch folder, per-GPU logs, and the `latest` symlink written once at the end instead of by every shard
+- **2026-09-03** -- `LOOP_LENGTH_RESERVE` 40 -> 96. It was sized to the single-donor corpus's exact maximum H3 under a comment claiming it covered "both datasets" — SAbDab2 holds a 63-residue H3, and OAS4 a 49, so the causal layout would have refused a loop at data-load time and failed the run. Preprocessing now reports and records `longest_loop` per corpus, and a test checks the reserve against every sidecar
+- **2026-09-03** -- `run.sh` takes `DATA_PATH=` (run a suite on another corpus, `OAS4` tag keeps it separate), and refuses it when a selected config needs the antigen the corpus lacks — that loss is silent, and would make `_ag` / `_ag_lconly` two identical arms
 <!-- AI ACCESS ZONE ENDS -->
-- **2026-09-03** -- Expanded OAS corpus (8 csvs, 4 donors, total 156268 paired entries)
+- **2026-09-03** -- `run.sh`: renamed suites, takes several GPUs. To run all mlm + ar experiments: `run.sh <gpu, sep=,> <suite+>` (eg. `scripts/run.sh 0,1,2 mlm_heavy ar_heavy`)
+- **2026-09-03** -- Expanded OAS corpus (8 csvs, 4 donors, total 152727 unique paired entries)
 - **2026-09-03** -- Hyperparameter sweep for autoregressive (optimal: 1e-4 LR, 0.06 warm-up, 0.01 weight decay)
 - **2026-09-02** -- AR prompt fix for training vs generation (native length was leaked into flank truncation)
-- **2026-09-01** -- **AUTOREGRESSIVE UPDATE** (`methods/ar/`) (can be run directly with `run.sh <gpu> ar`)
+- **2026-09-01** -- **AUTOREGRESSIVE UPDATE** (`methods/ar/`) (can be run directly with `run.sh <gpu> ar`(0903: deprecated))
 - **2026-08-31** -- Data layer split (`frameworks.py`) for mlm to make way for autoregressive dataset class
 - **2026-08-31** -- Former `test/` dir split into `showcase/` (jsons for inference) and `unit_tests/` (for examining train scripts)
 - **2026-08-31** -- Auto figure plotting after hyperparameter & loss sweeps, in sweep dir instead of separate `figures/` folder

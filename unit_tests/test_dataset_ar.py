@@ -16,6 +16,7 @@ import torch
 
 from cdrseqgen.data.dataset_common import AntibodyFrameworkDataset, AntibodyTokenizer
 from cdrseqgen.data.dataset_ar import (
+    LAYOUT_SPECIAL_TOKENS,
     CAUSAL_DECODE_STEPS,
     LOOP_LENGTH_RESERVE,
     CausalInfillingDataset,
@@ -101,7 +102,10 @@ class CapTests(unittest.TestCase):
     def test_capping_truncates_context_not_the_answer(self):
         # max_len must clear LOOP_LENGTH_RESERVE + the three layout tokens; below that the reserve
         # itself cannot fit and the example is refused rather than silently truncated.
-        for max_len in (128, 64, 44):
+        # Derived from the constant, not hardcoded: these used to be (128, 64, 44), sized against a
+        # reserve of 40, and broke the moment the reserve grew to fit a 49-residue H3 in OAS4.
+        minimum = LOOP_LENGTH_RESERVE + LAYOUT_SPECIAL_TOKENS
+        for max_len in (minimum + 84, minimum + 20, minimum):
             item = CausalInfillingDataset(self.path, self.adapter, target_region="h3",
                                           max_len=max_len, include_partner_chain=True)[0]
             self.assertLessEqual(len(item["input_ids"]), max_len)
@@ -125,7 +129,8 @@ class CapTests(unittest.TestCase):
         a function of (framework, max_len) alone, because generation cannot know the length it is
         trying to predict.
         """
-        for max_len in (64, 128, 256):
+        minimum = LOOP_LENGTH_RESERVE + LAYOUT_SPECIAL_TOKENS
+        for max_len in (minimum, minimum + 64, minimum + 192):
             ds = CausalInfillingDataset(self.path, self.adapter, target_region="h3",
                                         max_len=max_len, include_partner_chain=True)
             item = ds[0]
@@ -150,6 +155,32 @@ class CapTests(unittest.TestCase):
 
     def test_the_decode_budget_includes_an_eos_step(self):
         self.assertEqual(CAUSAL_DECODE_STEPS, LOOP_LENGTH_RESERVE + 1)
+
+    def test_the_reserve_covers_every_corpus_that_records_its_longest_loop(self):
+        """A longer loop raises at data-load time and fails the whole run.
+
+        The reserve was 40, which was *exactly* the longest H3 in the single-donor corpus -- no
+        headroom -- and the 4-donor OAS4 corpus then arrived with one 49-residue H3. Read the
+        preprocessing sidecar rather than the corpus: the sidecar is a few hundred bytes, so this
+        stays in the fast suite, which promises to need no processed dataset.
+        """
+        import glob
+        sidecars = sorted(glob.glob("dataset/data/processed/*.metadata.json"))
+        checked = 0
+        for path in sidecars:
+            with open(path) as handle:
+                longest = json.load(handle).get("longest_loop")
+            if not longest:
+                continue        # written by an older preprocessing run
+            checked += 1
+            with self.subTest(corpus=os.path.basename(path)):
+                worst = max(longest.values())
+                self.assertLessEqual(
+                    worst, LOOP_LENGTH_RESERVE,
+                    f"{os.path.basename(path)} holds a {worst}-residue loop; raise "
+                    f"LOOP_LENGTH_RESERVE (currently {LOOP_LENGTH_RESERVE}) before training on it")
+        if not checked:
+            self.skipTest("no corpus sidecar records longest_loop yet")
 
 
 class SharedWithTheMaskedMethodTests(unittest.TestCase):

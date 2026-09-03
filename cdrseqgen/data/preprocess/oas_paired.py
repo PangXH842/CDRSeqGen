@@ -316,7 +316,18 @@ def build_corpus(csv_paths, limit=None, dedup=True):
 
     donors = sorted({str(m.get("subject")) for m in per_file})
     species = sorted({m["species"] for m in per_file})
-    stats = {"duplicates_dropped": duplicates, "donors": donors, "species": species}
+    # The longest loop is a hard constraint downstream, not a curiosity: the causal layout reserves
+    # a fixed number of answer positions (dataset_ar.LOOP_LENGTH_RESERVE) and refuses any loop
+    # longer than that at data-load time. Report it here, where a new corpus is being built, rather
+    # than letting a run discover it. The single-donor corpus topped out at exactly 40 and the
+    # reserve was 40; the 4-donor corpus holds one 49-residue H3.
+    longest = {}
+    for chain in ("heavy", "light"):
+        for region in ("cdr1", "cdr2", "cdr3"):
+            key = f"{chain[0]}{region[-1]}"
+            longest[key] = max((len(e[chain][region]) for e in entries), default=0)
+    stats = {"duplicates_dropped": duplicates, "donors": donors, "species": species,
+             "longest_loop": longest}
 
     print(f"\nCorpus: {len(entries)} entries from {len(csv_paths)} file(s), "
           f"{len(donors)} donor(s): {', '.join(donors)}")
@@ -325,6 +336,8 @@ def build_corpus(csv_paths, limit=None, dedup=True):
               f"(--dedup none keeps them)")
     if len(species) > 1:
         print(f"        WARNING: mixed species in one corpus: {', '.join(species)}")
+    print("        longest loop: "
+          + "  ".join(f"{k} {v}" for k, v in sorted(longest.items())))
     return entries, per_file, stats
 
 
@@ -367,6 +380,7 @@ if __name__ == "__main__":
         # several donors should not change shape depending on how many it happens to hold.
         "sources": per_file,
         "donors": stats["donors"],
+        "longest_loop": stats["longest_loop"],
         "records": len(data),
         "preprocessing": {
             "productive_pairs_only": True,

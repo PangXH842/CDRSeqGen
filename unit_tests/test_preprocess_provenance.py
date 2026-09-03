@@ -118,7 +118,13 @@ class MultiDonorCorpusTests(unittest.TestCase):
     """`build_corpus` merges several donors' CSVs into ONE corpus before any split is assigned."""
 
     def _entry(self, heavy, light, subject, run):
-        return {"heavy": {"full_aa": heavy}, "light": {"full_aa": light},
+        # Mirror the real shape: build_chain always emits the seven regions beside full_aa, and
+        # build_corpus reads the CDRs to report the corpus's longest loop.
+        def chain(seq):
+            return {"full_aa": seq, "imgt_numbering": {},
+                    **{r: seq[:2] for r in ("fwr1", "cdr1", "fwr2", "cdr2",
+                                            "fwr3", "cdr3", "fwr4")}}
+        return {"heavy": chain(heavy), "light": chain(light),
                 "source": {"dataset": "OAS", "run": run, "subject": subject}}
 
     def _patched(self, files, dedup=True):

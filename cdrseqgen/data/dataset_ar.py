@@ -110,8 +110,18 @@ LAYOUT_SPECIAL_TOKENS = 3
 # (framework, max_len) alone, which is the only way generation can reproduce the training prompt
 # without knowing the length it is trying to predict.
 #
-# 40 covers every CDR loop in both datasets (H3 tops out around 34).
-LOOP_LENGTH_RESERVE = 40
+# Sized from data with headroom, NOT fitted to the corpus of the day -- twice now that has been the
+# bug. It was 40 under a comment claiming "40 covers every CDR loop in both datasets (H3 tops out
+# around 34)", which was false: 40 was the *exact* maximum H3 in the single-donor OAS corpus, and
+# SAbDab2 holds a 63-residue H3. OAS4 then arrived with a 49. Longest loop across every processed
+# corpus on record is 63, so 96 is ~1.5x the worst case rather than a fit to it, and the sidecars
+# now record `longest_loop` so a test can check this instead of a person remembering to.
+#
+# Raising it moves no prompt: the reserve only bites when framework + reserve + 3 layout tokens
+# exceeds max_len, and at max_len 256 a ~123-token heavy chain leaves ~130 to spare. It does raise
+# the decode budget (CAUSAL_DECODE_STEPS), which has never been binding -- generated loops top out
+# around 20 and valid_generation_rate sits at ~1.0.
+LOOP_LENGTH_RESERVE = 96
 # Decoding has to leave one additional step for the terminator. A 40-residue loop is complete
 # only after the 41st prediction emits <eos>.
 CAUSAL_DECODE_STEPS = LOOP_LENGTH_RESERVE + 1

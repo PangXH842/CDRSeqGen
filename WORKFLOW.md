@@ -38,11 +38,24 @@ python -m cdrseqgen.data.preprocess.oas_paired \
     --split cluster --test_size 0.1 --validation_size 0.1 --seed 42
 ```
 
+**Several GPUs**: `./scripts/run.sh 2,5,6 mlm_heavy ar_heavy` shards the round's runs across them round-robin,
+one process per device. The runs in a batch are independent, so that is where the parallelism lives
+— there is no DDP inside a single training. They share one batch folder, so the tables and
+dashboards at the end cover the whole round, and per-GPU output goes to `<batch>/logs/gpu<id>.log`
+rather than interleaving on the terminal. Round-robin also balances cost: a suite lists cheap
+scratch runs first and ESM-2 runs after, so striding hands each device a mix rather than giving one
+of them the whole slow tail. A single GPU behaves exactly as before, streaming to the terminal.
+
 **Run a suite against a second corpus** with `DATA_PATH=<processed.json> ./scripts/run.sh <gpu>
 <suite>`, the same override `sweep.sh` takes — no duplicate configs. The run name picks up that
 corpus's `dataset_tag`, so `processed_oas_multi.json` produces `h3_OAS4_ar_scratch` and can never be
 confused in a batch table with a single-donor `h3_OAS_ar_scratch`. Add a `DATASET_TAGS` entry
 *before* the general `oas` one for any new corpus; first match wins.
+
+The override applies to **every** config in the round, so it is refused when one of them needs the
+antigen and the override corpus has none — `all` plus an OAS `DATA_PATH` exits rather than running
+the twelve SAbDab2 configs against antibody-only data. Use `oas ar` (or `oas lcdr ar`) for an
+OAS-wide round and run `antigen` separately on its own corpus.
 
 `download_oas_paired.sh` downloads **and extracts** — it verifies each archive with `gunzip -t`
 before unpacking (a truncated OAS CSV reads without complaint in pandas), keeps the `.gz` so a bad
@@ -63,7 +76,10 @@ clusters; run per file, each file gets an independent clustering, and one clonal
 `train` from donor A and in `test` from donor B — the merged file would look perfectly well-formed.
 
 Every entry carries `source.subject`, so a donor-held-out split is possible later; the sidecar lists
-`donors` and a per-file `sources` breakdown. `--dedup exact` (the default) drops repeated
+`donors`, a per-file `sources` breakdown, and `longest_loop` per region — the causal layout reserves
+a fixed number of answer positions (`dataset_ar.LOOP_LENGTH_RESERVE`) and refuses anything longer at
+data-load time, so a new corpus reports that number where it is built rather than letting a training
+run discover it. `--dedup exact` (the default) drops repeated
 heavy+light amino-acid pairs across the whole corpus — public clones recur across donors, and with
 `--split random` or `none` nothing else stops an identical pair straddling the holdout. Under
 `--split cluster` identical pairs already share a cluster, so dedup changes the corpus size but not
@@ -124,20 +140,21 @@ CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_ar_scratch.json    # autoregre
 **Run an Automated Experiment Suite:** [`scripts/run.sh`](scripts/run.sh) takes a GPU id and one or more suite names, skips to the next config if one fails, and writes the round's tables and dashboards into the batch folder when it finishes (Step 3).
 ```bash
 # One runner, suites chosen (and combined) by arg:  ./scripts/run.sh <gpu> [suite ...]
-./scripts/run.sh 4                # default "all": OAS heavy + SAbDab2 antigen + OAS light (36)
-./scripts/run.sh 4 oas            # OAS heavy matrix, scratch+ESM-2 (h1/h2/h3)          (12)
-./scripts/run.sh 4 antigen        # SAbDab2 heavy antigen matrix (_ag / _ag_lconly)     (12)
-./scripts/run.sh 4 lcdr           # OAS light matrix (l1/l2/l3, heavy-chain context)    (12)
-./scripts/run.sh 4 oas lcdr       # combine suites — deduped, run in order              (24)
+# Every suite names its METHOD first, then what varies within it.
+./scripts/run.sh 4                     # default "all": mlm_heavy + mlm_antigen + mlm_light (36)
+./scripts/run.sh 4 mlm_heavy           # masked OAS heavy, scratch+ESM-2 (h1/h2/h3)         (12)
+./scripts/run.sh 4 mlm_antigen         # masked SAbDab2 antigen matrix (_ag / _ag_lconly)   (12)
+./scripts/run.sh 4 mlm_light           # masked OAS light (l1/l2/l3, heavy-chain context)   (12)
+./scripts/run.sh 4 mlm_heavy mlm_light # combine suites — deduped, run in order             (24)
 
 # Autoregressive, and the paired comparison
-./scripts/run.sh 4 ar             # causal OAS heavy (h1/h2/h3), base + _lc               (6)
-./scripts/run.sh 4 compare        # h3 masked + h3 causal in ONE batch, side by side      (4)
+./scripts/run.sh 4 ar_heavy            # causal OAS heavy (h1/h2/h3), base + _lc              (6)
+./scripts/run.sh 4 compare             # h3 masked + h3 causal in ONE batch, side by side     (4)
 
 # Antibody/protein-BERT PLM backbones on OAS heavy (first run downloads a ~1.6GB model each)
-./scripts/run.sh 4 igbert         # IgBert (antibody-specific)                           (6)
-./scripts/run.sh 4 protbert       # ProtBert (general-protein baseline)                  (6)
-./scripts/run.sh 4 plm            # both (igbert + protbert)                            (12)
+./scripts/run.sh 4 mlm_igbert          # IgBert (antibody-specific)                          (6)
+./scripts/run.sh 4 mlm_protbert        # ProtBert (general-protein baseline)                 (6)
+./scripts/run.sh 4 mlm_plm             # both (mlm_igbert + mlm_protbert)                   (12)
 ```
 
 > **The `compare` suite is how the two methods get compared.** Putting a masked and a causal run in
