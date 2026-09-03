@@ -30,6 +30,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from cdrseqgen.visualization import plot_style
+from cdrseqgen import artifacts
 
 
 @dataclass
@@ -87,7 +88,7 @@ def read_epoch_series(series):
     csv_cache = {}  # a run_dir reused across lines (the breakdown case) is read once
     lines = []
     for run_dir, column, label in series:
-        csv_path = os.path.join(run_dir, "epoch_metrics.csv")
+        csv_path = os.path.join(run_dir, artifacts.EPOCH_METRICS_FILENAME)
         if csv_path not in csv_cache:
             csv_cache[csv_path] = pd.read_csv(csv_path) if os.path.exists(csv_path) else None
         frame = csv_cache[csv_path]

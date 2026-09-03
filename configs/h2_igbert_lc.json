@@ -2,7 +2,7 @@
     "model_type": "Exscientia/IgBert",
     "target_region": "h2",
     "include_partner_chain": true,
-    "data_path": "dataset/data/processed/processed_oas_tuning.json",
+    "data_path": "dataset/data/processed/processed_oas_multi.json",
     "eval_split": "validation",
     "max_len": 256,
     "output_dir": "./results",

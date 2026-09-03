@@ -38,8 +38,9 @@ from cdrseqgen.visualization.bargraph_plotter import BarSeries, draw_grouped_bar
 from cdrseqgen.visualization.batch_tables import (
     FAMILY_LABELS, _epoch_metrics, discover_runs, recovery_summary)
 from cdrseqgen.visualization.scatterplot_plotter import ScatterSeries, draw_scatter
+from cdrseqgen import artifacts
 
-GENERATION_EVAL_FILENAME = "generation_eval.json"
+GENERATION_EVAL_FILENAME = artifacts.GENERATION_EVAL_FILENAME
 
 LOOP_ORDER = ("h1", "h2", "h3", "l1", "l2", "l3")
 # Families a dashboard can show side by side, shared with `batch_tables` so a family added there

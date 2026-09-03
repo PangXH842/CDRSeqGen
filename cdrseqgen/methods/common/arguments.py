@@ -53,7 +53,7 @@ class BaseModelArguments:
 class BaseDataArguments:
     """Which JSON, which loop, which context, length cap."""
 
-    data_path: str = field(default="dataset/data/processed/processed_oas_data.json")
+    data_path: str = field(default="dataset/data/processed/processed_oas_multi.json")
     target_region: str = field(default="h3", metadata={"help": "h1/h2/h3 or l1/l2/l3."})
     eval_split: str = field(
         default="",

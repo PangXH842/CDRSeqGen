@@ -27,6 +27,7 @@ if sys.path and Path(sys.path[0]).resolve() == BENCHMARK_DIR:
     sys.path.insert(0, str(BENCHMARK_DIR.parent))
 
 from benchmark._common import sha256_file
+from cdrseqgen.artifacts import processed_metadata_path
 
 SCHEMA_VERSION = "cdrseqgen.benchmark_manifest.v1"
 REGION_ORDER = ("fwr1", "cdr1", "fwr2", "cdr2", "fwr3", "cdr3", "fwr4")
@@ -146,7 +147,7 @@ def build_manifest(
     validate_records(records, split)
 
     processed_hash = sha256_file(input_path)
-    metadata_path = input_path.with_suffix(".metadata.json")
+    metadata_path = processed_metadata_path(input_path)
     if not metadata_path.exists():
         raise ValueError(f"missing preprocessing metadata sidecar: {metadata_path}")
     with metadata_path.open() as handle:

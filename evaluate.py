@@ -26,6 +26,7 @@ from cdrseqgen.artifacts import (
     find_run_config,
     git_state,
     load_run_config,
+    processed_metadata_path,
 )
 from cdrseqgen.methods.mlm.arguments import DataArguments, GenerationArguments, ModelArguments
 from cdrseqgen.methods.mlm.training import get_datasets
@@ -145,7 +146,7 @@ def evaluation_provenance(config_path, model_dir, data_path):
             weights.append(file_identity(path))
 
     data_path = Path(data_path).expanduser()
-    metadata_path = data_path.with_suffix(".metadata.json")
+    metadata_path = processed_metadata_path(data_path)
     dataset = {
         "path": str(data_path.expanduser().resolve()),
         "size_bytes": data_path.stat().st_size if data_path.is_file() else None,

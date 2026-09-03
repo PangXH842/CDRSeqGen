@@ -58,12 +58,39 @@ import pandas as pd
 
 from cdrseqgen.artifacts import find_run_config
 from cdrseqgen.eval import MIN_CORE_COVERAGE
+from cdrseqgen.train.logging import DATASET_TAGS, UNKNOWN_DATASET_TAG
+from cdrseqgen import artifacts
 
 # <loop>_<DS>[_LC|_HC][_AG]_<model>, e.g. h3_OAS_LC_esm2_t12_35M_UR50D, h1_SD2_LC_AG_scratch
-RUN_RE = re.compile(r"^(?P<loop>[hl][123])_(?P<ds>OAS|SD2|DS)(?P<ctx>(?:_LC|_HC|_AG)*)_(?P<model>.+)$")
+#
+# The dataset alternation is built from DATASET_TAGS rather than written out, because it was
+# written out: adding the OAS4 tag for the four-donor corpus left this regex matching only
+# OAS|SD2|DS, so every OAS4 run failed to parse, discover_runs returned nothing, and a finished
+# batch rendered empty tables and dashboards without an error anywhere. Longest first so OAS4
+# cannot be shadowed by OAS.
+_DS_ALTERNATION = "|".join(sorted(
+    {tag for _, tag in DATASET_TAGS} | {UNKNOWN_DATASET_TAG}, key=lambda t: (-len(t), t)))
+RUN_RE = re.compile(
+    rf"^(?P<loop>[hl][123])_(?P<ds>{_DS_ALTERNATION})(?P<ctx>(?:_LC|_HC|_AG)*)_(?P<model>.+)$")
 LOOPS = ["h1", "h2", "h3", "l1", "l2", "l3"]
 DEFAULT_DATA = {"OAS": "dataset/data/processed/processed_oas_data.json",
+                "OAS4": "dataset/data/processed/processed_oas_multi.json",
                 "SD2": "dataset/data/processed/processed_sabdab2_data.json"}
+
+
+def dataset_alias(runs):
+    """Map the tables' canonical "OAS" onto whichever OAS-family tag this batch actually used.
+
+    A corpus from a different donor set takes its own tag (OAS -> OAS4) so two test splits can
+    never share a run name. Every table below is written against the canonical "OAS", so without
+    this an OAS4 batch parses correctly and then renders every OAS row blank. A batch uses one
+    corpus per round, so resolving to the single OAS-family tag present is unambiguous.
+    """
+    present = {key[1] for key in runs}
+    if "OAS" in present:
+        return {}
+    family = sorted(tag for tag in present if tag.startswith("OAS"))
+    return {"OAS": family[0]} if len(family) == 1 else {}
 MIN_REPORT_CORE_COVERAGE = MIN_CORE_COVERAGE
 # Written into the batch directory itself, beside the runs the tables describe.
 BATCH_TABLES_FILENAME = "batch_tables.md"
@@ -71,7 +98,7 @@ BATCH_TABLES_FILENAME = "batch_tables.md"
 
 def _epoch_metrics(run_dir):
     """Read one run's epoch metrics, returning None for missing or empty historical artifacts"""
-    csv = os.path.join(run_dir, "epoch_metrics.csv")
+    csv = os.path.join(run_dir, artifacts.EPOCH_METRICS_FILENAME)
     if not os.path.exists(csv):
         return None
     df = pd.read_csv(csv)
@@ -327,8 +354,10 @@ def _recovery_table(name, runs):
 
     rows = []
     data_cache = {}
+    alias = dataset_alias(runs)
     for case in spec["cases"]:
         label, loop, dataset, _ = case
+        dataset = alias.get(dataset, dataset)
         column_summaries = []
         for _, family, context_selectors in spec["columns"]:
             summaries = []
@@ -410,7 +439,8 @@ def _gen_means(path):
 
 def _retrieval_rows(runs):
     rows = []
-    for dataset in ("OAS", "SD2"):
+    alias = dataset_alias(runs)
+    for dataset in (alias.get("OAS", "OAS"), "SD2"):
         path = data_path_for(runs, dataset)
         if not path or not os.path.exists(path):
             rows.append((dataset, "(data not found)", "", "", ""))
@@ -440,8 +470,8 @@ def _design_rows(runs):
     rows = []
     for loop in ("h1", "h3"):
         for family, family_label in FAMILY_LABELS.items():
-            run_dir = runs.get((loop, "OAS", "", family))
-            means = _gen_means(os.path.join(run_dir, "generation_eval.json")) if run_dir else None
+            run_dir = runs.get((loop, dataset_alias(runs).get("OAS", "OAS"), "", family))
+            means = _gen_means(os.path.join(run_dir, artifacts.GENERATION_EVAL_FILENAME)) if run_dir else None
             if not means:
                 continue
             label = f"{loop.upper()} {family_label}"
@@ -456,7 +486,7 @@ def _design_rows(runs):
 
 
 def _length_rows(runs):
-    path = data_path_for(runs, "OAS")
+    path = data_path_for(runs, dataset_alias(runs).get("OAS", "OAS"))
     if not path or not os.path.exists(path):
         return None
 

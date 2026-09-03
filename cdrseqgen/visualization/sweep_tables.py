@@ -27,6 +27,7 @@ import statistics
 from collections import defaultdict
 
 from cdrseqgen.artifacts import load_run_config
+from cdrseqgen import artifacts
 
 # (source, key, higher_is_better). Ranking on a metric the objective optimises would only
 # rediscover the objective, which is why the loss preset defaults to judge_ppl.
@@ -144,7 +145,7 @@ def load_trials(map_path, rank_metric):
             if row["status"] != "completed":
                 continue
             run_dir = row["run_dir"]
-            metrics_path = os.path.join(run_dir, "epoch_metrics.csv")
+            metrics_path = os.path.join(run_dir, artifacts.EPOCH_METRICS_FILENAME)
             if not os.path.exists(metrics_path):
                 continue
             with open(metrics_path) as metrics_file:
@@ -186,7 +187,7 @@ def load_trials(map_path, rank_metric):
             if source == "epoch":
                 trial["score"] = _finite_value(selected, metric_key)
             else:
-                gen_path = os.path.join(run_dir, "generation_eval.json")
+                gen_path = os.path.join(run_dir, artifacts.GENERATION_EVAL_FILENAME)
                 if os.path.exists(gen_path):
                     with open(gen_path) as gen_file:
                         trial["score"] = _generation_score(

@@ -13,6 +13,7 @@ from cdrseqgen.methods.ar.training import build_causal_trainer, get_datasets
 from cdrseqgen.methods.common import build_callbacks
 from cdrseqgen.train.logging import configure_logging, update_latest_link
 from cdrseqgen.methods.common.training import run_training_pipeline
+from cdrseqgen import artifacts
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ def post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_ar
         max_new_tokens=gen_args.gen_max_new_tokens, stratify=gen_args.gen_stratify,
         seed=gen_args.gen_seed, skip_perplexity=gen_args.gen_skip_perplexity,
         judge_name=gen_args.gen_judge,
-        output_path=os.path.join(training_args.output_dir, "generation_eval.json"),
+        output_path=os.path.join(training_args.output_dir, artifacts.GENERATION_EVAL_FILENAME),
         title=f"{training_args.run_name}   target={data_args.target_region}",
         anchor_trim=anchor_trim,
         meta={

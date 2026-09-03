@@ -47,7 +47,7 @@ GPU=${1:-0}
 PRESET=${2:-h3}
 BASE=${3:-configs/h3_scratch.json}
 PYTHON=${PYTHON:-python}
-DATA_PATH=${DATA_PATH:-dataset/data/processed/processed_oas_tuning.json}
+DATA_PATH=${DATA_PATH:-dataset/data/processed/processed_oas_multi.json}
 
 # --- Preset grids. Env vars win, so a preset only supplies defaults. --------------------------
 case "$PRESET" in

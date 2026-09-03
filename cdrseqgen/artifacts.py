@@ -22,6 +22,39 @@ RUN_CONFIG_FILENAMES = (
 LENGTH_CONFIG_FILENAME = "length_config.json"
 LENGTH_HEAD_FILENAME = "length_head.safetensors"
 
+# What a finished run leaves beside its weights. Named here rather than at each reader because both
+# were bare literals in eight and seven files respectively -- a rename would have had to be found by
+# grep, and a reader that missed it degrades silently (a missing generation_eval.json is simply a
+# trial with no generative metrics, not an error).
+GENERATION_EVAL_FILENAME = "generation_eval.json"
+EPOCH_METRICS_FILENAME = "epoch_metrics.csv"
+
+# A processed corpus carries its provenance in a sibling file: data.json -> data.metadata.json.
+PROCESSED_METADATA_SUFFIX = ".metadata.json"
+
+
+def processed_metadata_path(data_path: str | Path) -> Path:
+    """The provenance sidecar beside a processed corpus.
+
+    `with_suffix` rather than string concatenation, so `a.b/data.json` cannot become
+    `a.metadata.json`; four call sites were each spelling this out.
+    """
+    return Path(data_path).with_suffix(PROCESSED_METADATA_SUFFIX)
+
+
+def load_processed_metadata(data_path: str | Path) -> dict[str, Any] | None:
+    """The corpus's provenance sidecar, or None when it has none.
+
+    Absent is normal -- a hand-made or pre-2026-07 corpus has no sidecar -- so this returns None
+    rather than raising. A sidecar that exists but is corrupt still raises: unlike a missing run
+    config, silently ignoring it would drop the hash every downstream integrity check compares to.
+    """
+    path = processed_metadata_path(data_path)
+    if not path.is_file():
+        return None
+    with path.open() as handle:
+        return json.load(handle)
+
 
 def sha256_file(path: str | Path) -> str:
     """Hash a file without loading a potentially multi-gigabyte artifact into memory."""

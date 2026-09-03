@@ -4,8 +4,10 @@ import unittest
 from pathlib import Path
 
 from cdrseqgen.visualization.batch_tables import (
+    RUN_RE,
     _common_recovery_policy,
     build_table,
+    dataset_alias,
     markdown_table,
     recovery_summary,
 )
@@ -111,6 +113,30 @@ class CoverageAwareReportingTests(unittest.TestCase):
     def test_markdown_renderer_rejects_wrong_row_width(self):
         with self.assertRaisesRegex(ValueError, "cells"):
             markdown_table("Example", ("a", "b"), (("only one",),))
+
+
+class DatasetTagPlumbingTests(unittest.TestCase):
+    """A new corpus tag must survive parsing AND the table lookups, or a batch renders empty."""
+
+    def test_run_names_parse_for_every_declared_dataset_tag(self):
+        # RUN_RE used to spell out OAS|SD2|DS. Adding OAS4 for the four-donor corpus then made
+        # every OAS4 run unparseable: discover_runs returned nothing and a finished batch produced
+        # empty tables and dashboards with no error anywhere.
+        from cdrseqgen.train.logging import DATASET_TAGS, UNKNOWN_DATASET_TAG
+        for tag in {t for _, t in DATASET_TAGS} | {UNKNOWN_DATASET_TAG}:
+            with self.subTest(tag=tag):
+                match = RUN_RE.match(f"h3_{tag}_LC_scratch")
+                self.assertIsNotNone(match, f"h3_{tag}_LC_scratch does not parse")
+                self.assertEqual(match.group("ds"), tag)
+
+    def test_a_second_oas_corpus_resolves_onto_the_canonical_oas_rows(self):
+        # Tables are written against "OAS"; a batch on OAS4 must still fill them.
+        self.assertEqual(dataset_alias({("h3", "OAS4", "", "scratch"): "d"}), {"OAS": "OAS4"})
+        self.assertEqual(dataset_alias({("h3", "OAS", "", "scratch"): "d"}), {})
+        # Ambiguous or absent: leave the canonical tag alone rather than guessing.
+        self.assertEqual(dataset_alias({("h3", "OAS", "", "s"): "d",
+                                        ("h3", "OAS4", "", "s"): "e"}), {})
+        self.assertEqual(dataset_alias({("h3", "SD2", "_LC", "scratch"): "d"}), {})
 
 
 if __name__ == "__main__":

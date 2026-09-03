@@ -35,6 +35,7 @@ from cdrseqgen.artifacts import (
     atomic_write_json,
     file_identity,
     git_state,
+    processed_metadata_path,
 )
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
@@ -205,7 +206,7 @@ def _package_versions():
 def _training_provenance(model_args, data_args):
     """Lightweight run identity without re-hashing a multi-gigabyte processed dataset per trial."""
     data_path = Path(data_args.data_path).expanduser()
-    metadata_path = data_path.with_suffix(".metadata.json")
+    metadata_path = processed_metadata_path(data_path)
     dataset = {
         "path": str(data_path.resolve()),
         "size_bytes": data_path.stat().st_size if data_path.is_file() else None,

@@ -14,6 +14,7 @@ import logging
 import pandas as pd
 
 from cdrseqgen.visualization.linegraph_plotter import plot_epoch_curves
+from cdrseqgen import artifacts
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ def save_training_csv(trainer, output_dir):
         "eval_anchor_accuracy": eval_anchor_acc,
         "eval_core_coverage": eval_core_cov,
     })
-    csv_path = os.path.join(output_dir, "epoch_metrics.csv")
+    csv_path = os.path.join(output_dir, artifacts.EPOCH_METRICS_FILENAME)
     df.to_csv(csv_path, index=False)
 
     logger.info(f"📈 Evaluation metrics saved to CSV at: {csv_path}")

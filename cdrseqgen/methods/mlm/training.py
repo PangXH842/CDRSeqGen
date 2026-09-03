@@ -21,6 +21,7 @@ import torch
 from cdrseqgen.data.dataset_common import select_split_indices
 from cdrseqgen.data.dataset_mlm import AntibodyInfillingDataset
 from cdrseqgen.methods.common.training import run_training_pipeline  # re-export for old callers
+from cdrseqgen import artifacts
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,7 @@ def post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_ar
             judge_dataset=judge_dataset,
             judge_name=gen_args.gen_judge,
             anchor_trim=anchor_trim,
-            output_path=os.path.join(training_args.output_dir, "generation_eval.json"),
+            output_path=os.path.join(training_args.output_dir, artifacts.GENERATION_EVAL_FILENAME),
             title=f"{os.path.basename(training_args.output_dir)}   target={data_args.target_region}",
             meta={
                 "model_dir": training_args.output_dir,

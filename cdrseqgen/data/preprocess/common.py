@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from cdrseqgen.artifacts import processed_metadata_path
 
 REGIONS = ["fwr1", "cdr1", "fwr2", "cdr2", "fwr3", "cdr3", "fwr4"]
 CDRS = ("cdr1", "cdr2", "cdr3")
@@ -97,7 +98,7 @@ def write_processed_metadata(output_file, metadata):
         "processed_file_sha256": digest.hexdigest(),
         **metadata,
     }
-    metadata_path = output_path.with_suffix(".metadata.json")
+    metadata_path = processed_metadata_path(output_path)
     with metadata_path.open("w") as handle:
         json.dump(payload, handle, indent=2)
         handle.write("\n")

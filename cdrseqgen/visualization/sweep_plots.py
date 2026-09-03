@@ -45,6 +45,7 @@ from cdrseqgen.visualization import plot_style
 from cdrseqgen.visualization.bargraph_plotter import BarSeries, draw_grouped_bars
 from cdrseqgen.visualization.linegraph_plotter import LineSeries, draw_lines
 from cdrseqgen.visualization.scatterplot_plotter import ScatterSeries, draw_scatter
+from cdrseqgen import artifacts
 
 # A sweep's own output directories, which sit beside its trial folders and are not trials.
 SWEEP_SUBDIRS = frozenset({plot_style.FIGURES_DIRNAME, "logs"})
@@ -108,14 +109,14 @@ def load_trials(sweep_dir):
             continue
         with open(meta_path) as handle:
             config = json.load(handle)
-        gen_path = os.path.join(run_dir, "generation_eval.json")
+        gen_path = os.path.join(run_dir, artifacts.GENERATION_EVAL_FILENAME)
         generation = None
         if os.path.exists(gen_path):
             with open(gen_path) as handle:
                 generation = json.load(handle)
         else:
             print(f"⚠️ No generation_eval.json in {run_dir} — panels B–D will skip this trial")
-        csv_path = os.path.join(run_dir, "epoch_metrics.csv")
+        csv_path = os.path.join(run_dir, artifacts.EPOCH_METRICS_FILENAME)
         groups[objective_label(config)].append({
             "run_dir": run_dir,
             "seed": config.get("seed"),
