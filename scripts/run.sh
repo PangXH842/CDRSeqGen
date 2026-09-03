@@ -4,6 +4,9 @@
 #
 # Usage:  ./scripts/run.sh <gpu> [suite ...]        (default suite: all)
 #
+# Writes one batch folder per round, named `results/runs/<timestamp>_<suites>` — e.g. `..._ar`,
+# `..._oas_lcdr`, `..._all` — so a round is identifiable from `ls` alone.
+#
 # Suites (combine freely, e.g. `./scripts/run.sh 4 oas lcdr`):
 #   oas       OAS heavy CDRs (h1/h2/h3), scratch+esm2, base + _lc            (12)
 #   antigen   SAbDab2 heavy antigen matrix (_ag / _ag_lconly)                (12)
@@ -112,8 +115,19 @@ for suite in "${SUITES[@]}"; do
 done
 
 # --- One folder per round ---------------------------------------------------------------------
+# Named `<stamp>_<suites>`, the same `<timestamp>_<name>` convention sweep.sh uses for
+# `<stamp>_sweep_<preset>`. A bare timestamp said nothing about what a round contained, so telling
+# an `ar` batch from an `oas` one meant opening a run_config.json; the suites are already validated
+# above, so the tag can only contain known names.
 BATCH_STAMP=$(date +'%Y%m%d_%H%M%S')
-BATCH_DIR="results/runs/$BATCH_STAMP"
+SUITE_TAG=""
+declare -A SUITE_SEEN=()
+for suite in "${SUITES[@]}"; do
+    [[ -n "${SUITE_SEEN[$suite]}" ]] && continue
+    SUITE_SEEN[$suite]=1
+    SUITE_TAG+="_$suite"
+done
+BATCH_DIR="results/runs/${BATCH_STAMP}${SUITE_TAG}"
 mkdir -p "$BATCH_DIR"
 export CDRSEQGEN_RESULTS_ROOT="$BATCH_DIR"
 

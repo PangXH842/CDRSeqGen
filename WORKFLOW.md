@@ -127,7 +127,7 @@ addresses any run in that round:
 
 ```text
 results/runs/
-├── 20260720_191138/                    ← one ./scripts/run.sh round
+├── 20260720_191138_all/                ← one ./scripts/run.sh round, tagged with its suites
 │   ├── h1_OAS_scratch/
 │   ├── h3_OAS_LC_scratch/
 │   ├── batch_tables.md                 ← the round's own report, written when it finishes
@@ -140,6 +140,7 @@ results/runs/
 │   ├── runs.tsv  summary.tsv  grid.tsv ← the records you read
 │   ├── figures/                        ← objective_comparison.png
 │   └── logs/                           ← one stdout/stderr capture per trial
+├── 20260903_113933_ar/                 ← ./scripts/run.sh 3 ar  (suites join with _: _oas_lcdr)
 └── latest -> 20260720_193002/          ← newest batch; generate.py uses latest/<config>
 ```
 
@@ -150,6 +151,9 @@ that capture is the only evidence of the failure; they just no longer outnumber 
 
 A named group is `<timestamp>_<name>` — the timestamp leads so directories sort chronologically
 whether or not they carry a name (`20260730_160028_seedcheck`, `20260811_181946_sweep_h3`).
+`run.sh` names a round from the suites it ran (`_ar`, `_oas_lcdr`, `_all` for the default), so a
+batch says what it contains without opening a `run_config.json`; batches predating 2026-09-03 are
+bare timestamps and still parse, since nothing reads meaning from the batch name.
 
 The run folder is named from the **resolved arguments**, not the config filename — `h3_scratch.json
 --target_region l3` produces an `l3_OAS_HC_scratch` folder, so an override can't be misfiled. The
