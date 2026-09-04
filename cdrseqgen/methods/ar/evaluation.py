@@ -25,7 +25,7 @@ import math
 import torch
 from cdrseqgen.eval.metrics import blosum_provenance
 
-from cdrseqgen.data.dataset_ar import CAUSAL_DECODE_STEPS, build_causal_prompt
+from cdrseqgen.data.dataset_ar import CAUSAL_DECODE_STEPS, build_causal_prompt, layout_for
 from cdrseqgen.data.dataset_common import framework_for_dataset
 from cdrseqgen.eval import ANCHOR_TRIM
 from cdrseqgen.eval.generative import (Draw, SUMMARY_KEYS, aggregate, build_masked_judge_prompt,
@@ -140,8 +140,9 @@ class CausalStrategy:
         """
         scores = []
         for prompt, answer_ids in drawn.spans:
-            ids = list(prompt) + list(answer_ids) + [self.tokenizer.eos_id]
-            labels = [-100] * len(prompt) + list(answer_ids) + [self.tokenizer.eos_id]
+            answer = layout_for(self.tokenizer).build_answer(self.tokenizer, answer_ids)
+            ids = list(prompt) + answer
+            labels = [-100] * len(prompt) + answer
             tensor = torch.tensor([ids], dtype=torch.long, device=self.device)
             logits = logits_of(self.model(input_ids=tensor)).float()
             gold = torch.tensor([labels], dtype=torch.long, device=self.device)

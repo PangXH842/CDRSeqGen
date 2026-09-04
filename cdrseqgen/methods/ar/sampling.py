@@ -25,7 +25,8 @@ rather than silently truncated, because a truncated loop is not a length the mod
 """
 import torch
 
-from cdrseqgen.data.dataset_ar import CAUSAL_DECODE_STEPS, validate_causal_decode_steps
+from cdrseqgen.data.dataset_ar import (CAUSAL_DECODE_STEPS, layout_for,
+                                       validate_causal_decode_steps, validate_layout)
 from cdrseqgen.methods.common import ban_tokens, logits_of, warp_logits
 
 
@@ -50,13 +51,17 @@ def sample_loops(model, tokenizer, prompt_ids, *, device, num_samples=1, tempera
     chose, so a caller should treat it as a failure rather than a short loop.
     """
     validate_causal_decode_steps(max_new_tokens)
+    # Both argument checks up front, before the model is touched: a layout the sampler cannot read
+    # back would otherwise be discovered only as empty loops in the results.
+    layout = validate_layout(layout_for(tokenizer), tokenizer)
     greedy = temperature == 0
     draws = 1 if greedy else num_samples
     model.eval()
 
     ids, mask = _left_pad([list(prompt_ids)] * draws, tokenizer.pad_id, device)
     # <eos> must stay reachable; everything else non-residue is banned so a loop is all residues.
-    banned = {i for i in tokenizer.special_ids if i != tokenizer.eos_id}
+    terminator = layout.terminator_id(tokenizer)
+    banned = {i for i in tokenizer.special_ids if i != terminator}
 
     generated = [[] for _ in range(draws)]
     finished = torch.zeros(draws, dtype=torch.bool, device=device)
@@ -72,9 +77,9 @@ def sample_loops(model, tokenizer, prompt_ids, *, device, num_samples=1, tempera
 
         nxt = torch.where(finished, torch.full_like(nxt, tokenizer.pad_id), nxt)
         for row in range(draws):
-            if not finished[row] and nxt[row].item() != tokenizer.eos_id:
+            if not finished[row] and nxt[row].item() != terminator:
                 generated[row].append(int(nxt[row].item()))
-        finished |= nxt.eq(tokenizer.eos_id)
+        finished |= nxt.eq(terminator)
         if bool(finished.all()):
             break
 
