@@ -5,11 +5,13 @@ from pathlib import Path
 
 from cdrseqgen.visualization.batch_tables import (
     RUN_RE,
+    _fmt,
     _common_recovery_policy,
     build_table,
     dataset_alias,
     markdown_table,
     recovery_summary,
+    unseen_fraction,
 )
 
 
@@ -128,6 +130,33 @@ class DatasetTagPlumbingTests(unittest.TestCase):
                 match = RUN_RE.match(f"h3_{tag}_LC_scratch")
                 self.assertIsNotNone(match, f"h3_{tag}_LC_scratch does not parse")
                 self.assertEqual(match.group("ds"), tag)
+
+    def test_unseen_fraction_measures_the_split_it_names(self):
+        """It used to count every non-train entry, merging validation AND test on a 3-way corpus."""
+        entries = [
+            {"heavy": {"cdr3": "AAA"}, "split": "train"},
+            {"heavy": {"cdr3": "AAA"}, "split": "validation"},
+            {"heavy": {"cdr3": "BBB"}, "split": "validation"},
+            {"heavy": {"cdr3": "CCC"}, "split": "test"},
+            {"heavy": {"cdr3": "DDD"}, "split": "test"},
+        ]
+        _, _, n, unseen = unseen_fraction(entries, "cdr3", split="validation")
+        self.assertEqual((n, unseen), (2, 1))       # not (4, 3)
+        _, _, n, unseen = unseen_fraction(entries, "cdr3", split="test")
+        self.assertEqual((n, unseen), (2, 2))
+
+    def test_unseen_fraction_falls_back_when_there_is_no_such_split(self):
+        entries = [{"heavy": {"cdr3": "AAA"}, "split": "train"},
+                   {"heavy": {"cdr3": "BBB"}, "split": "test"}]
+        _, _, n, unseen = unseen_fraction(entries, "cdr3", split="validation")
+        self.assertEqual((n, unseen), (1, 1))
+
+    def test_a_missing_metric_renders_as_a_dash_not_nan(self):
+        """`aggregate` returns None for an uncollected metric; the table must not crash or print
+        'nan'. Both were live: causal H3 has no per-position entropy, since that needs
+        length-matched candidates."""
+        self.assertEqual(_fmt(None), "—")
+        self.assertEqual(_fmt(0.5), "0.500")
 
     def test_a_second_oas_corpus_resolves_onto_the_canonical_oas_rows(self):
         # Tables are written against "OAS"; a batch on OAS4 must still fill them.

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 import os
 import subprocess
 from pathlib import Path
@@ -79,13 +80,35 @@ def file_identity(path: str | Path | None) -> dict[str, Any] | None:
     }
 
 
+def json_safe(value: Any) -> Any:
+    """Replace non-finite floats with None so the result is strict, portable JSON.
+
+    ``json.dump`` emits bare ``NaN`` / ``Infinity`` by default. Python reads those back, but they
+    are not JSON: any standards-compliant reader rejects the file, and a metric that was simply
+    never collected rendered as the string "nan" in tables. ``None`` round-trips everywhere and is
+    what every reader here already treats as "absent".
+    """
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(v) for v in value]
+    return value
+
+
 def atomic_write_json(
     path: str | Path,
     payload: dict[str, Any],
     *,
-    allow_nan: bool = True,
+    allow_nan: bool = False,
 ) -> None:
-    """Write JSON via ``os.replace`` so interruption cannot leave a truncated artifact."""
+    """Write JSON via ``os.replace`` so interruption cannot leave a truncated artifact.
+
+    Non-finite floats become ``null`` unless ``allow_nan`` is set, so artifacts stay strict JSON.
+    """
+    if not allow_nan:
+        payload = json_safe(payload)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")

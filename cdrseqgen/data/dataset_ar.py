@@ -117,6 +117,13 @@ LAYOUT_SPECIAL_TOKENS = 3
 # corpus on record is 63, so 96 is ~1.5x the worst case rather than a fit to it, and the sidecars
 # now record `longest_loop` so a test can check this instead of a person remembering to.
 #
+# The reserve competes with OPTIONAL context for the same max_len budget, and it wins: partner and
+# antigen sequences are prepended, so capping trims them first. Raising 40 -> 96 therefore cut the
+# light chain the `_lc` runs are meant to supply from ~96% retained to ~45%, silently -- the runs
+# completed and measured "base + a fragment of the partner". The AR configs now declare max_len 384
+# (96 native framework + 109 partner + 96 reserve + 3 layout ~= 304), which restores it in full.
+# Any new AR config with optional context must budget for both, not just the answer.
+#
 # Raising it moves no prompt: the reserve only bites when framework + reserve + 3 layout tokens
 # exceeds max_len, and at max_len 256 a ~123-token heavy chain leaves ~130 to spare. It does raise
 # the decode budget (CAUSAL_DECODE_STEPS), which has never been binding -- generated loops top out

@@ -233,14 +233,15 @@ run_one() {
             "$config" == "configs/h3_scratch_lc.json" ) ]]; then
         # Three things must match for a masked-vs-causal head-to-head, and only the first was
         # being forced. The other two are config defaults that happen to differ:
-        #   max_len   -- the causal layout needs 256 (framework + the answer reserve + 3 layout
-        #                tokens), while h3_scratch.json ships 128. 12% of OAS heavy chains exceed
-        #                128 tokens, so the masked arm was seeing TRUNCATED flanks on those
-        #                examples while the causal arm saw complete ones.
+        #   max_len   -- the causal layout needs 384 (framework + partner chain + the 96-position
+        #                answer reserve + 3 layout tokens), while h3_scratch.json ships 128. 12% of
+        #                OAS heavy chains exceed 128 tokens, so the masked arm was seeing TRUNCATED
+        #                flanks on those examples while the causal arm saw complete ones. Raised
+        #                from 256 on 2026-09-04 with the AR configs, so the pair stays matched.
         #   gen_top_p -- the AR configs pin 0.9; the masked default is 1.0, i.e. no nucleus
         #                filtering at all. Different sampling policies are not a comparison.
-        overrides+=(--gen_length_mode inferred --max_len 256 --gen_top_p 0.9)
-        echo "⚖️  Matched compare: MLM uses inferred length, max_len 256, top_p 0.9 (matching AR)."
+        overrides+=(--gen_length_mode inferred --max_len 384 --gen_top_p 0.9)
+        echo "⚖️  Matched compare: MLM uses inferred length, max_len 384, top_p 0.9 (matching AR)."
     fi
     CUDA_VISIBLE_DEVICES="$gpu" python train.py "$config" "${overrides[@]}"
 }

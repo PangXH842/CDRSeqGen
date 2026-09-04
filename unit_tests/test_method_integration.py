@@ -163,7 +163,13 @@ class CausalConfigTests(unittest.TestCase):
         script = Path("scripts/run.sh").read_text()
         self.assertIn('"configs/h3_scratch.json"', script)
         self.assertIn('"configs/h3_scratch_lc.json"', script)
-        for flag in ("--gen_length_mode inferred", "--max_len 256", "--gen_top_p 0.9"):
+        # Read the two budgets off the causal config rather than restating them: hardcoding
+        # "--max_len 256" here meant this test failed for the wrong reason the moment the AR
+        # configs moved to 384, instead of confirming the pair was still matched.
+        causal = json.loads(Path("configs/h3_ar_scratch.json").read_text())
+        for flag in ("--gen_length_mode inferred",
+                     f"--max_len {causal['max_len']}",
+                     f"--gen_top_p {causal['gen_top_p']}"):
             with self.subTest(flag=flag):
                 self.assertIn(flag, script)
 

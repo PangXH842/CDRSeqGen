@@ -126,10 +126,15 @@ def select_indices(lengths, k, stratify, rng):
 
 
 def aggregate(records, key):
-    """(mean, stdev) of a per-example metric across the sweep; (nan, 0) if never present"""
+    """(mean, stdev) of a per-example metric across the sweep; (None, 0.0) if never present.
+
+    None rather than NaN: this lands in generation_eval.json, and a bare NaN there is not valid
+    JSON -- standards-compliant readers reject the file, and tables printed the string "nan" for a
+    metric that simply was not collected. Every reader here already treats None as absent.
+    """
     vals = [r["metrics"][key] for r in records if r["metrics"].get(key) is not None]
     if not vals:
-        return float("nan"), 0.0
+        return None, 0.0
     return statistics.mean(vals), (statistics.pstdev(vals) if len(vals) > 1 else 0.0)
 
 
@@ -143,7 +148,7 @@ def format_report(records, title="", judge_name=None):
         lines.append(f"\n  {label}  (n={len(subset)})")
         for key, pretty in SUMMARY_KEYS:
             mean, sd = aggregate(subset, key)
-            if mean != mean:  # nan -> metric not collected
+            if mean is None:        # never collected for this subset
                 continue
             lines.append(f"    {pretty:12s} {mean:8.3f}  ± {sd:.3f}")
 

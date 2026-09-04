@@ -253,13 +253,22 @@ def markdown_table(title, headers, rows, alignments=None):
     ])
 
 
-def unseen_fraction(entries, cdr, chain="heavy"):
-    """(n_unique, n_total, n_test, n_test_with_unseen_cdr) for one CDR under the entries' split."""
+def unseen_fraction(entries, cdr, chain="heavy", split="validation"):
+    """(n_unique, n_total, n_held_out, n_held_out_with_unseen_cdr) for one CDR.
+
+    `split` names the held-out partition to measure. It used to be "everything that is not train",
+    which silently merged validation AND test once the corpus went three-way: the reported
+    denominator was 30,546 on OAS4 while the column header said "test", and the rate quoted was for
+    a population no model is ever evaluated on. Runs select checkpoints on validation, so that is
+    the default; a corpus with no such split falls back to whatever non-train partition exists.
+    """
     vals = [entry[chain][cdr] for entry in entries]
     train = {entry[chain][cdr] for entry in entries if entry.get("split") == "train"}
-    test = [entry for entry in entries if entry.get("split") not in (None, "train")]
-    unseen = sum(1 for entry in test if entry[chain][cdr] not in train)
-    return len(set(vals)), len(vals), len(test), unseen
+    held_out = [entry for entry in entries if entry.get("split") == split]
+    if not held_out:
+        held_out = [entry for entry in entries if entry.get("split") not in (None, "train")]
+    unseen = sum(1 for entry in held_out if entry[chain][cdr] not in train)
+    return len(set(vals)), len(vals), len(held_out), unseen
 
 
 # Recovery tables differ only in cases, run columns, and optional annotations/deltas. A context
@@ -330,8 +339,15 @@ def _resolved_context(case, selector):
     return selector
 
 
-def _unseen_text(case, runs, data_cache):
+def _unseen_text(case, runs, data_cache, alias=None):
+    """Held-out unseen-target rate for one case, read from the corpus the batch actually used.
+
+    The alias matters here as much as in the run lookups: without it `data_path_for(runs, "OAS")`
+    finds no OAS runs in an OAS4 batch and falls back to DEFAULT_DATA -- silently annotating the
+    table with the single-donor corpus's retrieval rate (1.6%) instead of this batch's (2.6%).
+    """
     _, loop, dataset, _ = case
+    dataset = (alias or {}).get(dataset, dataset)
     path = data_path_for(runs, dataset)
     if not path or not os.path.exists(path):
         return "—"
@@ -373,7 +389,7 @@ def _recovery_table(name, runs):
 
         row = [label]
         if spec.get("annotation_header"):
-            row.append(_unseen_text(case, runs, data_cache))
+            row.append(_unseen_text(case, runs, data_cache, alias))
         row.extend((metric, _coverage_text(coverage)))
         for summaries in column_summaries:
             if any(summary is None for summary in summaries):
@@ -420,6 +436,11 @@ GEN_KEYS = [
 ]
 
 
+def _fmt(value, places=3):
+    """A metric that was never collected renders as an em-dash, not "nan" or a crash."""
+    return "—" if value is None else f"{value:.{places}f}"
+
+
 def _gen_means(path):
     """Mean of each generative metric over the records of one generation_eval.json."""
     if not path or not os.path.exists(path):
@@ -432,7 +453,7 @@ def _gen_means(path):
             for record in records
             if record["metrics"].get(key) is not None
         ]
-        means[key] = statistics.mean(values) if values else float("nan")
+        means[key] = statistics.mean(values) if values else None
     means["_n"] = len(records)
     return means
 
@@ -477,10 +498,10 @@ def _design_rows(runs):
             label = f"{loop.upper()} {family_label}"
             rows.append((
                 label,
-                f"{means['aar_mean']:.3f}",
-                f"{means['diversity_hamming']:.3f}",
-                f"{means['per_position_entropy_bits']:.3f}",
-                f"{means['judge_perplexity_mean']:.3f}",
+                _fmt(means["aar_mean"]),
+                _fmt(means["diversity_hamming"]),
+                _fmt(means["per_position_entropy_bits"]),
+                _fmt(means["judge_perplexity_mean"]),
             ))
     return rows
 
@@ -517,8 +538,11 @@ TABLE_DEFINITIONS = {
         "rows": _retrieval_rows,
     },
     "design": {
-        "title": "Findings §7 — recovery vs design quality (post-training generative eval)",
-        "headers": ("", "recovery", "diversity", "entropy (bits)", "judge-ppl"),
+        "title": ("Findings §7 — recovery vs design quality (post-training generative eval). "
+                  "`recovery@len` is conditional on the generated length matching the native one, "
+                  "so its population differs by method: a masked run is given the length and scores "
+                  "every candidate, a causal run scores only the ~7% of H3 draws that match."),
+        "headers": ("", "recovery@len", "diversity", "entropy (bits)", "judge-ppl"),
         "alignments": ("left", "right", "right", "right", "right"),
         "rows": _design_rows,
     },

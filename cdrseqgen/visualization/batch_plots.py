@@ -88,8 +88,16 @@ def _recovery_panel(ax, runs, dataset, cache, context):
         series.append(BarSeries(FAMILY_LABELS[family], values))
     if not draw_grouped_bars(ax, [loop.upper() for loop in loops], series):
         return plot_style.empty_panel(ax, "No recovery metrics")
-    plot_style.style_axes(ax, title="A. Best-epoch recovery per loop",
-                          ylabel="Recovery (coverage-aware)", percent_axis="y",
+    # Teacher-forced, and that means DIFFERENT things per method: a masked model predicts each loop
+    # position with every other loop position masked, while a causal model predicts position i
+    # given the true residues before it. Causal therefore scores higher on an easier task, and the
+    # bars are not comparable across methods -- only within one. Panel D is the free-running view,
+    # which is comparable. Said on the axis because the chart is read without the docstring.
+    methods = {"causal" if family.startswith("ar_") else "masked" for family in FAMILIES
+               if any((loop, dataset, context, family) in runs for loop in loops)}
+    caveat = "  ⚠ masked vs causal NOT comparable" if len(methods) > 1 else ""
+    plot_style.style_axes(ax, title="A. Best-epoch recovery per loop (teacher-forced)" + caveat,
+                          ylabel="Teacher-forced recovery (coverage-aware)", percent_axis="y",
                           legend=True, grid="y")
 
 
@@ -118,7 +126,8 @@ def _breakdown_panel(ax, runs, dataset, cache, context):
         series.append(BarSeries(label, values))
     if not draw_grouped_bars(ax, [loop.upper() for loop in loops], series, value_labels=False):
         return plot_style.empty_panel(ax, "No recovery breakdown")
-    plot_style.style_axes(ax, title="B. Anchor inflation (scratch)", ylabel="Recovery",
+    plot_style.style_axes(ax, title="B. Anchor inflation (masked scratch, teacher-forced)",
+                          ylabel="Teacher-forced recovery",
                           percent_axis="y", legend=True, grid="y")
 
 
@@ -178,7 +187,8 @@ def _context_panel(ax, runs, dataset, cache):
     # The seed noise floor on a per-loop delta (README Findings §4). A bar inside this band is not
     # distinguishable from noise, which is the whole reading of that finding.
     ax.axhspan(-0.006, 0.006, color="#999", alpha=0.18, zorder=0)
-    plot_style.style_axes(ax, title="C. Effect of adding context", ylabel="Δ recovery",
+    plot_style.style_axes(ax, title="C. Effect of adding context (teacher-forced)",
+                          ylabel="Δ teacher-forced recovery",
                           legend=True, grid="y")
 
 
@@ -207,8 +217,15 @@ def _design_panel(ax, runs, dataset, context):
                 ax.annotate(label, (x, y), xytext=(5, 4), textcoords="offset points", fontsize=8)
     if not draw_scatter(ax, series):
         return plot_style.empty_panel(ax, "No generative eval in this batch")
-    plot_style.style_axes(ax, title="D. Recovery against judged plausibility",
-                          xlabel="Free-running recovery", ylabel="Judge perplexity  ↓ better",
+    # The x-axis is conditional on the generated length matching the native one, and that
+    # population differs by method: a masked run is handed the length and scores every candidate,
+    # a causal run scores only the draws that happened to match (~7% on H3). The y-axis is scored
+    # over every candidate and IS comparable -- which is the axis this panel exists for.
+    xcaveat = "  ⚠ x-axis populations differ by method" if len(
+        {"causal" if f.startswith("ar_") else "masked" for f in FAMILIES}) > 1 else ""
+    plot_style.style_axes(ax, title="D. Recovery against judged plausibility" + xcaveat,
+                          xlabel="Recovery @ matched length (population differs by method)",
+                          ylabel="Judge perplexity  ↓ better",
                           percent_axis="x", legend=True)
 
 
