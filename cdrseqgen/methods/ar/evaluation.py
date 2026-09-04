@@ -23,6 +23,7 @@ import logging
 import math
 
 import torch
+from cdrseqgen.eval.metrics import blosum_provenance
 
 from cdrseqgen.data.dataset_ar import CAUSAL_DECODE_STEPS, build_causal_prompt
 from cdrseqgen.data.dataset_common import framework_for_dataset
@@ -211,6 +212,8 @@ def run_causal_generative_eval(model, tokenizer, eval_dataset, *, device, judge_
     payload = dict(meta or {})
     payload.update({
         "schema_version": "cdrseqgen.generation_eval.v1",
+        # A BLOSUM number without its matrix and gap penalties is not reproducible.
+        "blosum": blosum_provenance(),
         "method": "ar",
         "judge": judge_name,
         "length_policy": strategy.payload_length_policy(),

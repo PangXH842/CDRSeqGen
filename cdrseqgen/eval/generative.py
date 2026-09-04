@@ -35,7 +35,9 @@ from cdrseqgen.artifacts import atomic_write_json
 from cdrseqgen.data.dataset_common import inject_context
 from cdrseqgen.data.dataset_mlm import assemble_masked_input
 from cdrseqgen.eval.metrics import (LENGTH_BUCKETS, amino_acid_recovery, calculate,
-                                    confidence_metrics, core_anchor_indices, recovery_at_indices)
+                                    blosum_aligned_ratio, blosum_identity_ratio,
+                                    blosum_provenance, confidence_metrics,
+                                    core_anchor_indices, recovery_at_indices)
 from cdrseqgen.eval import ANCHOR_TRIM
 
 logger = logging.getLogger(__name__)
@@ -55,6 +57,14 @@ SUMMARY_KEYS = [
     # cannot hide a loss in the other.
     ("core_recovery_mean", "core@L"),
     ("anchor_recovery_mean", "anchor@L"),
+    # BLOSUM62: a conservative substitution scores near 1.0, a radical one far below, where
+    # exact-match recovery scores both zero. `blosum-aln` is over EVERY attempt (global alignment,
+    # so a wrong-length draw still scores); the @L rows share recovery@L's length-matched
+    # population. It is a generic evolutionary matrix, not a binding or structural measure.
+    ("blosum62_ratio_mean", "blosum@L"),
+    ("blosum62_core_ratio_mean", "blosum-core@L"),
+    ("blosum62_anchor_ratio_mean", "blosum-anch@L"),
+    ("blosum62_aligned_ratio_mean", "blosum-aln"),
     ("novelty_mean", "novelty"),
     ("length_match_rate", "length-match"),
     ("length_absolute_error_mean", "length-MAE"),
@@ -242,10 +252,21 @@ def run_eval_loop(strategy, selected, *, model, tokenizer, device, skip_perplexi
                     recovery_at_indices(seq, drawn.native, core_indices) if matched else None,
                 "anchor_recovery":
                     recovery_at_indices(seq, drawn.native, anchor_indices) if matched else None,
+                # BLOSUM beside recovery at every level, never instead of it: a conservative
+                # substitution is invisible to exact-match recovery and a radical one is
+                # indistinguishable from it. `blosum62_aligned_ratio` is the only one defined
+                # for a candidate of the wrong length, which is most causal H3 draws.
+                "blosum62_ratio": blosum_identity_ratio(seq, drawn.native) if matched else None,
+                "blosum62_core_ratio":
+                    blosum_identity_ratio(seq, drawn.native, core_indices) if matched else None,
+                "blosum62_anchor_ratio":
+                    blosum_identity_ratio(seq, drawn.native, anchor_indices) if matched else None,
+                "blosum62_aligned_ratio": blosum_aligned_ratio(seq, drawn.native),
                 "self_perplexity": self_ppl,
                 "judge_perplexity": judge_ppl,
             })
-        for key in ("core_recovery", "anchor_recovery"):
+        for key in ("core_recovery", "anchor_recovery", "blosum62_ratio",
+                    "blosum62_core_ratio", "blosum62_anchor_ratio", "blosum62_aligned_ratio"):
             values = [c[key] for c in candidates if c[key] is not None]
             if values:
                 metrics[f"{key}_mean"] = sum(values) / len(values)

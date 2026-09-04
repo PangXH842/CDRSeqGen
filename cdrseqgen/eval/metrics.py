@@ -6,6 +6,9 @@
   * unique_fraction         -- fraction of distinct sequences among all samples given
   * per_position_entropy    -- calculate mean Shannon entropy (bits) across loop positions
   * edit_similarity         -- 1 - normalised Levenshtein, for candidates of any length
+  * blosum_positional       -- mean BLOSUM62 per position, equal-length pairs only
+  * blosum_aligned          -- BLOSUM62 global-alignment score, ANY pair of lengths
+  * blosum_provenance       -- matrix/gap parameters a BLOSUM number is meaningless without
   * spearman                -- rank correlation, ties averaged; None when undefined
   * confidence_metrics      -- does a per-candidate score rank candidates by recovery?
   * calculate               -- length error/edit similarity plus length-matched AAR when native exists
@@ -201,6 +204,165 @@ def confidence_metrics(recoveries, scores, *, lower_is_better=True, prefix="conf
     return out
 
 
+# --- BLOSUM62 -----------------------------------------------------------------------------------
+# Exact-match recovery scores I->V the same as I->P: zero. A substitution matrix separates a
+# conservative swap from a chemically disruptive one, which is the distinction that matters when
+# asking whether a designed loop is *close* to native rather than identical to it.
+#
+# The table is inlined rather than pulled from biopython: it is 20x20 of fixed integers, it never
+# changes, and one matrix is not worth a dependency. Parsed from the canonical NCBI layout below
+# and validated for symmetry at import, so a typo cannot survive silently.
+#
+# Caveat this metric cannot escape, and which every caller should carry: BLOSUM is a generic
+# evolutionary substitution matrix. It says nothing about antigen binding or structure, and it
+# rewards safe generic substitutions. It belongs BESIDE recovery, judge perplexity, and the length
+# metrics -- never instead of them.
+BLOSUM62_MATRIX_NAME = "BLOSUM62"
+_BLOSUM62_ORDER = "ARNDCQEGHILKMFPSTWYV"
+_BLOSUM62_ROWS = """
+ 4 -1 -2 -2  0 -1 -1  0 -2 -1 -1 -1 -1 -2 -1  1  0 -3 -2  0
+-1  5  0 -2 -3  1  0 -2  0 -3 -2  2 -1 -3 -2 -1 -1 -3 -2 -3
+-2  0  6  1 -3  0  0  0  1 -3 -3  0 -2 -3 -2  1  0 -4 -2 -3
+-2 -2  1  6 -3  0  2 -1 -1 -3 -4 -1 -3 -3 -1  0 -1 -4 -3 -3
+ 0 -3 -3 -3  9 -3 -4 -3 -3 -1 -1 -3 -1 -2 -3 -1 -1 -2 -2 -1
+-1  1  0  0 -3  5  2 -2  0 -3 -2  1  0 -3 -1  0 -1 -2 -1 -2
+-1  0  0  2 -4  2  5 -2  0 -3 -3  1 -2 -3 -1  0 -1 -3 -2 -2
+ 0 -2  0 -1 -3 -2 -2  6 -2 -4 -4 -2 -3 -3 -2  0 -2 -2 -3 -3
+-2  0  1 -1 -3  0  0 -2  8 -3 -3 -1 -2 -1 -2 -1 -2 -2  2 -3
+-1 -3 -3 -3 -1 -3 -3 -4 -3  4  2 -3  1  0 -3 -2 -1 -3 -1  3
+-1 -2 -3 -4 -1 -2 -3 -4 -3  2  4 -2  2  0 -3 -2 -1 -2 -1  1
+-1  2  0 -1 -3  1  1 -2 -1 -3 -2  5 -1 -3 -1  0 -1 -3 -2 -2
+-1 -1 -2 -3 -1  0 -2 -3 -2  1  2 -1  5  0 -2 -1 -1 -1 -1  1
+-2 -3 -3 -3 -2 -3 -3 -3 -1  0  0 -3  0  6 -4 -2 -2  1  3 -1
+-1 -2 -2 -1 -3 -1 -1 -2 -2 -3 -3 -1 -2 -4  7 -1 -1 -4 -3 -2
+ 1 -1  1  0 -1  0  0  0 -1 -2 -2  0 -1 -2 -1  4  1 -3 -2 -2
+ 0 -1  0 -1 -1 -1 -1 -2 -2 -1 -1 -1 -1 -2 -1  1  5 -2 -2  0
+-3 -3 -4 -4 -2 -2 -3 -2 -2 -3 -2 -3 -1  1 -4 -3 -2 11  2 -3
+-2 -2 -2 -3 -2 -1 -2 -3  2 -1 -1 -2 -1  3 -3 -2 -2  2  7 -1
+ 0 -3 -3 -3 -1 -2 -2 -3 -3  3  1 -2  1 -1 -2 -2  0 -3 -1  4
+"""
+
+
+def _build_blosum62():
+    rows = [line.split() for line in _BLOSUM62_ROWS.strip().splitlines()]
+    if len(rows) != len(_BLOSUM62_ORDER):
+        raise ValueError("BLOSUM62 table is not square with its residue order")
+    table = {}
+    for a, row in zip(_BLOSUM62_ORDER, rows):
+        if len(row) != len(_BLOSUM62_ORDER):
+            raise ValueError(f"BLOSUM62 row {a} has {len(row)} entries")
+        for b, value in zip(_BLOSUM62_ORDER, row):
+            table[(a, b)] = int(value)
+    for (a, b), value in table.items():
+        if table[(b, a)] != value:          # a transposition typo shows up here, not in results
+            raise ValueError(f"BLOSUM62 is asymmetric at {a}/{b}")
+    return table
+
+
+BLOSUM62 = _build_blosum62()
+# Standard NCBI BLASTP defaults for BLOSUM62. Declared, and recorded in artifacts, because an
+# alignment score is meaningless without the penalties that produced it.
+BLOSUM62_GAP_OPEN = -11
+BLOSUM62_GAP_EXTEND = -1
+# Unknown/non-standard residues score as a mismatch rather than crashing or being skipped: skipping
+# would quietly shorten the denominator and flatter a sequence containing them.
+BLOSUM62_UNKNOWN = -4
+
+
+def blosum_pair(a, b):
+    """BLOSUM62 score for one residue pair; BLOSUM62_UNKNOWN for anything off the 20-letter set."""
+    return BLOSUM62.get((a, b), BLOSUM62_UNKNOWN)
+
+
+def blosum_positional(sample, native, indices=None):
+    """Mean BLOSUM62 score per position, for an equal-length pair.
+
+    Returns None when the lengths differ (no positional correspondence exists) or the index subset
+    is empty -- the same rule `recovery_at_indices` follows, so core/anchor BLOSUM is defined on
+    exactly the candidates core/anchor recovery is.
+    """
+    if not native or len(sample) != len(native):
+        return None
+    positions = range(len(native)) if indices is None else indices
+    positions = list(positions)
+    if not positions:
+        return None
+    return sum(blosum_pair(sample[i], native[i]) for i in positions) / len(positions)
+
+
+def blosum_self_score(native, indices=None):
+    """Mean BLOSUM62 score of `native` against itself -- the maximum `blosum_positional` can reach."""
+    return blosum_positional(native, native, indices)
+
+
+def blosum_identity_ratio(sample, native, indices=None):
+    """`blosum_positional` divided by the native's self-score.
+
+    1.0 for an identical loop, lower for substitutions, negative when they are worse than the
+    matrix's expectation. The raw mean is always reported alongside this: a normalised score
+    without its formula and its numerator is not auditable.
+    """
+    score = blosum_positional(sample, native, indices)
+    reference = blosum_self_score(native, indices)
+    if score is None or not reference:
+        return None
+    return score / reference
+
+
+def blosum_aligned(sample, native, gap_open=BLOSUM62_GAP_OPEN, gap_extend=BLOSUM62_GAP_EXTEND):
+    """Needleman-Wunsch global alignment score under BLOSUM62 with affine gaps (Gotoh).
+
+    Unlike `blosum_positional` this is defined for ANY pair of lengths, which is the point: a
+    causal model matches the native length on ~7% of H3 draws, so a length-matched-only metric
+    describes a small and self-selected subset. Reported over every attempt instead.
+    """
+    if not native or not sample:
+        return None
+    n, m = len(sample), len(native)
+    neg = float("-inf")
+    # M: ends aligned; X: gap in native; Y: gap in sample.
+    prev_m = [neg] * (m + 1)
+    prev_x = [neg] * (m + 1)
+    prev_y = [neg] * (m + 1)
+    prev_m[0] = 0.0
+    for j in range(1, m + 1):
+        prev_y[j] = gap_open + (j - 1) * gap_extend
+    for i in range(1, n + 1):
+        cur_m = [neg] * (m + 1)
+        cur_x = [neg] * (m + 1)
+        cur_y = [neg] * (m + 1)
+        cur_x[0] = gap_open + (i - 1) * gap_extend
+        for j in range(1, m + 1):
+            score = blosum_pair(sample[i - 1], native[j - 1])
+            cur_m[j] = score + max(prev_m[j - 1], prev_x[j - 1], prev_y[j - 1])
+            cur_x[j] = max(prev_m[j] + gap_open, prev_x[j] + gap_extend)
+            cur_y[j] = max(cur_m[j - 1] + gap_open, cur_y[j - 1] + gap_extend)
+        prev_m, prev_x, prev_y = cur_m, cur_x, cur_y
+    return float(max(prev_m[m], prev_x[m], prev_y[m]))
+
+
+def blosum_aligned_ratio(sample, native, **kwargs):
+    """`blosum_aligned` over the native's self-alignment score, so 1.0 is an identical loop."""
+    score = blosum_aligned(sample, native, **kwargs)
+    reference = blosum_aligned(native, native, **kwargs)
+    if score is None or not reference:
+        return None
+    return score / reference
+
+
+def blosum_provenance():
+    """The parameters a BLOSUM number is meaningless without, for the result artifact."""
+    return {
+        "matrix": BLOSUM62_MATRIX_NAME,
+        "gap_open": BLOSUM62_GAP_OPEN,
+        "gap_extend": BLOSUM62_GAP_EXTEND,
+        "unknown_residue_score": BLOSUM62_UNKNOWN,
+        "alignment": "needleman-wunsch global, affine gaps (Gotoh)",
+        "positional_normalisation": "mean_per_position_score / native_self_score",
+        "aligned_normalisation": "alignment_score / native_self_alignment_score",
+    }
+
+
 def calculate(samples, native=None):
     """Aggregate the generative-metric block for one test case (native optional)"""
 
@@ -229,7 +391,24 @@ def calculate(samples, native=None):
             out["edit_similarity_mean"] = sum(
                 edit_similarity(sample, native) for sample in samples
             ) / len(samples)
+        # Two BLOSUM views, deliberately separate. The aligned one covers EVERY attempt, so it
+        # does not inherit the self-selection that makes length-matched recovery describe ~7% of
+        # causal H3 draws; the positional one is the like-for-like partner to recovery@L.
+        aligned = [blosum_aligned_ratio(sample, native) for sample in samples]
+        aligned = [value for value in aligned if value is not None]
+        if aligned:
+            out["blosum62_aligned_ratio_mean"] = sum(aligned) / len(aligned)
+            raw = [blosum_aligned(sample, native) for sample in samples]
+            raw = [value for value in raw if value is not None]
+            out["blosum62_aligned_mean"] = sum(raw) / len(raw)
         if matching:
+            positional = [blosum_positional(sample, native) for sample in matching]
+            positional = [value for value in positional if value is not None]
+            if positional:
+                out["blosum62_mean_at_length"] = sum(positional) / len(positional)
+                ratios = [blosum_identity_ratio(sample, native) for sample in matching]
+                ratios = [value for value in ratios if value is not None]
+                out["blosum62_ratio_at_length_mean"] = sum(ratios) / len(ratios)
             aars = [amino_acid_recovery(sample, native) for sample in matching]
             mean_aar = sum(aars) / len(aars)
             out["aar_length_matched_mean"] = mean_aar

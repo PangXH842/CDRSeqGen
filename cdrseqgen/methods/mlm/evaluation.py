@@ -33,6 +33,7 @@ from cdrseqgen.artifacts import atomic_write_json
 from cdrseqgen.data.dataset_mlm import AntibodyInfillingDataset
 from cdrseqgen.eval.metrics import (
     amino_acid_recovery,
+    blosum_provenance,
     calculate,
     confidence_metrics,
     core_anchor_indices,
@@ -199,6 +200,8 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
     payload = dict(meta or {})
     payload.update({
         "schema_version": "cdrseqgen.generation_eval.v1",
+        # A BLOSUM number without its matrix and gap penalties is not reproducible.
+        "blosum": blosum_provenance(),
         "judge": judge_name,
         "length_policy": strategy.payload_length_policy(),
         "anchor_trim_each_end": anchor_trim,
