@@ -1,4 +1,4 @@
-<!-- Note to AI: Edits allowed OUTSIDE of MANUAL PROTECTION ZONES and INSIDE of AI ACCESS ZONES -->
+<!-- Note to AI: Edits allowed OUTSIDE of MANUAL PROTECTION ZONES and INSIDE of AI ACCESS ZONES, and DO NOT COMMIT ON MY BEHALF -->
 # CDRSeqGen: Modular Antibody Infilling Framework
 
 **Date Updated:** 2026-09-07
