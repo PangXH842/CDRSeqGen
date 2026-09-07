@@ -71,57 +71,11 @@ def get_datasets(model_args, data_args, training_args, backbone) -> Tuple[torch.
 
 def post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_args, training_args,
                              *, anchor_trim, length_predictor=None):
-    """Sample designs from the finished model, produces generation_eval.json."""
-    from cdrseqgen.methods.mlm.evaluation import build_judge, run_generative_eval
-
-    try:
-        judge_model = judge_tokenizer = judge_dataset = None
-        if gen_args.gen_judge:
-            judge_model, judge_tokenizer, judge_dataset = build_judge(
-                gen_args.gen_judge, gen_args.gen_judge_path,
-                data_path=data_args.data_path, max_len=data_args.max_len,
-                target_region=data_args.target_region,
-                include_partner_chain=data_args.include_partner_chain,
-                include_antigen=data_args.include_antigen,
-                device=training_args.device,
-            )
-
-        logger.info("🎲 Running post-training generative evaluation...")
-        run_generative_eval(
-            trainer.model,
-            tokenizer,
-            eval_dataset,
-            device=training_args.device,
-            decoding=gen_args.gen_decoding,
-            num_samples=gen_args.gen_num_samples,
-            temperature=gen_args.gen_temperature,
-            length_mode=gen_args.gen_length_mode,
-            length_predictor=length_predictor,
-            min_length=gen_args.gen_min_length,
-            max_length=gen_args.gen_max_length,
-            length_temperature=gen_args.gen_length_temperature,
-            top_k=gen_args.gen_top_k,
-            top_p=gen_args.gen_top_p,
-            num_examples=gen_args.gen_num_examples,
-            stratify=gen_args.gen_stratify,
-            seed=gen_args.gen_seed,
-            skip_perplexity=gen_args.gen_skip_perplexity,
-            judge_model=judge_model,
-            judge_tokenizer=judge_tokenizer,
-            judge_dataset=judge_dataset,
-            judge_name=gen_args.gen_judge,
-            anchor_trim=anchor_trim,
-            output_path=os.path.join(training_args.output_dir, artifacts.GENERATION_EVAL_FILENAME),
-            title=f"{os.path.basename(training_args.output_dir)}   target={data_args.target_region}",
-            meta={
-                "model_dir": training_args.output_dir,
-                "target_region": data_args.target_region,
-                "include_partner_chain": bool(data_args.include_partner_chain),
-                "include_antigen": bool(data_args.include_antigen),
-            },
-        )
-    except (RuntimeError, OSError, ValueError, FileNotFoundError, ImportError) as e:
-        # Guarded so a generation failure cannot destroy a finished training run, but logged with a
-        # traceback: a missing length head raises FileNotFoundError here, and "{e}" alone left no
-        # way to tell that from an OOM when reading train.log afterwards.
-        logger.exception(f"⚠️ Generative eval failed ({type(e).__name__}); the trained model is saved: {e}")
+    from cdrseqgen.methods.common.evaluation import post_training_generation as evaluate
+    return evaluate('mlm', trainer, tokenizer, eval_dataset, data_args, gen_args, training_args,
+                    anchor_trim=anchor_trim, method_options={
+                        'decoding': gen_args.gen_decoding,
+                        'length_mode': gen_args.gen_length_mode,
+                        'length_predictor': length_predictor,
+                        'min_length': gen_args.gen_min_length, 'max_length': gen_args.gen_max_length,
+                        'length_temperature': gen_args.gen_length_temperature})

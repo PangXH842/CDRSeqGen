@@ -22,11 +22,7 @@ import json
 import os
 import sys
 
-METHODS = {
-    "mlm": "cdrseqgen.methods.mlm.entrypoint",
-    "ar": "cdrseqgen.methods.ar.entrypoint",
-}
-DEFAULT_METHOD = "mlm"
+from cdrseqgen.methods.registry import METHODS, DEFAULT_METHOD, resolve
 
 
 def resolve_method(argv):
@@ -61,8 +57,7 @@ def main():
     # The method's own parser also consumes --method. Keeping it here makes a CLI override replace
     # the config value in run_config.json instead of routing one way while recording another.
     sys.argv = argv
-    import importlib
-    importlib.import_module(METHODS[method]).main()
+    resolve(method).module('entrypoint').main()
 
 
 if __name__ == "__main__":

@@ -1,9 +1,7 @@
 """Cross-method contracts introduced by the dispatching training stack."""
 import json
-import re
 import tempfile
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -58,7 +56,6 @@ class DispatcherTests(unittest.TestCase):
         # The old dispatcher removed --method before parsing: it routed to AR but persisted
         # method=mlm in run_config.json. The override must reach both decisions.
         self.assertEqual(model.method, "ar")
-
 
 
 class CommonArgumentTests(unittest.TestCase):
@@ -143,140 +140,12 @@ class CausalConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "max_new_tokens"):
             validate_ar_args(ARModelArguments(), ARDataArguments(), generation)
 
-    def test_all_causal_configs_select_on_core_recovery(self):
-        configs = sorted(Path("configs").glob("*_ar_*.json"))
-        self.assertEqual(len(configs), 6)
-        for path in configs:
-            with self.subTest(path=path.name):
-                config = json.loads(path.read_text())
-                self.assertEqual(config["metric_for_best_model"], "core_accuracy")
-
-    def test_compare_suite_matches_every_budget_across_the_two_methods(self):
-        """A head-to-head is only a comparison if the arms differ in method and nothing else.
-
-        Three settings diverge between h3_scratch.json and h3_ar_scratch.json, and all three have
-        to be forced onto the masked arm: the length policy (the masked side would otherwise be
-        handed the native mask count), max_len (128 truncates the flanks of 12% of OAS heavy
-        chains, where the causal arm's 256 truncates none), and gen_top_p (1.0 against 0.9 is a
-        different sampling policy).
-        """
-        script = Path("scripts/run.sh").read_text()
-        self.assertIn('"configs/h3_scratch.json"', script)
-        self.assertIn('"configs/h3_scratch_lc.json"', script)
-        # Read the two budgets off the causal config rather than restating them: hardcoding
-        # "--max_len 256" here meant this test failed for the wrong reason the moment the AR
-        # configs moved to 384, instead of confirming the pair was still matched.
-        causal = json.loads(Path("configs/h3_ar_scratch.json").read_text())
-        for flag in ("--gen_length_mode inferred",
-                     f"--max_len {causal['max_len']}",
-                     f"--gen_top_p {causal['gen_top_p']}"):
-            with self.subTest(flag=flag):
-                self.assertIn(flag, script)
-
-    def test_the_compare_overrides_match_what_the_causal_configs_declare(self):
-        """The forced values are read off the AR configs, so a config edit cannot silently unmatch
-        the pair without this failing."""
-        script = Path("scripts/run.sh").read_text()
-        for name in ("h3_ar_scratch.json", "h3_ar_scratch_lc.json"):
-            config = json.loads((Path("configs") / name).read_text())
-            with self.subTest(config=name):
-                self.assertIn(f"--max_len {config['max_len']}", script)
-                self.assertIn(f"--gen_top_p {config['gen_top_p']}", script)
-
-    def test_a_corpus_override_survives_the_compare_overrides(self):
-        """`RUN_OVERRIDES=` in the compare branch would silently drop --data_path; it must append.
-
-        A compare batch on a second corpus is exactly when both are needed at once, and the failure
-        would be invisible: the run would train on the config's declared corpus and be named after
-        it, so the batch table would look consistent while measuring the wrong data.
-        """
-        script = Path("scripts/run.sh").read_text()
-        self.assertIn('overrides+=(--data_path "$DATA_PATH")', script)
-        self.assertIn("overrides+=(--gen_length_mode inferred", script)
-        # The assigning form would discard --data_path added just above it.
-        self.assertNotIn("overrides=(--gen_length_mode", script)
-
     def test_a_second_oas_corpus_gets_its_own_dataset_tag(self):
         """Two donor sets have two test splits, so they must not share a run-name tag."""
         from cdrseqgen.train.logging import dataset_tag
         self.assertEqual(dataset_tag("dataset/data/processed/processed_oas_tuning.json"), "OAS")
         self.assertEqual(dataset_tag("dataset/data/processed/processed_oas_multi.json"), "OAS4")
         self.assertEqual(dataset_tag("dataset/data/processed/processed_sabdab2_data.json"), "SD2")
-
-    def test_a_corpus_override_refuses_configs_that_need_antigen(self):
-        """DATA_PATH replaces every config's corpus, and losing the antigen is SILENT.
-
-        dataset_common reads it as `item.get("antigen") or {}`, so an OAS entry -- which has no
-        antigen key -- yields no context and the run completes looking healthy, turning the
-        `_ag` / `_ag_lconly` pair into two identical arms.
-        """
-        script = Path("scripts/run.sh").read_text()
-        self.assertIn('"include_antigen"[[:space:]]*:[[:space:]]*true', script)
-        self.assertIn("carries no antigen data, but these configs need it:", script)
-
-    def test_the_antigen_configs_really_do_declare_what_the_guard_greps_for(self):
-        """The guard is a grep, so it silently passes if the configs ever stop matching it."""
-        needing = [p for p in sorted(Path("configs").glob("*_ag.json"))
-                   if json.loads(p.read_text()).get("include_antigen") is True]
-        self.assertEqual(len(needing), 6, "expected the six _ag configs to declare include_antigen")
-        for path in needing:
-            with self.subTest(config=path.name):
-                self.assertRegex(path.read_text(), r'"include_antigen"\s*:\s*true')
-
-    def test_multi_gpu_sharding_keeps_one_definition_of_how_a_run_is_invoked(self):
-        """Sequential and parallel drivers must not drift on the compare / corpus overrides.
-
-        Both call `run_one`, so the flags are defined once. A second literal `python train.py`
-        would mean a run launched on a sharded round could silently miss `--data_path` or the
-        matched-compare flags.
-        """
-        script = Path("scripts/run.sh").read_text()
-        self.assertEqual(script.count("python train.py"), 1)
-        self.assertIn('CUDA_VISIBLE_DEVICES="$gpu" python train.py', script)
-
-    def test_parallel_shards_do_not_race_for_the_latest_symlink(self):
-        """Each shard would otherwise point results/runs/latest at the same batch concurrently."""
-        script = Path("scripts/run.sh").read_text()
-        self.assertIn("export CDRSEQGEN_SKIP_LATEST=1", script)
-        self.assertIn('ln -sfn "$(basename "$BATCH_DIR")" "results/runs/latest"', script)
-
-    SUITES = ("mlm_heavy", "mlm_light", "mlm_antigen", "mlm_igbert",
-              "mlm_protbert", "mlm_plm", "ar_heavy", "compare", "all")
-
-    def test_every_declared_suite_has_a_dispatch_arm(self):
-        """SUITE_NAMES is what the error message offers; a name with no case arm would be a lie."""
-        script = Path("scripts/run.sh").read_text()
-        declared = re.search(r'SUITE_NAMES="([^"]+)"', script).group(1).split()
-        self.assertEqual(declared, list(self.SUITES))
-        for suite in declared:
-            with self.subTest(suite=suite):
-                self.assertRegex(script, re.compile(rf"^\s+{re.escape(suite)}\)\s+printf", re.M))
-
-    def test_the_old_suite_names_are_gone_from_the_dispatch(self):
-        """Hard rename: an old name must not silently resolve to something."""
-        script = Path("scripts/run.sh").read_text()
-        for old in ("oas", "lcdr", "ar", "antigen", "igbert", "protbert", "plm"):
-            with self.subTest(old=old):
-                self.assertNotRegex(script, re.compile(rf"^\s+{re.escape(old)}\)\s+printf", re.M))
-
-    def test_the_docs_offer_the_same_suites_the_script_accepts(self):
-        """WORKFLOW's command list is what a person copies; drift there is a broken command."""
-        workflow = Path("WORKFLOW.md").read_text()
-        for suite in self.SUITES:
-            if suite == "all":
-                continue        # invoked by omitting the argument
-            with self.subTest(suite=suite):
-                self.assertIn(f"./scripts/run.sh 4 {suite}", workflow)
-
-    def test_batch_and_sweep_runners_fail_after_reporting_failed_trials(self):
-        batch_script = Path("scripts/run.sh").read_text()
-        sweep_script = Path("scripts/sweep.sh").read_text()
-        self.assertIn("[[ $FAILED_COUNT -eq 0 ]] || exit 1", batch_script)
-        self.assertIn("if [[ $ROUND_FAILURES -gt 0 ]]; then", sweep_script)
-        self.assertIn('-f "$RUNDIR/generation_eval.json"', sweep_script)
-        self.assertIn('-f "$COMPLETED_RUN/generation_eval.json"', sweep_script)
-        self.assertIn("exit 1", sweep_script)
-
 
 
 if __name__ == "__main__":

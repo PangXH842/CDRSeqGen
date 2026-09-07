@@ -1,0 +1,125 @@
+"""Execute the real batch runner; replace only Conda, training, and plotting boundaries.
+
+All files and subprocess output stay in a temporary workspace. The fake training process records
+its effective config and assigned device; no GPU, downloaded model, or user Conda setup is touched.
+"""
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class BatchRunnerTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.workspace = Path(temp.name)
+        shutil.copytree(ROOT / 'configs', self.workspace / 'configs')
+        for config in (self.workspace / 'configs').glob('*.json'):
+            data_path = json.loads(config.read_text()).get('data_path')
+            if data_path:
+                target = self.workspace / data_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text('[]')
+        self.corpus = self.workspace / 'alternate corpus.json'
+        self.corpus.write_text('[{}]')
+        startup = self.workspace / 'shell-startup'
+        startup.write_text('source() { :; }\nconda() { :; }\n')
+        binary_dir = self.workspace / 'bin'
+        binary_dir.mkdir()
+        wrapper = binary_dir / 'python'
+        wrapper.write_text('#!' + sys.executable + '\n' + '''
+import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+if args[0] == 'train.py':
+    config = json.loads(Path(args[1]).read_text())
+    for flag, value in zip(args[2::2], args[3::2]):
+        config[flag.removeprefix('--')] = value
+    output = Path('captured')
+    output.mkdir(exist_ok=True)
+    (output / Path(args[1]).name).write_text(json.dumps({
+        'config': config, 'argv': args, 'gpu': os.environ['CUDA_VISIBLE_DEVICES'],
+        'batch': os.environ['CDRSEQGEN_RESULTS_ROOT']}))
+    sys.exit(1 if Path(args[1]).name == os.environ.get('CDR_TEST_FAIL_CONFIG') else 0)
+if args[0] == '-m':
+    sys.exit(0)  # plotting is outside the runner contract
+os.execv(sys.executable, [sys.executable, *args])  # execute real JSON/data preflight checks
+''')
+        wrapper.chmod(0o755)
+        self.env = dict(os.environ, BASH_ENV=str(startup),
+                        PATH=str(binary_dir) + os.pathsep + os.environ['PATH'],
+                        DATA_PATH=str(self.corpus))
+        for key in ('CDRSEQGEN_RESULTS_ROOT', 'CDRSEQGEN_SKIP_LATEST', 'CDR_TEST_FAIL_CONFIG'):
+            self.env.pop(key, None)
+
+    def run_batch(self, devices, *suites):
+        result = subprocess.run(['bash', str(ROOT / 'scripts/run.sh'), devices, *suites],
+                                cwd=self.workspace, env=self.env, text=True,
+                                capture_output=True, timeout=30)
+        records = {p.stem: json.loads(p.read_text())
+                   for p in (self.workspace / 'captured').glob('*.json')}
+        return result, records
+
+    def test_compare_preserves_corpus_and_matches_sampling_on_one_or_multiple_devices(self):
+        # Clear captured calls between subcases so a missed invocation cannot pass on stale output.
+        for devices in ('2', '2,5'):
+            with self.subTest(devices=devices):
+                result, records = self.run_batch(devices, 'compare')
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(set(records), {'h3_scratch', 'h3_scratch_lc',
+                                                'h3_ar_scratch', 'h3_ar_scratch_lc'})
+                self.assertEqual({r['gpu'] for r in records.values()}, set(devices.split(',')))
+                self.assertEqual(len({r['batch'] for r in records.values()}), 1)
+                for suffix in ('', '_lc'):
+                    masked = records['h3_scratch' + suffix]['config']
+                    causal = records['h3_ar_scratch' + suffix]['config']
+                    self.assertEqual(masked['gen_length_mode'], 'inferred')
+                    for key in ('max_len', 'gen_top_p'):
+                        self.assertEqual(float(masked[key]), float(causal[key]))
+                    for config in (masked, causal):
+                        self.assertEqual(config['data_path'], str(self.corpus))
+                if ',' in devices:
+                    latest = self.workspace / 'results/runs/latest'
+                    self.assertTrue(latest.is_symlink())
+                    self.assertEqual(latest.resolve(), (self.workspace / next(iter(records.values()))['batch']).resolve())
+                for p in (self.workspace / 'captured').glob('*.json'):
+                    p.unlink()
+
+    def test_overlapping_suites_do_not_launch_duplicate_configs(self):
+        result, records = self.run_batch('2', 'compare', 'ar_heavy')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(records), 8)
+        self.assertEqual(result.stdout.count('Starting run:'), 8)
+
+    def test_antigen_suite_rejects_a_corpus_without_antigen_before_training(self):
+        result, records = self.run_batch('2', 'mlm_antigen')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('antigen', result.stdout)
+        self.assertEqual(records, {})
+
+    def test_failed_trial_does_not_hide_failure_or_prevent_remaining_trials(self):
+        self.env['CDR_TEST_FAIL_CONFIG'] = 'h3_scratch.json'
+        for devices in ('2', '2,5'):
+            with self.subTest(devices=devices):
+                result, records = self.run_batch(devices, 'compare')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(len(records), 4)
+                self.assertIn('3/4 succeeded', result.stdout)
+                for p in (self.workspace / 'captured').glob('*.json'):
+                    p.unlink()
+
+    def test_unknown_suite_fails_before_training(self):
+        result, records = self.run_batch('2', 'not_a_suite')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(records, {})
+
+
+if __name__ == '__main__':
+    unittest.main()

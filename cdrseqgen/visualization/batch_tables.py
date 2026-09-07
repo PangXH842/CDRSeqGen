@@ -445,7 +445,8 @@ def _gen_means(path):
     """Mean of each generative metric over the records of one generation_eval.json."""
     if not path or not os.path.exists(path):
         return None
-    records = _load(path).get("records", [])
+    payload = _load(path)
+    records = payload.get("records", [])
     means = {}
     for key, _ in GEN_KEYS:
         values = [
@@ -455,6 +456,13 @@ def _gen_means(path):
         ]
         means[key] = statistics.mean(values) if values else None
     means["_n"] = len(records)
+    means["_recovery_n"] = sum(r["metrics"].get("aar_mean") is not None for r in records)
+    policy = payload.get("length_policy", {})
+    means["_length_policy"] = {
+        "native_mask_count": "native length",
+        "length_predictor": "inferred",
+        "eos_token": "EOS",
+    }.get(policy.get("source"), policy.get("mode", "unknown"))
     return means
 
 
@@ -498,6 +506,8 @@ def _design_rows(runs):
             label = f"{loop.upper()} {family_label}"
             rows.append((
                 label,
+                means["_length_policy"],
+                f"{means['_recovery_n']}/{means['_n']}",
                 _fmt(means["aar_mean"]),
                 _fmt(means["diversity_hamming"]),
                 _fmt(means["per_position_entropy_bits"]),
@@ -540,10 +550,11 @@ TABLE_DEFINITIONS = {
     "design": {
         "title": ("Findings §7 — recovery vs design quality (post-training generative eval). "
                   "`recovery@len` is conditional on the generated length matching the native one, "
-                  "so its population differs by method: a masked run is given the length and scores "
-                  "every candidate, a causal run scores only the ~7% of H3 draws that match."),
-        "headers": ("", "recovery@len", "diversity", "entropy (bits)", "judge-ppl"),
-        "alignments": ("left", "right", "right", "right", "right"),
+                  "and averages only frameworks with at least one length-matched candidate. "
+                  "Length policy and contributing frameworks are reported per run; recovery "
+                  "populations may differ."),
+        "headers": ("", "length policy", "recovery frameworks", "recovery@len", "diversity", "entropy (bits)", "judge-ppl"),
+        "alignments": ("left", "left", "right", "right", "right", "right", "right"),
         "rows": _design_rows,
     },
     "length": {

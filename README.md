@@ -170,7 +170,7 @@ CDRSeqGen/
 │   ├── benchmark/              #   GPU minutes — <benchmark_id>/{generations,scores}/
 │   └── figures/                #   seconds, disposable — hand-picked charts for the README and
 │                               #   ad-hoc cross-batch comparisons, which belong to no one batch
-├── unit_tests/                 # Stubbed unit tests — no GPU/weights/data (./scripts/unit_tests.sh).
+├── unit_tests/                 # CPU unit/integration tests — no downloads or research data (./scripts/unit_tests.sh).
 │   └── test_*.py               #   Named to keep "test" free for the train/validation/test split.
 ├── showcase/                   # Curated frameworks for generate.py — a hand-designed probe set,
 │   └── {h1,h3,h3_lc,l3_hc,h3_ag}.json # from VALIDATION, so repeated inspection is free;
@@ -215,8 +215,10 @@ This project uses Conda for strict CUDA handling and pip for Hugging Face tools.
    ./scripts/unit_tests.sh                      # whole suite, a few seconds
    ./scripts/unit_tests.sh test_length_policy   # one module
    ```
-   The suite is `unittest`-based and stubs every model, so it needs no GPU, no downloaded weights,
-   and no processed dataset. `PYTHONPATH=.` is required (there is no `unit_tests/__init__.py`),
+   The `unittest` suite combines synthetic fixtures, stubs for external models, real tiny CPU
+   scratch models, and isolated shell-runner checks. It needs no GPU, downloaded weights, or
+   research dataset. See [the test guide](unit_tests/README.md) for guarantees and limitations.
+   `PYTHONPATH=.` is required (there is no `unit_tests/__init__.py`),
    which is why the runner exists rather than a bare `python -m unittest`.
 
 ---
@@ -745,7 +747,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **Checkpoint-selection policy is still config-declared.** The current configs select core recovery except the four OAS-L2 configs, which select whole-span because those runs have only 1.4% core coverage. Artifact reporting no longer hard-codes that loop name: it derives the metric from recorded coverage. Training should eventually validate or derive `metric_for_best_model` from the dataset before a run, so a future dataset cannot inherit an obsolete L2 exception.
 - ~~**Scratch architecture isn't tunable.**~~ **Fixed 2026-07-27.** `num_attention_heads` and `intermediate_size` are now `ModelArguments` fields forwarded by `build_model` ([`transformer.py`](cdrseqgen/methods/mlm/models/transformer.py)). `intermediate_size` defaults to `None` = **4 × hidden_size**, so the FFN ratio tracks width instead of silently drifting (at the old fixed 512, widening to 256 quietly halved the ratio and would have confounded any architecture sweep). Defaults reproduce the old geometry exactly (128 → 512), and a `hidden_size % num_attention_heads` check now fails loudly instead of deep inside `nn.MultiheadAttention`.
 - **Single-seed runs.** Small differences (e.g. light chain hurts scratch ~0.01, neutral for ESM-2) need multiple seeds + error bars before they can be claimed.
-- **The fast tests stub every external model.** They need no GPU, weights, or processed data, which makes them cheap to run on every change, but they cannot catch a real-backbone shape, dtype, tokenizer, checkpoint, or device error. A mutation audit (2026-08-18) confirmed strong coverage of the science-critical pure logic, and the evaluation input/output contract is now directly tested; one tiny real scratch-backbone train/save/load/generate smoke test is still needed.
+- **CPU tests do not validate external PLMs or experimental conclusions.** The suite exercises real scratch-model attention, gradients, optimizer updates, and checkpoint reloads alongside synthetic-data and scoring tests. External pretrained models and the real judge still need a separate integration run. Passing tests does not establish cross-split sequence separation or biological quality; see [the test guide](unit_tests/README.md).
 - **Structure not yet available.** SAbDab2 preprocessing parses *sequences* only; the Phase-2 structure objective needs a coordinate-parsing step (or predicted structures via IgFold/ABlooper).
 
 ### How to read the numbers
@@ -890,7 +892,7 @@ The comparison must run both methods on the **same frozen examples**, with the s
 - [ ] **Harden `SpanLayout` before registering a second layout** (found in review, 2026-09-04; none of it affects the shipped `CDRSEQGEN_CAUSAL` or any current result): `build_prompt` receives the whole framework dict **including `target`**, so a layout could leak the answer into its own prompt and the training-equals-generation test would still pass; `n_layout_tokens` is unverified metadata that drives truncation, with no assertion that the assembled example matches it; `CausalInfillingDataset` does not validate its layout, so an invalid one trains a whole run before generation rejects it; and `validate_layout` accepts a residue token as the terminator, which would stop decoding at that amino acid
 - [ ] Record `span_layout_id` in `run_config.json` and compare it in the checkpoint-compatibility check — otherwise changing a backbone's layout silently reinterprets older checkpoints
 - [ ] A pretrained causal backbone through `methods/ar/backbones.py` (the registry exists; only `scratch` is registered). **Partial prerequisite 2026-09-04**: `SpanLayout` lets a backbone declare its own prompt/answer arrangement. It is NOT yet sufficient for a native format that needs generated-output conversion or wrapper tokens — `validate_layout` deliberately refuses those, and IgLM's own format needs `validate_generated_seq` + `iglm_to_infilled` on top. A layout-aware extraction step is still missing, along with per-config layout selection, conditioning fields on the framework dict, and a wired layout on the `hf_decoder` path. Note the format and the checkpoint are separate questions — adopting IgLM's *layout* is clean, fine-tuning IgLM's *weights* is not, since it was pretrained on OAS and is the §11 baseline, making causal scratch-vs-pretrained the mirror of the masked scratch-vs-ESM-2 axis
-- [ ] **Automate one GPU + real-judge smoke run.** Three defects reached live runs past a fully green 293-test suite — the device mismatch, the prompt divergence and the missing `pseudo_log_likelihood` import — because every test stubs the model and none touches the judge. An opt-in end-to-end test at ~30 steps would have caught all three
+- [ ] **Automate one GPU + real-judge smoke run.** Three defects reached live runs past a fully green 293-test suite — the device mismatch, the prompt divergence and the missing `pseudo_log_likelihood` import — because the suite did not exercise the full GPU training-to-generation path with a real judge. CPU scratch-model checks now cover part of that path; an opt-in end-to-end GPU test remains needed
 <!-- AI ACCESS ZONE ENDS -->
 
 - [ ] Project flowchart (0814, outdated)

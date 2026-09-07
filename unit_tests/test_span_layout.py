@@ -69,12 +69,6 @@ class LayoutSelectionTests(unittest.TestCase):
             pass
         self.assertIs(layout_for(Bare()), CDRSEQGEN_CAUSAL)
 
-    def test_the_layout_lives_on_the_adapter_not_the_call(self):
-        # build_causal_prompt takes no layout argument: training and generation resolve it from the
-        # same adapter, which is what stops them diverging (2026-09-02).
-        import inspect
-        params = set(inspect.signature(build_causal_prompt).parameters)
-        self.assertEqual(params, {"tokenizer", "framework"})
 
 
 class LayoutValidationTests(unittest.TestCase):

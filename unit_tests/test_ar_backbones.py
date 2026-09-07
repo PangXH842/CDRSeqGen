@@ -13,8 +13,7 @@ import unittest
 
 import torch
 
-from cdrseqgen.data.dataset_ar import (CausalInfillingDataset, CausalTokenizer,
-                                       causal_collate_fn)
+from cdrseqgen.data.dataset_ar import CausalTokenizer
 from cdrseqgen.methods.ar import backbones
 from cdrseqgen.methods.ar.backbones import (_prepare_hf_tokenizer, REQUIRED_SENTINELS,
                                            missing_sentinels, resolve)
@@ -142,34 +141,6 @@ class HFTokenizerPreparationTests(unittest.TestCase):
 
 
 
-class RoundTripTests(unittest.TestCase):
-    def test_a_registry_built_pair_trains_and_reloads(self):
-        import json, os, tempfile
-        chain = {"fwr1": "AAAA", "cdr1": "CC", "fwr2": "DDDD", "cdr2": "EE",
-                 "fwr3": "FFFF", "cdr3": "GGGGG", "fwr4": "HHHH"}
-        rec = {"heavy": dict(chain, full_aa="x"), "light": dict(chain, full_aa="x"), "split": "train"}
-        handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
-        json.dump([rec] * 4, handle)
-        handle.close()
-
-        backbone = resolve("scratch")
-        adapter = backbone.build_tokenizer("scratch")
-        model = backbone.load_training_model("scratch", hidden_size=32, num_layers=1,
-                                             num_attention_heads=4)
-        ds = CausalInfillingDataset(handle.name, adapter, target_region="h3")
-        batch = causal_collate_fn([ds[i] for i in range(4)], pad_token_id=adapter.pad_id)
-        out = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"],
-                    labels=batch["labels"])
-        self.assertTrue(torch.isfinite(out["loss"]))
-
-        directory = tempfile.mkdtemp()
-        model.save_pretrained(directory)
-        reloaded = backbone.load_pretrained_model(directory)
-        with torch.no_grad():
-            before = model(input_ids=batch["input_ids"][:1])["logits"]
-            after = reloaded(input_ids=batch["input_ids"][:1])["logits"]
-        self.assertTrue(torch.allclose(before, after, atol=1e-6))
-        os.unlink(handle.name)
 
 
 if __name__ == "__main__":

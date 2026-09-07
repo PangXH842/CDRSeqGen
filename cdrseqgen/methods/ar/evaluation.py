@@ -138,19 +138,7 @@ class CausalStrategy:
         forward pass. The masked side needs one pass per position for its pseudo-perplexity; a
         causal factorisation does not.
         """
-        scores = []
-        for prompt, answer_ids in drawn.spans:
-            answer = layout_for(self.tokenizer).build_answer(self.tokenizer, answer_ids)
-            ids = list(prompt) + answer
-            labels = [-100] * len(prompt) + answer
-            tensor = torch.tensor([ids], dtype=torch.long, device=self.device)
-            logits = logits_of(self.model(input_ids=tensor)).float()
-            gold = torch.tensor([labels], dtype=torch.long, device=self.device)
-            nll = torch.nn.functional.cross_entropy(
-                logits[:, :-1].reshape(-1, logits.size(-1)), gold[:, 1:].reshape(-1),
-                ignore_index=-100, reduction="mean")
-            scores.append(float(math.exp(nll.item())) if torch.isfinite(nll) else None)
-        return scores
+        return causal_perplexities(self.model, self.tokenizer, self.device, drawn.spans)
 
     def judge_inputs(self, i, seq):
         """Rebuild the judge's masked prompt at THIS candidate's length; causal lengths vary."""
@@ -234,3 +222,21 @@ def run_causal_generative_eval(model, tokenizer, eval_dataset, *, device, judge_
     write_payload(payload, output_path, len(records))
     write_confidence_figure(payload, output_path, title)
     return payload
+
+
+@torch.no_grad()
+def causal_perplexities(model, tokenizer, device, spans):
+    """Score prompt/answer pairs under the causal model, including the answer terminator."""
+    scores = []
+    for prompt, answer_ids in spans:
+        answer = layout_for(tokenizer).build_answer(tokenizer, answer_ids)
+        ids = list(prompt) + answer
+        labels = [-100] * len(prompt) + answer
+        tensor = torch.tensor([ids], dtype=torch.long, device=device)
+        logits = logits_of(model(input_ids=tensor)).float()
+        gold = torch.tensor([labels], dtype=torch.long, device=device)
+        nll = torch.nn.functional.cross_entropy(
+            logits[:, :-1].reshape(-1, logits.size(-1)), gold[:, 1:].reshape(-1),
+            ignore_index=-100, reduction="mean")
+        scores.append(float(math.exp(nll.item())) if torch.isfinite(nll) else None)
+    return scores

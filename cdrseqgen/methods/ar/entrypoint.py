@@ -13,48 +13,16 @@ from cdrseqgen.methods.ar.training import build_causal_trainer, get_datasets
 from cdrseqgen.methods.common import build_callbacks
 from cdrseqgen.train.logging import configure_logging, update_latest_link
 from cdrseqgen.methods.common.training import run_training_pipeline
-from cdrseqgen import artifacts
 
 logger = logging.getLogger(__name__)
 
 
 def post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_args, training_args,
                              anchor_trim):
-    """Sample from the finished best model and write generation_eval.json.
-
-    Exception-guarded, like the masked side: a generation failure must never damage a training run
-    that has already finished and saved.
-    """
-    from cdrseqgen.eval.generative import build_judge
-    from cdrseqgen.methods.ar.evaluation import run_causal_generative_eval
-    import os
-
-    judge_model = judge_tokenizer = judge_dataset = None
-    if gen_args.gen_judge:
-        judge_model, judge_tokenizer, judge_dataset = build_judge(
-            gen_args.gen_judge, gen_args.gen_judge_path,
-            data_path=data_args.data_path, max_len=data_args.max_len,
-            target_region=data_args.target_region,
-            include_partner_chain=data_args.include_partner_chain,
-            include_antigen=data_args.include_antigen, device=training_args.device)
-
-    run_causal_generative_eval(
-        trainer.model, tokenizer, eval_dataset, device=training_args.device,
-        judge_dataset=judge_dataset, judge_model=judge_model, judge_tokenizer=judge_tokenizer,
-        num_examples=gen_args.gen_num_examples, num_samples=gen_args.gen_num_samples,
-        temperature=gen_args.gen_temperature, top_k=gen_args.gen_top_k, top_p=gen_args.gen_top_p,
-        max_new_tokens=gen_args.gen_max_new_tokens, stratify=gen_args.gen_stratify,
-        seed=gen_args.gen_seed, skip_perplexity=gen_args.gen_skip_perplexity,
-        judge_name=gen_args.gen_judge,
-        output_path=os.path.join(training_args.output_dir, artifacts.GENERATION_EVAL_FILENAME),
-        title=f"{training_args.run_name}   target={data_args.target_region}",
-        anchor_trim=anchor_trim,
-        meta={
-            "model_dir": training_args.output_dir,
-            "target_region": data_args.target_region,
-            "include_partner_chain": bool(data_args.include_partner_chain),
-            "include_antigen": bool(data_args.include_antigen),
-        })
+    from cdrseqgen.methods.common.evaluation import post_training_generation as evaluate
+    return evaluate('ar', trainer, tokenizer, eval_dataset, data_args, gen_args, training_args,
+                    anchor_trim=anchor_trim,
+                    method_options={'max_new_tokens': gen_args.gen_max_new_tokens})
 
 
 def main():
@@ -84,9 +52,5 @@ def main():
     run_training_pipeline(trainer, training_args, tokenizer=tokenizer)
 
     if gen_args.run_generative_eval:
-        try:
-            post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_args,
-                                     training_args, anchor_trim=model_args.anchor_trim)
-        except Exception:
-            logger.warning("⚠️ Generative evaluation failed; the trained run is unaffected.",
-                           exc_info=True)
+        post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_args,
+                                 training_args, anchor_trim=model_args.anchor_trim)

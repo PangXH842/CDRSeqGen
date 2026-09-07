@@ -28,16 +28,13 @@ from cdrseqgen.artifacts import (
     load_run_config,
     processed_metadata_path,
 )
-from cdrseqgen.methods.mlm.arguments import DataArguments, GenerationArguments, ModelArguments
-from cdrseqgen.methods.mlm.training import get_datasets
+from cdrseqgen.methods.registry import resolve as resolve_method, checkpoint_method
 from cdrseqgen.train.logging import configure_logging
 
 # Entrypoints configure their own logging. This used to arrive for free by importing train.py, which
 # ran basicConfig at import — an accident that broke the moment train.py was split.
 configure_logging()
-from cdrseqgen.methods.mlm.backbones import resolve
-from cdrseqgen.methods.mlm.evaluation import build_judge, run_generative_eval
-from cdrseqgen.methods.mlm.length import resolve_generation_length_policy
+from cdrseqgen.eval.generative import build_judge
 
 
 def read_run_config(model_dir):
@@ -114,7 +111,7 @@ def compatibility_problems(run_config, model_args, data_args):
         "include_antigen": data_args.include_antigen,
         "data_path": data_args.data_path,
         "max_len": data_args.max_len,
-        "masking_policy": data_args.masking_policy,
+        "masking_policy": getattr(data_args, "masking_policy", None),
     }
     problems = []
     for key, label in COMPATIBILITY_FIELDS:
@@ -190,6 +187,8 @@ def default_output_path(args):
         "judge": args.judge,
         "judge_path": args.judge_path,
     }
+    if getattr(args, 'max_new_tokens', None) is not None:
+        identity['max_new_tokens'] = args.max_new_tokens
     digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:10]
     judge = slug(args.judge or "nojudge").replace("/", "-")
     name = (
@@ -209,16 +208,17 @@ def main():
     ap.add_argument("--num_examples", type=int, default=200, help="Eval examples to sample (-1 = all).")
     ap.add_argument("--stratify", action="store_true", help="Balance the draw across H3 length buckets.")
 
-    ap.add_argument("--decoding", choices=["independent", "iterative"], default=None,
+    ap.add_argument("--decoding", choices=["independent", "iterative", "causal"], default=None,
                     help="Default: independent for full_span checkpoints; a mixed checkpoint uses "
                          "its recorded decoder, or iterative when none was recorded.")
     ap.add_argument("--num_samples", type=int, default=20, help="Candidates per framework.")
     ap.add_argument("--temperature", type=float, default=1.0)
     ap.add_argument("--length_mode", choices=("fixed_native", "bounded", "inferred"),
-                    default="fixed_native")
+                    default=None)
     ap.add_argument("--min_length", type=int, default=None)
     ap.add_argument("--max_length", type=int, default=None)
     ap.add_argument("--length_temperature", type=float, default=1.0)
+    ap.add_argument("--max_new_tokens", type=int, default=None, help="AR decode cap, including EOS.")
     ap.add_argument("--top_k", type=int, default=0)
     ap.add_argument("--top_p", type=float, default=1.0)
     ap.add_argument("--seed", type=int, default=42)
@@ -237,19 +237,22 @@ def main():
                     help="Evaluate despite checkpoint/config input-contract mismatches. Every "
                          "mismatch is retained in the output provenance.")
     args = ap.parse_args()
-    resolve_generation_length_policy(
-        args.length_mode,
-        min_length=args.min_length,
-        max_length=args.max_length,
-    )
-
-    parser = HfArgumentParser((ModelArguments, DataArguments, GenerationArguments, TrainingArguments))
+    with open(args.config) as handle:
+        supplied_config = json.load(handle)
+    run_config = read_run_config(args.model_dir)
+    method = resolve_method(supplied_config.get('method', 'mlm'))
+    if run_config is not None:
+        checkpoint_method(run_config, method.name)  # architecture mismatches cannot be forced
+    cli = method.module('cli')
+    cli.prepare_evaluation(args, run_config or supplied_config)
+    argument_module = method.module('arguments')
+    parser = HfArgumentParser((argument_module.ModelArguments, argument_module.DataArguments,
+                              argument_module.GenerationArguments, TrainingArguments))
     model_args, data_args, _gen_args, training_args = parser.parse_json_file(json_file=os.path.abspath(args.config))
     training_args.output_dir = args.model_dir
     training_args.report_to = []
     training_args.eval_strategy = "no"
 
-    run_config = read_run_config(args.model_dir)
     problems = compatibility_problems(run_config, model_args, data_args)
     if run_config is None:
         print(f"ℹ️  No {RUN_CONFIG_FILENAME} in {args.model_dir} (older run) — "
@@ -268,9 +271,6 @@ def main():
         print("🧬 Checkpoint input contract matches --config.")
 
     trained_for = run_config.get("target_region") if run_config else None
-    args.decoding = resolve_decoding(
-        args.decoding, args.model_dir, run_config=run_config
-    )
     output_path = None if args.output == "none" else (args.output or default_output_path(args))
     if output_path and os.path.exists(output_path) and not args.overwrite:
         raise SystemExit(
@@ -279,17 +279,14 @@ def main():
         )
     provenance = evaluation_provenance(args.config, args.model_dir, data_args.data_path)
 
-    backbone = resolve(model_args.model_type)
-    _, eval_dataset, tokenizer = get_datasets(model_args, data_args, training_args, backbone)
+    backbone = method.module('backbones').resolve(model_args.model_type)
+    _, eval_dataset, tokenizer = method.module('training').get_datasets(model_args, data_args, training_args, backbone)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = backbone.load_pretrained_model(args.model_dir)
     model.to(device)
 
-    length_predictor = None
-    if args.length_mode != "fixed_native":
-        from cdrseqgen.methods.mlm.length_predictor import LengthPredictor
-        length_predictor = LengthPredictor.load(args.model_dir, device=device)
+    method_options = cli.evaluation_options(args, device)
 
     judge_model = judge_tokenizer = judge_dataset = None
     if args.judge:
@@ -304,14 +301,12 @@ def main():
             device=device,
         )
 
-    run_generative_eval(
+    method.evaluate(
         model, tokenizer, eval_dataset,
         device=device,
-        decoding=args.decoding, num_samples=args.num_samples,
+        num_samples=args.num_samples,
         temperature=args.temperature, top_k=args.top_k, top_p=args.top_p,
-        length_mode=args.length_mode, length_predictor=length_predictor,
-        min_length=args.min_length, max_length=args.max_length,
-        length_temperature=args.length_temperature,
+        **method_options,
         num_examples=args.num_examples, stratify=args.stratify, seed=args.seed,
         skip_perplexity=args.skip_perplexity,
         judge_model=judge_model, judge_tokenizer=judge_tokenizer,

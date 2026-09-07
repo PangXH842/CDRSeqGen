@@ -168,10 +168,6 @@ class DatasetTagPlumbingTests(unittest.TestCase):
         self.assertEqual(dataset_alias({("h3", "SD2", "_LC", "scratch"): "d"}), {})
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class MixedLossDetectionTests(unittest.TestCase):
     """A core-weighted run optimises the number the recovery tables report, so a batch that mixes
     objectives is not one comparison — it must say so rather than render silently."""
@@ -234,3 +230,39 @@ class MethodComparisonTableTests(unittest.TestCase):
         self.assertIn("0.4000", table)
         self.assertIn("0.4500", table)
         self.assertIn("+0.050", table)
+
+
+class GenerationPolicyReportingTests(unittest.TestCase):
+    def test_length_policy_and_recovery_population_come_from_each_artifact(self):
+        import json
+        with tempfile.TemporaryDirectory() as directory:
+            runs = {}
+            # The same model family can use native or inferred length: never infer policy from
+            # the method name. An entirely unmatched framework must not inflate the denominator.
+            for family, source, mode, expected in (
+                ('scratch', 'length_predictor', 'inferred', 'inferred'),
+                ('ar_scratch', 'eos_token', 'inferred', 'EOS'),
+                ('esm2', 'native_mask_count', 'fixed', 'native length'),
+            ):
+                run = Path(directory) / family
+                run.mkdir()
+                payload = {'length_policy': {'mode': mode, 'source': source},
+                           'records': [{'metrics': {'aar_mean': 0.5}}, {'metrics': {'aar_mean': None}}]}
+                (run / 'generation_eval.json').write_text(json.dumps(payload))
+                runs[('h3', 'OAS', '', family)] = str(run)
+                table = build_table('design', runs)
+                self.assertIn(f'| {expected} | 1/2 | 0.500 |', table)
+            self.assertNotIn('a masked run is given the length', table)
+            self.assertIn('populations may differ', table)
+
+    def test_legacy_artifact_without_policy_is_reported_as_unknown(self):
+        import json
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / 'generation_eval.json').write_text(json.dumps({
+                'records': [{'metrics': {'aar_mean': 0.5}}]}))
+            table = build_table('design', {('h3', 'OAS', '', 'scratch'): directory})
+        self.assertIn('| unknown | 1/1 | 0.500 |', table)
+
+
+if __name__ == "__main__":
+    unittest.main()

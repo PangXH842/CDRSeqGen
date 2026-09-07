@@ -68,14 +68,7 @@ def resolve(model_type: str) -> CausalBackbone:
     )
 
 
-def _load_custom_pretrained(path, model_cls, config_cls):
-    import os
-    from safetensors.torch import load_file
-    config = config_cls.from_pretrained(path)
-    model = model_cls(config)
-    model.load_state_dict(load_file(os.path.join(path, "model.safetensors")), strict=True)
-    model.eval()
-    return model
+from cdrseqgen.methods.common.backbones import load_custom_pretrained as _load_custom_pretrained
 
 
 # --- custom from-scratch causal decoder ---------------------------------------------------------

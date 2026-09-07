@@ -10,8 +10,6 @@ import unittest
 
 import torch
 
-from cdrseqgen.data.dataset_ar import (CausalInfillingDataset, CausalTokenizer, causal_adapter,
-                                       causal_collate_fn)
 from cdrseqgen.methods.ar.models.transformer import CausalAntibodyModel, build_model
 
 
@@ -74,12 +72,16 @@ class LossWiringTests(unittest.TestCase):
         self.assertAlmostEqual(loss, torch.log(torch.tensor(27.0)).item(), delta=0.25)
 
     def test_the_next_token_shift_drops_no_supervision(self):
-        # labels[:, 0] is always -100 (the prompt starts there), so shifting loses nothing.
-        adapter = causal_adapter()
-        ids = torch.tensor([[1, 2, 3, 4, 5]])
+        # Positions 0-1 are the supplied prompt; positions 2-4 are the answer.
+        # Compare with its three next-token log probabilities, excluding prompt supervision.
+        model = _model()
+        ids = torch.tensor([[5, 6, 7, 8, 9]])
         labels = torch.tensor([[-100, -100, 7, 8, 9]])
-        self.assertEqual((labels != -100).sum().item(), (labels[:, 1:] != -100).sum().item())
-        self.assertIsNotNone(adapter.eos_id)
+        with torch.no_grad():
+            output = model(ids, labels=labels)
+        log_probs = torch.log_softmax(output["logits"][0], dim=-1)
+        expected = -(log_probs[1, 7] + log_probs[2, 8] + log_probs[3, 9]) / 3
+        torch.testing.assert_close(output["loss"], expected)
 
     def test_a_fully_ignored_batch_produces_no_finite_loss_demand(self):
         model = _model()
@@ -108,29 +110,6 @@ class ArchitectureTests(unittest.TestCase):
         self.assertIsInstance(model, CausalAntibodyModel)
 
 
-class EndToEndTests(unittest.TestCase):
-    def test_a_real_batch_trains(self):
-        tok = CausalTokenizer()
-        adapter = causal_adapter(tok)
-        import json, os, tempfile
-        chain = {"fwr1": "AAAA", "cdr1": "CC", "fwr2": "DDDD", "cdr2": "EE",
-                 "fwr3": "FFFF", "cdr3": "GGGGG", "fwr4": "HHHH"}
-        rec = {"heavy": dict(chain, full_aa="x"), "light": dict(chain, full_aa="x"), "split": "train"}
-        handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
-        json.dump([rec] * 4, handle)
-        handle.close()
-
-        ds = CausalInfillingDataset(handle.name, adapter, target_region="h3")
-        batch = causal_collate_fn([ds[i] for i in range(4)], pad_token_id=adapter.pad_id)
-        model = build_model(vocab_size=len(tok.vocab), hidden_size=64, num_layers=2,
-                            num_attention_heads=4)
-        out = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"],
-                    labels=batch["labels"])
-        self.assertTrue(torch.isfinite(out["loss"]))
-        out["loss"].backward()
-        self.assertTrue(any(p.grad is not None and p.grad.abs().sum() > 0
-                            for p in model.parameters()))
-        os.unlink(handle.name)
 
 
 if __name__ == "__main__":

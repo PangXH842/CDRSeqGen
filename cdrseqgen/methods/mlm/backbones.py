@@ -79,15 +79,7 @@ def resolve(model_type: str) -> Backbone:
 
 
 # --- lazy loader helpers (imports kept local so the module is cheap to import) ----------------
-def _load_custom_pretrained(path, model_cls, config_cls):
-    import os
-    from safetensors.torch import load_file
-    config = config_cls.from_pretrained(path)
-    model = model_cls(config)
-    state_dict = load_file(os.path.join(path, "model.safetensors"))
-    model.load_state_dict(state_dict, strict=True)
-    model.eval()
-    return model
+from cdrseqgen.methods.common.backbones import load_custom_pretrained as _load_custom_pretrained
 
 # --- custom from-scratch transformer -------------------------------------------
 def _scratch():

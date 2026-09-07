@@ -59,9 +59,8 @@ from cdrseqgen.artifacts import load_run_config
 from cdrseqgen.train.logging import configure_logging
 configure_logging()
 
-from cdrseqgen.methods.mlm.backbones import resolve
+from cdrseqgen.methods.registry import checkpoint_method
 from cdrseqgen.methods.mlm.length import resolve_length_policy
-from cdrseqgen.methods.mlm.length_predictor import LengthPredictor
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +98,7 @@ def get_configs(args):
                    "include_partner_chain": bool(args.partner_chain),
                    "include_antigen": bool(args.antigen),
                    "data_path": None,
-                   "max_len": args.max_len,
+                   "max_len": args.max_len or 256,
                    "source": "cli"}
 
     # Print configs
@@ -271,6 +270,8 @@ def _print_case(name, pt1, pt2, target_length, native, args, samples, metrics):
         extra = ""
         if "recovery" in s and s["recovery"] is not None:
             extra += f"  rec={s['recovery'] * 100:5.1f}%"
+        if "perplexity" in s:
+            extra += f"  ppl={s['perplexity']:6.2f}"
         if "pseudo_perplexity" in s:
             extra += f"  ppl={s['pseudo_perplexity']:6.2f}"
         print(f"   {i:2d}) {s['seq']}{extra}")
@@ -296,6 +297,10 @@ def _print_case(name, pt1, pt2, target_length, native, args, samples, metrics):
 def main(args):
     print(f"🧬 Checkpoint: {args.model_path}")
     configs = get_configs(args)
+    method = checkpoint_method(configs)
+    cli = method.module('cli')
+    if getattr(args, 'max_len', None) is None:
+        args.max_len = configs.get('max_len', 256)
     test_cases = get_test_case(args)
 
     problems, warnings = check_compatibility(configs, test_cases, args)
@@ -313,22 +318,18 @@ def main(args):
         logger.warning(f"🔓 --force given: continuing despite {len(problems)} problem(s). "
                        f"They are recorded under 'model.compatibility' in the output.")
 
-    # Validate length requests before paying the cost of loading checkpoint weights.
-    length_policies = []
-    for case in test_cases:
-        try:
-            _native, policy = resolve_case_length(case, args)
-            length_policies.append(policy)
-        except ValueError as exc:
-            name = case.get("name", "Unnamed Test")
-            raise SystemExit(f"Invalid length policy for {name!r}: {exc}") from exc
+    # Validate method-specific options before loading any checkpoint weights.
+    try:
+        policies = cli.prepare_generation(args, test_cases, configs)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
     # Load model for inference. model_type comes from configs, not args: --model_type is optional and
     # falls back to whatever the checkpoint says it is.
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_type = configs["model_type"]
     print(f"🧬 Loading '{model_type}' weights onto {device}…")
-    backbone = resolve(model_type)
+    backbone = method.module("backbones").resolve(model_type)
     tokenizer = backbone.build_tokenizer(model_type)
     model = backbone.load_pretrained_model(args.model_path)
     model.to(device)
@@ -339,14 +340,9 @@ def main(args):
     generator = torch.Generator(device=device)
     generator.manual_seed(args.seed)
 
-    length_predictor = None
-    if any(policy.requires_predictor for policy in length_policies):
-        print("📏 Loading checkpoint length predictor…")
-        length_predictor = LengthPredictor.load(args.model_path, device=device)
-    results = [
-        generate_case(model, tokenizer, device, args, generator, case, length_predictor)
-        for case in test_cases
-    ]
+    state = cli.generation_state(args, policies, device)
+    results = [cli.generate_case(model, tokenizer, device, args, generator, case, state, _print_case)
+               for case in test_cases]
 
     # Persist samples + metrics for downstream analysis (mirrors train.py's per-run CSV habit).
     if args.output != "none":
@@ -414,13 +410,14 @@ if __name__ == "__main__":
                         help="Run despite blocking CONTEXT problems (the checkpoint expects partner "
                              "chain / antigen that this run does not supply, or vice versa). Loop "
                              "and shape mismatches only warn and never need this.")
-    parser.add_argument("--max_len", type=int, default=256,
+    parser.add_argument("--max_len", type=int, default=None,
                         help="Length cap for the assembled input; match the training config (SAbDab2 antigen runs use 512).")
 
     # Sampling controls
-    parser.add_argument("--decoding", choices=["independent", "iterative"], default="iterative",
+    parser.add_argument("--decoding", choices=["independent", "iterative", "causal"], default=None,
                         help="independent (per-position, 1 pass) or iterative (Mask-Predict, coherent). "
                              "--temperature 0 makes either deterministic (greedy).")
+    parser.add_argument("--max_new_tokens", type=int, default=None, help="AR decode cap, including EOS.")
     parser.add_argument("--num_samples", type=int, default=20,
                         help="Candidate loops to sample per framework (collapses to 1 when --temperature 0)")
     parser.add_argument("--show_samples", type=int, default=5, help="How many sampled sequences to print per case")
