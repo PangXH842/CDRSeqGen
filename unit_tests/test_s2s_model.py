@@ -8,12 +8,16 @@ Real modules, real attention, no mocks. Three failures are the point:
     looked plausible
   * a second label shift (here and in the dataset) trains happily against the wrong target
 """
+import copy
+import tempfile
 import unittest
+from unittest.mock import patch
 
 import torch
 
 from cdrseqgen.data.dataset_s2s import build_decoder_pair, s2s_adapter
-from cdrseqgen.methods.s2s.models.transformer import Seq2SeqAntibodyModel, build_model
+from cdrseqgen.methods.s2s.models.transformer import (
+    Seq2SeqAntibodyConfig, Seq2SeqAntibodyModel, build_model)
 
 
 def _model(**kw):
@@ -102,35 +106,61 @@ class CrossAttentionTests(unittest.TestCase):
 
 class LossContractTests(unittest.TestCase):
     def test_the_loss_does_not_shift_because_the_dataset_already_did(self):
-        """A perfect prediction of the dataset's own labels must give ~zero loss.
-
-        If either side shifted twice this would be large, and training would still 'work'.
-        """
+        """Exercise the model's actual loss against the dataset's aligned labels."""
         model = _model()
         adapter = s2s_adapter()
-        target = adapter.encode("ACDE")
-        decoder_input, labels = build_decoder_pair(adapter, target)
-        decoder_input = torch.tensor([decoder_input])
+        decoder_input, labels = build_decoder_pair(adapter, adapter.encode("ACDE"))
         labels = torch.tensor([labels])
-
         with torch.no_grad():
-            logits = model(input_ids=torch.tensor([[3, 4, 5]]),
-                           decoder_input_ids=decoder_input)["logits"]
-        # Hand the loss a distribution that is already certain of the correct labels.
-        perfect = torch.full_like(logits, -20.0)
-        perfect.scatter_(2, labels.unsqueeze(-1), 20.0)
-        loss = torch.nn.CrossEntropyLoss()(
-            perfect.view(-1, perfect.size(-1)), labels.view(-1))
-        self.assertLess(loss.item(), 1e-6)
+            out = model(input_ids=torch.tensor([[3, 4, 5]]),
+                        decoder_input_ids=torch.tensor([decoder_input]), labels=labels)
+        expected = torch.nn.functional.cross_entropy(
+            out["logits"].reshape(-1, 27), labels.reshape(-1))
+        torch.testing.assert_close(out["loss"], expected)
+        shifted = torch.nn.functional.cross_entropy(
+            out["logits"][:, :-1].reshape(-1, 27), labels[:, 1:].reshape(-1))
+        self.assertGreater(abs(out["loss"].item() - shifted.item()), 1e-5)
 
     def test_padded_label_positions_are_ignored(self):
         model = _model()
-        decoder_input = torch.tensor([[25, 7, 8, 0]])
-        clean = torch.tensor([[7, 8, 26, -100]])
         with torch.no_grad():
-            out = model(input_ids=torch.tensor([[3, 4, 5]]), decoder_input_ids=decoder_input,
-                        labels=clean)
-        self.assertTrue(torch.isfinite(out["loss"]))
+            out = model(input_ids=torch.tensor([[3, 4, 5]]),
+                        decoder_input_ids=torch.tensor([[25, 7, 8, 0]]),
+                        labels=torch.tensor([[7, 8, 26, -100]]))
+        expected = torch.nn.functional.cross_entropy(
+            out["logits"][0, :3], torch.tensor([7, 8, 26]))
+        torch.testing.assert_close(out["loss"], expected)
+
+    def test_accumulation_matches_one_batch_with_unequal_loop_lengths(self):
+        # Real Trainer + SGD: compare the actual parameter update for an identical effective
+        # batch. Unequal lengths also catch averaging microbatch means instead of token losses.
+        from transformers import TrainingArguments
+        from cdrseqgen.methods.s2s.training import build_seq2seq_trainer
+
+        original = _model()
+        items = [
+            {"input_ids": torch.tensor([5, 4, 6]),
+             "decoder_input_ids": torch.tensor([25] + loop),
+             "labels": torch.tensor(loop + [26])}
+            for loop in ([7], [8, 9, 10, 11])
+        ]
+        updates = []
+        for accumulation, batch_size in ((1, 2), (2, 1)):
+            model = copy.deepcopy(original)
+            with tempfile.TemporaryDirectory() as directory:
+                args = TrainingArguments(
+                    output_dir=directory, use_cpu=True, max_steps=1,
+                    per_device_train_batch_size=batch_size,
+                    gradient_accumulation_steps=accumulation,
+                    learning_rate=0.01, optim="sgd", lr_scheduler_type="constant",
+                    max_grad_norm=0, report_to="none", save_strategy="no", disable_tqdm=True)
+                trainer = build_seq2seq_trainer(model, args, items, items, s2s_adapter())
+                trainer.train()
+            updates.append(torch.cat([
+                (p.detach() - q.detach()).reshape(-1)
+                for p, q in zip(model.parameters(), original.parameters())]))
+        self.assertGreater(updates[0].norm().item(), 0)
+        torch.testing.assert_close(updates[0], updates[1], atol=2e-7, rtol=2e-4)
 
     def test_labels_without_decoder_inputs_are_refused(self):
         # The model deliberately will not build decoder inputs from labels: that is the API through
@@ -155,6 +185,15 @@ class BuildTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "divisible"):
             build_model(vocab_size=27, hidden_size=30, num_attention_heads=4)
 
+    def test_odd_rotary_head_dimension_fails_at_construction(self):
+        for construct in (
+            lambda: build_model(hidden_size=24, num_attention_heads=8),
+            lambda: Seq2SeqAntibodyModel(Seq2SeqAntibodyConfig(
+                hidden_size=24, num_attention_heads=8)),
+        ):
+            with self.assertRaisesRegex(ValueError, "even head dimension"):
+                construct()
+
     def test_the_ffn_ratio_tracks_width(self):
         # Same rule as the masked and causal models: intermediate_size=None means 4x hidden_size, so
         # widening does not silently change the FFN ratio and confound an architecture sweep.
@@ -163,6 +202,36 @@ class BuildTests(unittest.TestCase):
 
     def test_it_is_a_pretrained_model_so_save_and_reload_work(self):
         self.assertIsInstance(_model(), Seq2SeqAntibodyModel)
+
+
+class PerplexityTests(unittest.TestCase):
+    def test_encoder_reuse_preserves_scores_and_switches_frameworks(self):
+        from cdrseqgen.methods.s2s.evaluation import s2s_perplexities
+
+        model = _model()
+        tok = s2s_adapter()
+        spans = [([5, 4, 6], tok.encode(loop)) for loop in ("AC", "DEF", "AC")]
+        spans += [([8, 4, 9], tok.encode("GH")), ([5, 4, 6], tok.encode("AC"))]
+        expected = []
+        with torch.no_grad():
+            for source, loop in spans:
+                decoder, labels = build_decoder_pair(tok, loop)
+                out = model(input_ids=torch.tensor([source]),
+                            decoder_input_ids=torch.tensor([decoder]),
+                            labels=torch.tensor([labels]))
+                expected.append(out["loss"].exp().item())
+        with patch.object(model, "encode", wraps=model.encode) as encode:
+            actual = s2s_perplexities(model, tok, torch.device("cpu"), spans)
+        self.assertEqual(encode.call_count, 3)
+        torch.testing.assert_close(torch.tensor(actual), torch.tensor(expected))
+
+    def test_empty_candidate_list_never_encodes(self):
+        from cdrseqgen.methods.s2s.evaluation import s2s_perplexities
+
+        model = _model()
+        with patch.object(model, "encode", wraps=model.encode) as encode:
+            self.assertEqual(s2s_perplexities(model, s2s_adapter(), "cpu", []), [])
+        encode.assert_not_called()
 
 
 if __name__ == "__main__":

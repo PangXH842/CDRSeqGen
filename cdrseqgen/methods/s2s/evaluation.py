@@ -231,13 +231,21 @@ def s2s_perplexities(model, tokenizer, device, spans):
     label at t. This mirrors the loss in ``models/transformer.py`` and differs from the causal
     method's ``causal_perplexities``, which must shift because its labels are aligned instead.
     """
+    # Candidates from one framework arrive consecutively. Retain just its encoder output,
+    # avoiding another full framework encode per candidate without growing a dataset-wide cache.
     scores = []
+    cached_source = None
+    encoded = None
     for encoder_ids, loop_ids in spans:
         decoder_input, labels = build_decoder_pair(tokenizer, loop_ids)
-        source = torch.tensor([list(encoder_ids)], dtype=torch.long, device=device)
+        source_key = tuple(encoder_ids)
+        if source_key != cached_source:
+            source = torch.tensor([source_key], dtype=torch.long, device=device)
+            encoded = model.encode(source)
+            cached_source = source_key
         decoder = torch.tensor([decoder_input], dtype=torch.long, device=device)
         gold = torch.tensor([labels], dtype=torch.long, device=device)
-        logits = logits_of(model(input_ids=source, decoder_input_ids=decoder)).float()
+        logits = logits_of(model(encoder_hidden_states=encoded, decoder_input_ids=decoder)).float()
         nll = torch.nn.functional.cross_entropy(
             logits.reshape(-1, logits.size(-1)), gold.reshape(-1),
             ignore_index=-100, reduction="mean")

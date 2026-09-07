@@ -2,7 +2,7 @@
 # CDRSeqGen: Modular Antibody Infilling Framework
 
 **Date Updated:** 2026-09-07
-**Status:** **Three methods now dispatch from one `train.py`** — masked (`mlm`), causal (`ar`), and encoder-decoder (`s2s`, added 2026-09-07). The length question is closed: §9/§10 put the achievable H3 ceiling at 11.07% / 3.01 MAE via a non-neural V/J lookup, barely above always guessing the modal length, so length is reported against that baseline rather than optimised. `s2s` is the missing cell of the 2x2 — bidirectional framework encoding like `mlm`, left-to-right loop generation with model-chosen length like `ar` — motivated by the 2026-09-04 matched comparison, which ties on every native-referenced metric and separates only on judged plausibility (causal 3.15 vs masked 7.55). It is **implemented and verified end to end but not yet measured**: no `s2s` experiment has been run. Next: an `s2s` learning-rate screen (its hyperparameters are inherited from the AR sweep, not its own), then the three-arm `compare` run, multi-seeded.
+**Status:** s2s update
 
 ## Project Overview
 CDRSeqGen is a computational immunology framework designed to predict antibody loop sequences given the surrounding framework context. 

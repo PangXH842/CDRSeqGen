@@ -92,6 +92,9 @@ class SelfAttention(nn.Module):
         self.causal = causal
         self.n_head = config.num_attention_heads
         self.head_dim = config.hidden_size // config.num_attention_heads
+        if self.head_dim % 2:
+            raise ValueError("rotary attention requires an even head dimension "
+                             "(hidden_size / num_attention_heads)")
         self.qkv = nn.Linear(config.hidden_size, 3 * config.hidden_size)
         self.proj = nn.Linear(config.hidden_size, config.hidden_size)
         self.rope_theta = config.rope_theta
@@ -188,6 +191,8 @@ class DecoderBlock(nn.Module):
 
 class Seq2SeqAntibodyModel(PreTrainedModel):
     config_class = Seq2SeqAntibodyConfig
+    # Trainer supplies the supervised-token count across the accumulation window.
+    accepts_loss_kwargs = True
 
     def __init__(self, config):
         super().__init__(config)
@@ -221,7 +226,7 @@ class Seq2SeqAntibodyModel(PreTrainedModel):
 
     def forward(self, input_ids=None, attention_mask=None, decoder_input_ids=None,
                 decoder_attention_mask=None, labels=None, encoder_hidden_states=None,
-                output_hidden_states=False, return_dict=True, **_kwargs):
+                output_hidden_states=False, return_dict=True, num_items_in_batch=None, **_kwargs):
         if encoder_hidden_states is None:
             if input_ids is None:
                 raise ValueError("seq2seq forward needs input_ids or encoder_hidden_states")
@@ -244,8 +249,14 @@ class Seq2SeqAntibodyModel(PreTrainedModel):
         if labels is not None:
             # NO shift: dataset_s2s already offset the pair, so the logit at t is scored against the
             # label at t. Padding is -100 and drops out.
-            loss = nn.CrossEntropyLoss()(
-                logits.view(-1, self.config.vocab_size), labels.view(-1))
+            # Normalize across the full accumulation window when Trainer supplies its count.
+            # Summing microbatch means would overweight short loops and scale gradients with
+            # gradient_accumulation_steps. Direct calls retain ordinary token-mean loss.
+            loss = nn.functional.cross_entropy(
+                logits.reshape(-1, self.config.vocab_size), labels.reshape(-1),
+                reduction="mean" if num_items_in_batch is None else "sum")
+            if num_items_in_batch is not None:
+                loss = loss / torch.as_tensor(num_items_in_batch, device=loss.device)
 
         output = {"loss": loss, "logits": logits}
         if output_hidden_states:
