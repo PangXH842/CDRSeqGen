@@ -48,6 +48,9 @@ PRESET=${2:-h3}
 BASE=${3:-configs/h3_scratch.json}
 PYTHON=${PYTHON:-python}
 DATA_PATH=${DATA_PATH:-dataset/data/processed/processed_oas_multi.json}
+# Which pipeline the base config selects. The `arch` preset needs it: an encoder-decoder has two
+# depths, and the flag that controls them is not the one the other methods use.
+BASE_METHOD=$("$PYTHON" -c "import json,sys;print(json.load(open(sys.argv[1])).get('method','mlm'))" "$BASE" 2>/dev/null || echo mlm)
 
 # --- Preset grids. Env vars win, so a preset only supplies defaults. --------------------------
 case "$PRESET" in
@@ -279,6 +282,12 @@ while IFS=$'\t' read -r lr wu wd ep hs nl loss cw aw seed; do
     # intermediate_size defaults to 4 x hidden_size, so the FFN ratio tracks width and the
     # comparison is not confounded by a fixed FFN. Heads must divide hidden_size.
     EXTRA_ARGS+=(--hidden_size "$hs" --num_layers "$nl" --num_attention_heads 8)
+    # An s2s config PINS num_encoder_layers/num_decoder_layers, and those win over num_layers --
+    # so sweeping num_layers alone would run every arch trial at the config's fixed depth and
+    # report the resulting noise as an architecture result. Sweep both stacks symmetrically.
+    if [[ "$BASE_METHOD" == "s2s" ]]; then
+      EXTRA_ARGS+=(--num_encoder_layers "$nl" --num_decoder_layers "$nl")
+    fi
   fi
   if [[ "$loss" != "__keep__" ]]; then
     EXTRA_ARGS+=(--loss_type "$loss" --core_loss_weight "$cw" --anchor_loss_weight "$aw")

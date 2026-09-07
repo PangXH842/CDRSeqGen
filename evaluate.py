@@ -28,7 +28,7 @@ from cdrseqgen.artifacts import (
     processed_metadata_path,
     read_run_config,
 )
-from cdrseqgen.methods.registry import resolve as resolve_method, checkpoint_method
+from cdrseqgen.methods.registry import decoding_choices, resolve as resolve_method, checkpoint_method
 from cdrseqgen.train.logging import configure_logging
 
 # Entrypoints configure their own logging. This used to arrive for free by importing train.py, which
@@ -166,7 +166,7 @@ def main():
     ap.add_argument("--num_examples", type=int, default=200, help="Eval examples to sample (-1 = all).")
     ap.add_argument("--stratify", action="store_true", help="Balance the draw across H3 length buckets.")
 
-    ap.add_argument("--decoding", choices=["independent", "iterative", "causal"], default=None,
+    ap.add_argument("--decoding", choices=decoding_choices(), default=None,
                     help="Default: independent for full_span checkpoints; a mixed checkpoint uses "
                          "its recorded decoder, or iterative when none was recorded.")
     ap.add_argument("--num_samples", type=int, default=20, help="Candidates per framework.")

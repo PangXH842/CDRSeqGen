@@ -94,6 +94,19 @@ class MethodRegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "different method"):
             checkpoint_method({"method": "s2s"}, "ar")
 
+    def test_decoding_choices_cover_every_method(self):
+        """generate.py and evaluate.py hard-coded this list, so a method added later was rejected
+        by argparse before its own cli could validate the request. Deriving it from the registry
+        means an enumeration that cannot fall behind."""
+        from cdrseqgen.methods.registry import METHODS, decoding_choices
+        choices = decoding_choices()
+        self.assertEqual(len(choices), len(set(choices)), "duplicate decoder name across methods")
+        for name, method in METHODS.items():
+            with self.subTest(method=name):
+                self.assertTrue(method.decoders, f"{name} declares no decoder for --decoding")
+                for decoder in method.decoders:
+                    self.assertIn(decoder, choices)
+
     def test_the_dispatcher_routes_the_seq2seq_method(self):
         method, _ = resolve_method(["train.py", "--method", "s2s"])
         self.assertEqual(method, "s2s")

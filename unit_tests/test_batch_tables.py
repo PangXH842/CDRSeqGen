@@ -219,6 +219,20 @@ class MethodComparisonTableTests(unittest.TestCase):
             self.assertIn(family, FAMILY_LABELS,
                           f"method {name!r} produces runs named *_{family} with no table family")
 
+    def test_family_to_method_mapping_comes_from_the_registry(self):
+        """Dashboards branch on this to decide whether teacher-forced bars are comparable. A
+        prefix guess (`startswith("ar_")`) filed every method added after `ar` under "masked",
+        which inverts the warning: `s2s` predicts position i from the true prefix exactly as `ar`
+        does, so it is the MASKED arm that is the odd one out."""
+        from cdrseqgen.methods.registry import METHODS
+        from cdrseqgen.visualization.batch_tables import FAMILY_LABELS, method_of_family
+        self.assertEqual(method_of_family("scratch"), "mlm")
+        self.assertEqual(method_of_family("esm2"), "mlm")
+        self.assertEqual(method_of_family("ar_scratch"), "ar")
+        self.assertEqual(method_of_family("s2s_scratch"), "s2s")
+        for family in FAMILY_LABELS:
+            self.assertIn(method_of_family(family), METHODS)
+
     def test_compare_suite_table_contains_masked_and_causal_runs(self):
         row = {
             "epoch": 1,

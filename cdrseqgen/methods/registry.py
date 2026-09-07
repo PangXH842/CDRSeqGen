@@ -12,6 +12,7 @@ class Method:
     name: str
     package: str
     evaluator: str
+    decoders: tuple = ()        # decoder names --decoding accepts for this method
 
     def module(self, component):
         return import_module(f'{self.package}.{component}')
@@ -21,11 +22,22 @@ class Method:
 
 
 METHODS = {
-    'mlm': Method('mlm', 'cdrseqgen.methods.mlm', 'run_generative_eval'),
-    'ar': Method('ar', 'cdrseqgen.methods.ar', 'run_causal_generative_eval'),
-    's2s': Method('s2s', 'cdrseqgen.methods.s2s', 'run_s2s_generative_eval'),
+    'mlm': Method('mlm', 'cdrseqgen.methods.mlm', 'run_generative_eval',
+                  ('independent', 'iterative')),
+    'ar': Method('ar', 'cdrseqgen.methods.ar', 'run_causal_generative_eval', ('causal',)),
+    's2s': Method('s2s', 'cdrseqgen.methods.s2s', 'run_s2s_generative_eval', ('seq2seq',)),
 }
 DEFAULT_METHOD = 'mlm'
+
+
+def decoding_choices():
+    """Every decoder name --decoding accepts, across all methods, in registration order.
+
+    generate.py and evaluate.py each used to hard-code this list, so a method added later was
+    rejected by argparse before its own cli could ever validate the request -- an enumeration that
+    has to be edited in two more places is one a new method silently falls out of.
+    """
+    return [decoder for method in METHODS.values() for decoder in method.decoders]
 
 
 def resolve(name=DEFAULT_METHOD):

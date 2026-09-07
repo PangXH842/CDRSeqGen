@@ -36,7 +36,7 @@ import matplotlib.pyplot as plt
 from cdrseqgen.visualization import plot_style
 from cdrseqgen.visualization.bargraph_plotter import BarSeries, draw_grouped_bars
 from cdrseqgen.visualization.batch_tables import (
-    FAMILY_LABELS, _epoch_metrics, discover_runs, recovery_summary)
+    FAMILY_LABELS, _epoch_metrics, discover_runs, method_of_family, recovery_summary)
 from cdrseqgen.visualization.scatterplot_plotter import ScatterSeries, draw_scatter
 from cdrseqgen import artifacts
 
@@ -44,9 +44,9 @@ GENERATION_EVAL_FILENAME = artifacts.GENERATION_EVAL_FILENAME
 
 LOOP_ORDER = ("h1", "h2", "h3", "l1", "l2", "l3")
 # Families a dashboard can show side by side, shared with `batch_tables` so a family added there
-# appears in both. `ar_scratch` is how a causal run's name parses (h3_OAS_ar_scratch -> model
-# "ar_scratch"), which is what lets one batch hold both methods and compare them in a single
-# figure — the point of run.sh's `compare` suite.
+# appears in both. `ar_scratch`/`s2s_scratch` are how a causal or encoder-decoder run's name parses
+# (h3_OAS_ar_scratch -> model "ar_scratch"), which is what lets one batch hold every method and
+# compare them in a single figure — the point of run.sh's `compare` suite.
 FAMILIES = tuple(FAMILY_LABELS)
 
 
@@ -93,9 +93,13 @@ def _recovery_panel(ax, runs, dataset, cache, context):
     # given the true residues before it. Causal therefore scores higher on an easier task, and the
     # bars are not comparable across methods -- only within one. Panel D is the free-running view,
     # which is comparable. Said on the axis because the chart is read without the docstring.
-    methods = {"causal" if family.startswith("ar_") else "masked" for family in FAMILIES
+    # `ar` and `s2s` both predict position i given the TRUE residues before it, so their bars are
+    # comparable to each other; only the masked task differs. A startswith("ar_") test used to
+    # decide this, which silently filed every later method under "masked" and inverted the warning.
+    present = {method_of_family(family) for family in FAMILIES
                if any((loop, dataset, context, family) in runs for loop in loops)}
-    caveat = "  ⚠ masked vs causal NOT comparable" if len(methods) > 1 else ""
+    caveat = ("  ⚠ masked vs sequential NOT comparable"
+              if "mlm" in present and present - {"mlm"} else "")
     plot_style.style_axes(ax, title="A. Best-epoch recovery per loop (teacher-forced)" + caveat,
                           ylabel="Teacher-forced recovery (coverage-aware)", percent_axis="y",
                           legend=True, grid="y")

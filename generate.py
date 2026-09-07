@@ -59,7 +59,7 @@ from cdrseqgen.artifacts import load_run_config
 from cdrseqgen.train.logging import configure_logging
 configure_logging()
 
-from cdrseqgen.methods.registry import checkpoint_method
+from cdrseqgen.methods.registry import decoding_choices, checkpoint_method
 
 logger = logging.getLogger(__name__)
 
@@ -373,7 +373,7 @@ if __name__ == "__main__":
                         help="Length cap for the assembled input; match the training config (SAbDab2 antigen runs use 512).")
 
     # Sampling controls
-    parser.add_argument("--decoding", choices=["independent", "iterative", "causal"], default=None,
+    parser.add_argument("--decoding", choices=decoding_choices(), default=None,
                         help="independent (per-position, 1 pass) or iterative (Mask-Predict, coherent). "
                              "--temperature 0 makes either deterministic (greedy).")
     parser.add_argument("--max_new_tokens", type=int, default=None, help="AR decode cap, including EOS.")

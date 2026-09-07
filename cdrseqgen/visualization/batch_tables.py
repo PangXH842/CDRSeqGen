@@ -431,6 +431,18 @@ FAMILY_LABELS = {
     "s2s_scratch": "scratch (enc-dec)",
 }
 
+def method_of_family(family):
+    """Which method produced runs of this family, e.g. "s2s_scratch" -> "s2s".
+
+    Derived from the registry rather than a prefix guess, so adding a method cannot leave a stale
+    branch behind. `mlm` is the historical default and its runs carry no marker in the name, so a
+    family with no registered method prefix ("scratch", "esm2") is masked.
+    """
+    from cdrseqgen.methods.registry import DEFAULT_METHOD, METHODS
+    prefix = family.split("_", 1)[0]
+    return prefix if prefix in METHODS else DEFAULT_METHOD
+
+
 GEN_KEYS = [
     ("aar_mean", "recovery"),
     ("diversity_hamming", "diversity"),
