@@ -58,6 +58,47 @@ class DispatcherTests(unittest.TestCase):
         self.assertEqual(model.method, "ar")
 
 
+class MethodRegistryTests(unittest.TestCase):
+    """A method is only usable if every component the dispatchers reach for actually exists."""
+
+    CLI_PROTOCOL = ("prepare_evaluation", "evaluation_options", "prepare_generation",
+                    "generation_state", "generate_case")
+
+    def test_every_registered_method_resolves_its_components(self):
+        from cdrseqgen.methods.registry import METHODS, resolve
+        for name, method in METHODS.items():
+            with self.subTest(method=name):
+                for component in ("arguments", "backbones", "training", "evaluation", "cli",
+                                  "entrypoint"):
+                    self.assertTrue(hasattr(method.module(component), "__name__"))
+                # The evaluator named in the registry must exist, or post-training generation
+                # fails only after a full training run has already been paid for.
+                self.assertTrue(callable(getattr(method.module("evaluation"), method.evaluator)))
+                self.assertTrue(callable(method.module("entrypoint").main))
+                self.assertTrue(callable(method.module("training").get_datasets))
+                self.assertIs(resolve(name), method)
+
+    def test_every_method_exposes_the_identical_cli_protocol(self):
+        """The five functions generate.py/evaluate.py dispatch through. A method missing one fails
+        at the point of use — after a checkpoint is loaded — rather than at import."""
+        from cdrseqgen.methods.registry import METHODS
+        for name, method in METHODS.items():
+            cli = method.module("cli")
+            for function in self.CLI_PROTOCOL:
+                with self.subTest(method=name, function=function):
+                    self.assertTrue(callable(getattr(cli, function, None)))
+
+    def test_a_checkpoint_cannot_be_reinterpreted_by_another_method(self):
+        from cdrseqgen.methods.registry import checkpoint_method
+        self.assertEqual(checkpoint_method({"method": "s2s"}).name, "s2s")
+        with self.assertRaisesRegex(ValueError, "different method"):
+            checkpoint_method({"method": "s2s"}, "ar")
+
+    def test_the_dispatcher_routes_the_seq2seq_method(self):
+        method, _ = resolve_method(["train.py", "--method", "s2s"])
+        self.assertEqual(method, "s2s")
+
+
 class CommonArgumentTests(unittest.TestCase):
     def _args(self):
         return (
@@ -129,6 +170,43 @@ class SharedTrainingLifecycleTests(unittest.TestCase):
         tokenizer.save_pretrained.assert_called_once_with(args.output_dir)
         save_csv.assert_called_once_with(trainer, args.output_dir)
         plot_curves.assert_called_once_with(args.output_dir)
+
+
+class Seq2SeqConfigTests(unittest.TestCase):
+    def test_decode_cap_covers_the_decoder_budget(self):
+        from cdrseqgen.data.dataset_s2s import MAX_LOOP_RESIDUES, S2S_DECODE_STEPS
+        from cdrseqgen.methods.s2s.arguments import (DataArguments, GenerationArguments,
+                                                     ModelArguments, validate_args)
+        generation = GenerationArguments()
+        self.assertEqual(generation.gen_max_new_tokens, MAX_LOOP_RESIDUES + 1)
+        self.assertEqual(generation.gen_max_new_tokens, S2S_DECODE_STEPS)
+        generation.gen_max_new_tokens += 1
+        with self.assertRaisesRegex(ValueError, "max_new_tokens"):
+            validate_args(ModelArguments(), DataArguments(), generation)
+
+    def test_stack_depths_must_be_positive_integers_or_unset(self):
+        from cdrseqgen.methods.s2s.arguments import (DataArguments, GenerationArguments,
+                                                     ModelArguments, validate_args)
+        for value in (0, -1, True, 2.5):
+            with self.subTest(value=value):
+                model = ModelArguments(num_encoder_layers=value)
+                with self.assertRaisesRegex(ValueError, "num_encoder_layers"):
+                    validate_args(model, DataArguments(), GenerationArguments())
+        validate_args(ModelArguments(num_encoder_layers=2, num_decoder_layers=2),
+                      DataArguments(), GenerationArguments())
+
+    def test_the_shipped_configs_pin_both_stack_depths(self):
+        """The comparison configs must not inherit num_layers on both stacks: that is 1.86M
+        parameters against the causal arm's 800k, and the batch would confound architecture with
+        2.3x capacity while every label still read 'scratch'."""
+        import json
+        from pathlib import Path
+        for name in ("h3_s2s_scratch.json", "h3_s2s_scratch_lc.json"):
+            with self.subTest(config=name):
+                config = json.loads((Path("configs") / name).read_text())
+                self.assertEqual(config["method"], "s2s")
+                self.assertIn("num_encoder_layers", config)
+                self.assertIn("num_decoder_layers", config)
 
 
 class CausalConfigTests(unittest.TestCase):

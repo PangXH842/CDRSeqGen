@@ -23,6 +23,7 @@ class Method:
 METHODS = {
     'mlm': Method('mlm', 'cdrseqgen.methods.mlm', 'run_generative_eval'),
     'ar': Method('ar', 'cdrseqgen.methods.ar', 'run_causal_generative_eval'),
+    's2s': Method('s2s', 'cdrseqgen.methods.s2s', 'run_s2s_generative_eval'),
 }
 DEFAULT_METHOD = 'mlm'
 

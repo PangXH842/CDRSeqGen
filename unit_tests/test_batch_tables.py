@@ -207,6 +207,18 @@ class MixedLossDetectionTests(unittest.TestCase):
 
 
 class MethodComparisonTableTests(unittest.TestCase):
+    def test_every_registered_method_has_a_display_family(self):
+        """A method whose run names parse to a family absent from FAMILY_LABELS is silently
+        dropped from every table and dashboard — the run completes, the artifacts are written, and
+        the results simply never appear. Adding a method must add its family."""
+        from cdrseqgen.methods.registry import METHODS
+        from cdrseqgen.visualization.batch_tables import FAMILY_LABELS
+        for name in METHODS:
+            # `mlm` is the historical default and its runs carry no method marker in the name.
+            family = "scratch" if name == "mlm" else f"{name}_scratch"
+            self.assertIn(family, FAMILY_LABELS,
+                          f"method {name!r} produces runs named *_{family} with no table family")
+
     def test_compare_suite_table_contains_masked_and_causal_runs(self):
         row = {
             "epoch": 1,
@@ -230,6 +242,27 @@ class MethodComparisonTableTests(unittest.TestCase):
         self.assertIn("0.4000", table)
         self.assertIn("0.4500", table)
         self.assertIn("+0.050", table)
+
+    def test_the_encoder_decoder_arm_reaches_the_comparison_table(self):
+        row = {
+            "epoch": 1,
+            "eval_accuracy": 0.5,
+            "eval_core_accuracy": 0.4,
+            "eval_anchor_accuracy": 0.8,
+            "eval_core_coverage": 1.0,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            masked = Path(tmp) / "h3_OAS_scratch"
+            seq2seq = Path(tmp) / "h3_OAS_s2s_scratch"
+            write_metrics(masked, [row])
+            write_metrics(seq2seq, [{**row, "eval_core_accuracy": 0.47}])
+            table = build_table("methods", {
+                ("h3", "OAS", "", "scratch"): str(masked),
+                ("h3", "OAS", "", "s2s_scratch"): str(seq2seq),
+            })
+
+        self.assertIn("scratch (enc-dec)", table)
+        self.assertIn("0.4700", table)
 
 
 class GenerationPolicyReportingTests(unittest.TestCase):

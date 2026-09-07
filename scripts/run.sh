@@ -27,6 +27,7 @@
 #   mlm_protbert  masked, ProtBert (general-protein baseline) on OAS heavy        (6)  [~1.6GB dl]
 #   mlm_plm       mlm_igbert + mlm_protbert                                      (12)
 #   ar_heavy      causal, OAS heavy CDRs (h1/h2/h3), base + _lc                   (6)
+#   s2s_heavy     encoder-decoder, OAS h3, base + _lc                             (2)
 #   compare       h3 masked (inferred length) + causal, one matched batch         (4)
 #   all           mlm_heavy + mlm_antigen + mlm_light (PLMs and causal opt-in)   (36)
 #
@@ -88,11 +89,21 @@ AR_HEAVY_CONFIGS=(
     configs/h2_ar_scratch.json configs/h2_ar_scratch_lc.json
     configs/h3_ar_scratch.json configs/h3_ar_scratch_lc.json
 )
-# Paired masked/causal h3 runs in ONE batch folder, so batch_tables.md and batch_<ds>.png compare
-# the two methods side by side from a single round rather than a manual merge of two.
+# Encoder-decoder: h3 only for now. H1/H2 are retrieval-bound (§6) and would answer nothing a
+# third method could not already be assumed to get right.
+S2S_HEAVY_CONFIGS=(
+    configs/h3_s2s_scratch.json configs/h3_s2s_scratch_lc.json
+)
+# Paired masked/causal/encoder-decoder h3 runs in ONE batch folder, so batch_tables.md and
+# batch_<ds>.png compare the methods side by side from a single round rather than a manual merge.
+#
+# The three arms are NOT capacity-matched by construction and the configs say so: `ar` is 800k
+# parameters at 4 layers, `s2s` would be 1.86M at the same `num_layers`, so its configs pin
+# num_encoder_layers/num_decoder_layers to 2/2 for 933k (1.17x). Quote parameter counts in any
+# table built from this suite -- train.log records them.
 COMPARE_CONFIGS=(
-    configs/h3_scratch.json configs/h3_ar_scratch.json
-    configs/h3_scratch_lc.json configs/h3_ar_scratch_lc.json
+    configs/h3_scratch.json configs/h3_ar_scratch.json configs/h3_s2s_scratch.json
+    configs/h3_scratch_lc.json configs/h3_ar_scratch_lc.json configs/h3_s2s_scratch_lc.json
 )
 MLM_IGBERT_CONFIGS=(
     configs/h1_igbert.json configs/h1_igbert_lc.json
@@ -109,7 +120,7 @@ MLM_PROTBERT_CONFIGS=(
 # axis each time -- `oas` a dataset (but lcdr/ar/igbert/protbert are equally OAS), `lcdr` a loop
 # set, `ar` a method, `igbert` a model, `antigen` a context -- which stopped being merely untidy
 # once suite names became part of the batch folder name and `dataset_tag` grew a second OAS corpus.
-SUITE_NAMES="mlm_heavy mlm_light mlm_antigen mlm_igbert mlm_protbert mlm_plm ar_heavy compare all"
+SUITE_NAMES="mlm_heavy mlm_light mlm_antigen mlm_igbert mlm_protbert mlm_plm ar_heavy s2s_heavy compare all"
 
 expand_suite() {
     case "$1" in
@@ -120,6 +131,7 @@ expand_suite() {
         mlm_protbert) printf '%s\n' "${MLM_PROTBERT_CONFIGS[@]}" ;;
         mlm_plm)      printf '%s\n' "${MLM_IGBERT_CONFIGS[@]}" "${MLM_PROTBERT_CONFIGS[@]}" ;;
         ar_heavy)     printf '%s\n' "${AR_HEAVY_CONFIGS[@]}" ;;
+        s2s_heavy)    printf '%s\n' "${S2S_HEAVY_CONFIGS[@]}" ;;
         compare)      printf '%s\n' "${COMPARE_CONFIGS[@]}" ;;
         all)          printf '%s\n' "${MLM_HEAVY_CONFIGS[@]}" "${MLM_ANTIGEN_CONFIGS[@]}" "${MLM_LIGHT_CONFIGS[@]}" ;;
         *)            printf '__UNKNOWN__:%s\n' "$1" ;;
@@ -231,8 +243,10 @@ run_one() {
     if [[ $COMPARE_REQUESTED -eq 1 &&
           ( "$config" == "configs/h3_scratch.json" ||
             "$config" == "configs/h3_scratch_lc.json" ) ]]; then
-        # Three things must match for a masked-vs-causal head-to-head, and only the first was
-        # being forced. The other two are config defaults that happen to differ:
+        # Three things must match for a masked-vs-causal-vs-encoder-decoder head-to-head, and only
+        # the first was being forced. The other two are config defaults that happen to differ.
+        # Only the MASKED arm needs this: `ar` and `s2s` both choose their own length and already
+        # ship max_len 384 / top_p 0.9.
         #   max_len   -- the causal layout needs 384 (framework + partner chain + the 96-position
         #                answer reserve + 3 layout tokens), while h3_scratch.json ships 128. 12% of
         #                OAS heavy chains exceed 128 tokens, so the masked arm was seeing TRUNCATED
@@ -241,7 +255,7 @@ run_one() {
         #   gen_top_p -- the AR configs pin 0.9; the masked default is 1.0, i.e. no nucleus
         #                filtering at all. Different sampling policies are not a comparison.
         overrides+=(--gen_length_mode inferred --max_len 384 --gen_top_p 0.9)
-        echo "⚖️  Matched compare: MLM uses inferred length, max_len 384, top_p 0.9 (matching AR)."
+        echo "⚖️  Matched compare: MLM uses inferred length, max_len 384, top_p 0.9 (matching AR/S2S)."
     fi
     CUDA_VISIBLE_DEVICES="$gpu" python train.py "$config" "${overrides[@]}"
 }

@@ -315,7 +315,7 @@ RECOVERY_TABLES = {
         ],
     },
     "methods": {
-        "title": "Causal integration — H3 teacher-forced recovery (length policies differ)",
+        "title": "Method integration — H3 teacher-forced recovery (length policies and parameter counts differ; see each run's train.log)",
         "label_header": "case",
         "cases": [
             ("OAS H3", "h3", "OAS", ""),
@@ -324,6 +324,7 @@ RECOVERY_TABLES = {
         "columns": [
             ("scratch (masked)", "scratch", (BASE_CONTEXT,)),
             ("scratch (causal)", "ar_scratch", (BASE_CONTEXT,)),
+            ("scratch (enc-dec)", "s2s_scratch", (BASE_CONTEXT,)),
         ],
         "delta": True,
     },
@@ -417,13 +418,17 @@ def _recovery_table(name, runs):
     return markdown_table(spec["title"], headers, rows, alignments)
 
 
-# Model families a batch can hold, in display order. `ar_scratch` is how a causal run's name
-# parses (h3_OAS_ar_scratch -> model "ar_scratch"); `batch_plots` imports this so a family added
-# here shows up in both the tables and the dashboards.
+# Model families a batch can hold, in display order. `ar_scratch`/`s2s_scratch` are how a causal or
+# encoder-decoder run's name parses (h3_OAS_ar_scratch -> model "ar_scratch"); `batch_plots` imports
+# this so a family added here shows up in both the tables and the dashboards.
+#
+# A family missing from this map is silently absent from every table, so adding a method means
+# adding a row here — `test_batch_tables` asserts each registered method has one.
 FAMILY_LABELS = {
     "scratch": "scratch (masked)",
     "esm2": "ESM-2 (masked)",
     "ar_scratch": "scratch (causal)",
+    "s2s_scratch": "scratch (enc-dec)",
 }
 
 GEN_KEYS = [

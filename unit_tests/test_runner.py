@@ -74,17 +74,26 @@ os.execv(sys.executable, [sys.executable, *args])  # execute real JSON/data pref
                 result, records = self.run_batch(devices, 'compare')
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(set(records), {'h3_scratch', 'h3_scratch_lc',
-                                                'h3_ar_scratch', 'h3_ar_scratch_lc'})
+                                                'h3_ar_scratch', 'h3_ar_scratch_lc',
+                                                'h3_s2s_scratch', 'h3_s2s_scratch_lc'})
                 self.assertEqual({r['gpu'] for r in records.values()}, set(devices.split(',')))
                 self.assertEqual(len({r['batch'] for r in records.values()}), 1)
                 for suffix in ('', '_lc'):
                     masked = records['h3_scratch' + suffix]['config']
                     causal = records['h3_ar_scratch' + suffix]['config']
+                    seq2seq = records['h3_s2s_scratch' + suffix]['config']
+                    # Only the masked arm needs forcing: the other two choose length natively and
+                    # already ship the matched sampling policy.
                     self.assertEqual(masked['gen_length_mode'], 'inferred')
                     for key in ('max_len', 'gen_top_p'):
                         self.assertEqual(float(masked[key]), float(causal[key]))
-                    for config in (masked, causal):
+                        self.assertEqual(float(seq2seq[key]), float(causal[key]))
+                    for config in (masked, causal, seq2seq):
                         self.assertEqual(config['data_path'], str(self.corpus))
+                    # Capacity is the one axis the suite deliberately does NOT match, so the
+                    # encoder-decoder arm must carry explicit depths rather than inherit num_layers.
+                    self.assertEqual(int(seq2seq['num_encoder_layers']), 2)
+                    self.assertEqual(int(seq2seq['num_decoder_layers']), 2)
                 if ',' in devices:
                     latest = self.workspace / 'results/runs/latest'
                     self.assertTrue(latest.is_symlink())
@@ -93,10 +102,11 @@ os.execv(sys.executable, [sys.executable, *args])  # execute real JSON/data pref
                     p.unlink()
 
     def test_overlapping_suites_do_not_launch_duplicate_configs(self):
+        # compare (6) + ar_heavy (6) share h3_ar_scratch{,_lc}, so the union is 10, not 12.
         result, records = self.run_batch('2', 'compare', 'ar_heavy')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(len(records), 8)
-        self.assertEqual(result.stdout.count('Starting run:'), 8)
+        self.assertEqual(len(records), 10)
+        self.assertEqual(result.stdout.count('Starting run:'), 10)
 
     def test_antigen_suite_rejects_a_corpus_without_antigen_before_training(self):
         result, records = self.run_batch('2', 'mlm_antigen')
@@ -110,8 +120,8 @@ os.execv(sys.executable, [sys.executable, *args])  # execute real JSON/data pref
             with self.subTest(devices=devices):
                 result, records = self.run_batch(devices, 'compare')
                 self.assertNotEqual(result.returncode, 0)
-                self.assertEqual(len(records), 4)
-                self.assertIn('3/4 succeeded', result.stdout)
+                self.assertEqual(len(records), 6)
+                self.assertIn('5/6 succeeded', result.stdout)
                 for p in (self.workspace / 'captured').glob('*.json'):
                     p.unlink()
 

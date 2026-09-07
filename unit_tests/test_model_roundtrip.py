@@ -12,12 +12,18 @@ import torch
 
 from cdrseqgen.data.dataset_ar import CausalInfillingDataset, causal_collate_fn
 from cdrseqgen.data.dataset_mlm import AntibodyInfillingDataset, collate_fn
+from cdrseqgen.data.dataset_s2s import Seq2SeqInfillingDataset, s2s_collate_fn
 from cdrseqgen.methods.ar.backbones import resolve as resolve_ar
 from cdrseqgen.methods.mlm.backbones import resolve as resolve_mlm
+from cdrseqgen.methods.s2s.backbones import resolve as resolve_s2s
+
+SINGLE_STREAM = ('input_ids', 'attention_mask', 'labels')
+TWO_STREAM = SINGLE_STREAM + ('decoder_input_ids', 'decoder_attention_mask')
 
 
 class CheckpointRoundTripTests(unittest.TestCase):
-    def check_roundtrip(self, resolve, dataset_class, collate):
+    def check_roundtrip(self, resolve, dataset_class, collate, batch_keys=SINGLE_STREAM,
+                        pad_check_key='attention_mask'):
         with tempfile.TemporaryDirectory() as directory, torch.random.fork_rng(devices=[]):
             torch.manual_seed(7)
             root = Path(directory)
@@ -35,8 +41,12 @@ class CheckpointRoundTripTests(unittest.TestCase):
                                                 hidden_size=32, num_layers=1, num_attention_heads=4)
             dataset = dataset_class(str(path), tokenizer, target_region='h3')
             collated = collate([dataset[i] for i in range(len(dataset))], pad_token_id=tokenizer.pad_id)
-            batch = {k: collated[k] for k in ('input_ids', 'attention_mask', 'labels')}
-            self.assertTrue((batch['attention_mask'] == 0).any(), 'fixture must exercise padding')
+            batch = {k: collated[k] for k in batch_keys}
+            # Which stream pads is itself a structural fact. The fixture's two records share a
+            # framework and differ only in loop length, so a single-stream method pads its one
+            # sequence while the seq2seq encoder — which never carries the loop — pads nothing and
+            # its decoder does. Asserting the wrong key would silently stop exercising padding.
+            self.assertTrue((batch[pad_check_key] == 0).any(), 'fixture must exercise padding')
             initial = {k: v.detach().clone() for k, v in model.named_parameters()}
             optimizer = torch.optim.SGD(model.parameters(), lr=0.05)
             model.train()
@@ -66,6 +76,11 @@ class CheckpointRoundTripTests(unittest.TestCase):
 
     def test_causal_model_updates_and_reloads(self):
         self.check_roundtrip(resolve_ar, CausalInfillingDataset, causal_collate_fn)
+
+    def test_seq2seq_model_updates_and_reloads(self):
+        # Two streams, so the batch carries decoder inputs the single-stream methods do not have.
+        self.check_roundtrip(resolve_s2s, Seq2SeqInfillingDataset, s2s_collate_fn,
+                             batch_keys=TWO_STREAM, pad_check_key='decoder_attention_mask')
 
 
 if __name__ == '__main__':
