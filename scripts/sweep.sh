@@ -6,6 +6,9 @@
 #
 # Presets (one at a time; every dimension is env-overridable, see below):
 #   h3       validation-safe screen: 4 LR x 2 warmup x 2 weight-decay x 2 seeds   (32 trials)
+#   lr       focused LR screen at the settled warmup/decay, 2 seeds              (6 trials)
+#            the screen a new method needs before its first comparison, e.g.
+#              ./scripts/sweep.sh 4 lr configs/h3_s2s_scratch.json
 #            Fixed 30-epoch scheduler horizon — the budget is deliberately NOT swept, because
 #            changing num_train_epochs also reshapes the linear schedule, which would confound
 #            "more epochs" with "different schedule".
@@ -90,13 +93,22 @@ case "$PRESET" in
     # still gives ~1000 candidates per trial, which is ample for a stable judge-perplexity mean.
     GEN_EXAMPLES=${GEN_EXAMPLES:-100}; GEN_SAMPLES=${GEN_SAMPLES:-10}
     ;;
+  lr)
+    # Six trials: the learning rate alone, at the warmup/decay the `h3` screen already settled,
+    # two seeds so a ranking that flips between them is visibly noise rather than a result.
+    # This is the screen a NEW METHOD needs before it appears in any comparison -- inheriting
+    # another method's optimum and then losing establishes nothing (Findings §9).
+    LRS=${LRS:-"1e-4 3e-4 1e-3"}; WARMUPS=${WARMUPS:-"0.06"}
+    WEIGHT_DECAYS=${WEIGHT_DECAYS:-"0.01"}; SEEDS=${SEEDS:-"42 43"}
+    EPOCH_LIST=${EPOCH_LIST:-"20"}; HIDDEN_SIZES=${HIDDEN_SIZES:-""}; NUM_LAYERS=${NUM_LAYERS:-""}
+    ;;
   quick)
     LRS=${LRS:-"1e-4 1e-3"}; WARMUPS=${WARMUPS:-"0.0"}
     WEIGHT_DECAYS=${WEIGHT_DECAYS:-"0.0"}; SEEDS=${SEEDS:-"42"}
     EPOCH_LIST=${EPOCH_LIST:-"2"}; HIDDEN_SIZES=${HIDDEN_SIZES:-""}; NUM_LAYERS=${NUM_LAYERS:-""}
     ;;
   *)
-    echo "ERROR: unknown preset '$PRESET'. Use: h3 pilot arch loss quick"; exit 1 ;;
+    echo "ERROR: unknown preset '$PRESET'. Use: h3 lr pilot arch loss quick"; exit 1 ;;
 esac
 
 # Loss dims default to "whatever the base config says", so non-loss presets are unchanged.

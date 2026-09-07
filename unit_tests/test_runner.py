@@ -108,6 +108,30 @@ os.execv(sys.executable, [sys.executable, *args])  # execute real JSON/data pref
         self.assertEqual(len(records), 10)
         self.assertEqual(result.stdout.count('Starting run:'), 10)
 
+    def test_seed_override_tags_the_batch_and_reaches_every_run(self):
+        """Multi-seeding is how the README's single-seed caveat gets discharged, so the override
+        has to reach the runs AND keep them findable. The seed tags the batch FOLDER, never the run
+        name: batch_tables.model_family would read a name suffix as an unknown model family and
+        drop the run from every table without erroring."""
+        self.env['SEED'] = '43'
+        result, records = self.run_batch('2', 's2s_heavy')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(set(records), {'h3_s2s_scratch', 'h3_s2s_scratch_lc'})
+        for name, record in records.items():
+            with self.subTest(run=name):
+                self.assertEqual(str(record['config']['seed']), '43')
+                self.assertTrue(record['batch'].endswith('_s2s_heavy_s43'), record['batch'])
+                # gen_seed picks WHICH frameworks are evaluated. Holding it fixed is what keeps
+                # two seeds scoring the same 150 and therefore comparable.
+                self.assertNotIn('--gen_seed', record['argv'])
+
+    def test_without_the_override_the_batch_carries_no_seed_tag(self):
+        result, records = self.run_batch('2', 's2s_heavy')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for record in records.values():
+            self.assertNotIn('_s', os.path.basename(record['batch']).replace('_s2s_heavy', ''))
+            self.assertNotIn('--seed', record['argv'])
+
     def test_antigen_suite_rejects_a_corpus_without_antigen_before_training(self):
         result, records = self.run_batch('2', 'mlm_antigen')
         self.assertNotEqual(result.returncode, 0)

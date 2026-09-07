@@ -58,10 +58,20 @@ def draw_grouped_bars(ax, categories, series, *, value_labels=True, value_format
                 f"{len(categories)} categories"
             )
 
-    width = bar_span / len(series)
+    # A slot is reserved only for a series that actually draws something. Callers pass one series
+    # per REGISTERED family, so a batch that holds three of the four left the absent family's slot
+    # empty -- a bar-width hole inside the group that reads as a missing bar rather than an absent
+    # family. Colour still comes from the ORIGINAL index, so a family keeps its colour whatever else
+    # the batch contains; filtering that too would recolour every method as batches gained arms.
+    drawable = [(index, entry) for index, entry in enumerate(series)
+                if any(_finite(value) for value in entry.values)]
+    if not drawable:
+        return False
+
+    width = bar_span / len(drawable)
     drew = False
-    for index, entry in enumerate(series):
-        offset = (index - (len(series) - 1) / 2) * width
+    for slot, (index, entry) in enumerate(drawable):
+        offset = (slot - (len(drawable) - 1) / 2) * width
         positions, heights, errors = [], [], []
         for category_index, value in enumerate(entry.values):
             if not _finite(value):

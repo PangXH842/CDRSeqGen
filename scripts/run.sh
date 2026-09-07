@@ -18,6 +18,16 @@
 # corpus's dataset tag (dataset_tag in cdrseqgen/train/logging.py), so runs on two corpora cannot
 # collide in one batch table — which is the whole reason the override is safe to offer.
 #
+# SEED=<n> ./scripts/run.sh <gpu> <suite>   re-runs a suite at a different TRAINING seed, which is
+# how every "single-seed" caveat in the README gets discharged. The seed tags the BATCH FOLDER
+# (`..._compare_s43`), never the run name: `model_family` in batch_tables would read a name suffix
+# as an unknown model family and drop the run from every table silently, so one batch per seed and
+# canonical names inside is the only arrangement the reporting survives.
+#
+# `gen_seed` is deliberately NOT changed with it. That seed picks WHICH held-out frameworks are
+# evaluated, so holding it fixed means every seed scores the same 150 frameworks and the arms stay
+# paired across seeds — which is the entire point of running more than one.
+#
 # Suites (combine freely, e.g. `./scripts/run.sh 4 mlm_heavy ar_heavy`). Each names its METHOD
 # first, then what varies within it:
 #   mlm_heavy     masked, OAS heavy CDRs (h1/h2/h3), scratch+esm2, base + _lc    (12)
@@ -28,7 +38,7 @@
 #   mlm_plm       mlm_igbert + mlm_protbert                                      (12)
 #   ar_heavy      causal, OAS heavy CDRs (h1/h2/h3), base + _lc                   (6)
 #   s2s_heavy     encoder-decoder, OAS h3, base + _lc                             (2)
-#   compare       h3 masked (inferred length) + causal, one matched batch         (4)
+#   compare       h3 masked (inferred length) + causal + encoder-decoder, matched  (6)
 #   all           mlm_heavy + mlm_antigen + mlm_light (PLMs and causal opt-in)   (36)
 #
 # Renamed 2026-09-03 (hard rename, old names error with the new spelling): oas -> mlm_heavy,
@@ -48,6 +58,7 @@ for gpu in "${GPUS[@]}"; do
     [[ "$gpu" =~ ^[0-9]+$ ]] || { echo "❌ '$gpu' is not a GPU index. Use e.g. 0, or 2,5,6"; exit 1; }
 done
 GPU_ID="${GPUS[0]}"
+SEED=${SEED:-}
 SUITES=("$@")
 [[ ${#SUITES[@]} -eq 0 ]] && SUITES=("all")
 # Empty means "whatever each config declares"; set it to run a suite on another corpus.
@@ -180,13 +191,16 @@ for suite in "${SUITES[@]}"; do
     SUITE_SEEN[$suite]=1
     SUITE_TAG+="_$suite"
 done
-BATCH_DIR="results/runs/${BATCH_STAMP}${SUITE_TAG}"
+SEED_TAG=""
+[[ -n "$SEED" ]] && SEED_TAG="_s${SEED}"
+BATCH_DIR="results/runs/${BATCH_STAMP}${SUITE_TAG}${SEED_TAG}"
 mkdir -p "$BATCH_DIR"
 export CDRSEQGEN_RESULTS_ROOT="$BATCH_DIR"
 
 echo "=========================================================="
 echo "🧬 CDRSeqGen runner  |  GPU(s) ${GPUS[*]}  |  suites: ${SUITES[*]}  |  ${#CONFIGS[@]} runs"
 echo "📦 Batch dir: $BATCH_DIR"
+[[ -n "$SEED" ]] && echo "🌱 Training seed override: $SEED (gen_seed left at each config's value, so the evaluated frameworks are unchanged)"
 echo "=========================================================="
 
 # --- Fail fast if the processed data a suite needs isn't there yet -----------------------------
@@ -240,6 +254,7 @@ run_one() {
     local gpu="$1" config="$2"
     local overrides=()
     [[ -n "$DATA_PATH" ]] && overrides+=(--data_path "$DATA_PATH")
+    [[ -n "$SEED" ]] && overrides+=(--seed "$SEED")
     if [[ $COMPARE_REQUESTED -eq 1 &&
           ( "$config" == "configs/h3_scratch.json" ||
             "$config" == "configs/h3_scratch_lc.json" ) ]]; then

@@ -18,6 +18,7 @@ colours were the ones already chosen deliberately.
 """
 from __future__ import annotations
 
+import textwrap
 import os
 
 import matplotlib
@@ -72,6 +73,14 @@ def style_axes(ax, *, title=None, xlabel=None, ylabel=None, percent_axis=None,
     since a vertical rule through a category has nothing to mark.
     """
     if title:
+        # Matplotlib neither wraps nor clips a title, so an over-long one runs straight into the
+        # NEXT panel's — which is what an appended caveat ("... ⚠ masked vs sequential NOT
+        # comparable") did to every two-column dashboard. Break the caveat onto its own line, then
+        # wrap whatever is still long. A short title passes through untouched.
+        if "⚠" in title:
+            head, _, caveat = title.partition("⚠")
+            title = f"{head.rstrip()}\n⚠{caveat}"
+        title = "\n".join(textwrap.fill(line, width=58) for line in title.split("\n"))
         ax.set_title(title, fontweight="bold")
     if xlabel:
         ax.set_xlabel(xlabel)
