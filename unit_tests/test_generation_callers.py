@@ -6,6 +6,7 @@ import torch
 
 import generate
 from cdrseqgen.data.dataset_mlm import AntibodyTokenizer, TokenizerAdapter
+from cdrseqgen.methods.mlm import cli as mlm_cli
 from cdrseqgen.methods.mlm.evaluation import run_generative_eval
 
 
@@ -38,13 +39,15 @@ class SharedGenerationCallerTests(unittest.TestCase):
             seed=42,
         )
 
-        record = generate.generate_case(
+        record = mlm_cli.generate_case(
             FakeModel(),
             self.tokenizer,
             torch.device("cpu"),
             args,
             torch.Generator().manual_seed(42),
             {"name": "fixed", "pt1": "AC", "pt2": "DE", "target_truth": "WY", "min_length": 2, "max_length": 2},
+            None,
+            generate._print_case,
         )
 
         self.assertEqual(record["target_length"], 2)

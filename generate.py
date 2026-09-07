@@ -60,7 +60,6 @@ from cdrseqgen.train.logging import configure_logging
 configure_logging()
 
 from cdrseqgen.methods.registry import checkpoint_method
-from cdrseqgen.methods.mlm.length import resolve_length_policy
 
 logger = logging.getLogger(__name__)
 
@@ -213,46 +212,6 @@ def check_compatibility(configs, cases, args):
             )
     return problems, warnings
 
-
-def resolve_case_length(case, args):
-    """Return normalized native sequence and its independent generation policy.
-
-    Native truth is retained for scoring but reveals its length only when
-    ``use_native_length`` is explicitly requested.
-    """
-    native = case.get("target_truth")
-    native = native.upper().strip() if native else None
-
-    def case_value(key):
-        return case[key] if key in case else getattr(args, key, None)
-
-    policy = resolve_length_policy(
-        native_length=len(native) if native else None,
-        use_native_length=bool(case_value("use_native_length")),
-        target_length=case_value("target_length"),
-        min_length=case_value("min_length"),
-        max_length=case_value("max_length"),
-    )
-    return native, policy
-
-
-def generate_case(model, tokenizer, device, args, generator, case, length_predictor=None):
-    """Generate + score one test case. Returns a JSON-serialisable record."""
-    from cdrseqgen.methods.mlm.case_generation import generate_case_record
-
-    native, length_policy = resolve_case_length(case, args)
-    return generate_case_record(
-        model,
-        tokenizer,
-        device,
-        args,
-        generator,
-        case,
-        native=native,
-        length_policy=length_policy,
-        length_predictor=length_predictor,
-        print_callback=_print_case,
-    )
 
 def _print_case(name, pt1, pt2, target_length, native, args, samples, metrics):
     """Human-readable console report for one case."""

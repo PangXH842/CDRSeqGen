@@ -25,8 +25,8 @@ from cdrseqgen.artifacts import (
     file_identity,
     find_run_config,
     git_state,
-    load_run_config,
     processed_metadata_path,
+    read_run_config,
 )
 from cdrseqgen.methods.registry import resolve as resolve_method, checkpoint_method
 from cdrseqgen.train.logging import configure_logging
@@ -35,48 +35,6 @@ from cdrseqgen.train.logging import configure_logging
 # ran basicConfig at import — an accident that broke the moment train.py was split.
 configure_logging()
 from cdrseqgen.eval.generative import build_judge
-
-
-def read_run_config(model_dir):
-    """Load the run_config.json a training run wrote, or None (older runs won't have it)."""
-    try:
-        config, _ = load_run_config(model_dir)
-    except FileNotFoundError:
-        return None
-    return config
-
-
-def resolve_decoding(requested, model_dir=None, run_config=None):
-    """Pick a decoder that is compatible with the checkpoint's masking policy.
-
-    Missing policy metadata means an older full-span checkpoint. A recorded iterative decoder must
-    not silently override that training contract; callers can still request it explicitly for an
-    intentional off-distribution experiment.
-    """
-    meta = run_config if run_config is not None else (read_run_config(model_dir) or {})
-    recorded = meta.get("gen_decoding")
-    policy = (meta.get("masking_policy") or "full_span").strip().lower()
-    if requested is None:
-        if policy == "mixed":
-            chosen = recorded if recorded in {"independent", "iterative"} else "iterative"
-        else:
-            chosen = "independent"
-        source = f"masking_policy={policy!r}"
-        if recorded and recorded != chosen:
-            source += f"; ignored incompatible recorded gen_decoding={recorded!r}"
-        print(f"🎲 Decoding: {chosen} ({source})")
-    else:
-        chosen = requested
-        if recorded and recorded != chosen:
-            print(f"🎲 Decoding: {chosen} (CLI override; the run recorded '{recorded}')")
-        else:
-            print(f"🎲 Decoding: {chosen}")
-    if chosen == "iterative" and policy != "mixed":
-        print(f"⚠️  Iterative decoding on a {policy} checkpoint: the model never saw a partially "
-              "revealed loop in training, so this is off distribution and roughly halves core "
-              "recovery. Train with masking_policy: mixed for iterative decoding.")
-    return chosen
-
 
 
 COMPATIBILITY_FIELDS = (

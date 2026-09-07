@@ -7,11 +7,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from cdrseqgen.methods.mlm.cli import resolve_decoding
 from evaluate import (
     compatibility_problems,
     default_output_path,
     evaluation_provenance,
-    resolve_decoding,
 )
 
 

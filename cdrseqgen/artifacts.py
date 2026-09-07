@@ -165,3 +165,16 @@ def load_run_config(model_dir) -> tuple[dict, Path]:
         raise FileNotFoundError(f"no run config in {model_dir} (expected one of: {accepted})")
     with path.open() as handle:
         return json.load(handle), path
+
+
+def read_run_config(model_dir) -> dict | None:
+    """The run's saved configuration, or None when the checkpoint predates run configs.
+
+    The tolerant counterpart to :func:`load_run_config`, for callers that degrade gracefully on an
+    older checkpoint. A corrupt config still raises: only *absence* is a legitimate legacy state.
+    """
+    try:
+        config, _ = load_run_config(model_dir)
+    except FileNotFoundError:
+        return None
+    return config
