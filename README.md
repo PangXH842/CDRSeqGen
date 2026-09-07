@@ -812,11 +812,8 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
-- **2026-09-07** -- **ENCODER-DECODER UPDATE** (`methods/s2s/`, `data/dataset_s2s.py`). The third method, and the missing cell of the 2x2: `mlm` conditions bidirectionally but fills a fixed-length span in one pass, `ar` factorises the loop properly but encodes the framework causally, `s2s` does both. **Two streams, not one sequence, is the whole structural difference from `ar`** — and the second consequence is the useful one. The causal prompt must hold back `LOOP_LENGTH_RESERVE` (96) positions of `max_len` for a loop it has not generated, and that reserve competes with optional context for the same budget; raising it 40 -> 96 is what silently cut the `_lc` light chain from ~96% retained to ~45%. The encoder spends **one** token on the gap marker, so context gets the whole cap: at `max_len` 128 that is 128 context tokens against `ar`'s 31 (asserted in `test_dataset_s2s`). Note what this is NOT: `ar` conditions on FR4 perfectly well, since both flanks are in its prompt — what it cannot do is encode FR1 *with FR4 in view*. Run `scripts/run.sh <gpu> s2s_heavy`, or `compare` for all three arms in one batch folder
-- **2026-09-07** -- **Capacity is not matched by default, deliberately.** At `num_layers: 4` an `s2s` model is 1.86M parameters against `ar`'s 800k — 4+4 blocks plus cross-attention. Silently halving the depth to fake a match would itself be the un-audited hyperparameter §9 is about, so instead: `build_model` logs the parameter count into every `train.log`, `num_encoder_layers`/`num_decoder_layers` are separate knobs, and the shipped compare configs pin 2/2 for 933k (1.17x) — the closest match that keeps real depth in both stacks. **Any table putting `s2s` beside `ar` must quote both counts**
-- **2026-09-07** -- **Three enumeration bugs a third method exposed**, all found by running it rather than by the CPU suite. `batch_plots` classified any family not starting with `ar_` as "masked", which mislabelled `s2s` *and* inverted the comparability caveat — `ar` and `s2s` both predict position i from the true prefix, so the masked arm is the odd one out. `--decoding` was hard-coded in both `generate.py` and `evaluate.py`, so `--decoding seq2seq` was rejected by argparse before the s2s CLI ever saw it. And `sweep.sh`'s `arch` preset drives `--num_layers`, which an s2s config overrides with pinned depths — every arch trial would have run at identical architecture and reported the noise as a capacity result. Methods now declare their decoders in `methods/registry.py`, and the dashboards derive method from it via `batch_tables.method_of_family`
-- **2026-09-07** -- Finished the method dispatch started by the 09-07 refactor: `resolve_decoding`, `resolve_case_length` and the masked `generate_case` moved from `generate.py`/`evaluate.py` into `methods/mlm/cli.py`, which had been importing *back* out of the entrypoints to reach them. The dependency now runs one way only — entrypoint -> registry -> method — and `methods/{mlm,ar,s2s}/cli.py` expose an identical five-function protocol
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-09-07** -- **SEQ2SEQ UPDATE** (`methods/s2s/`)
 - **2026-09-04** -- Enabled different span layouts: `SpanLayout` in [`data/dataset_ar.py`]
 - **2026-09-04** -- Added BLOSUM62 in `eval/metrics.py`
 - **2026-09-04** -- AR context fix: `max_len` 256 -> 384 (to make space for partner chain since answer reserve is long (96 toks))
@@ -941,15 +938,11 @@ The comparison must run both methods on the **same frozen examples**, with the s
   - [ ] `data/` scripts 
     - [ ] `dataset.py`, `frameworks.py` (0818)
     - [ ] `preprocess/` scripts
-  - [ ] `cdrseqgen/methods/common/`
-  - [ ] `cdrseqgen/methods/mlm/` 
-    - [ ] arguments, backbones
-    - [ ] training
-    - [ ] sampling
-    - [ ] generation, case_generation
-    - [ ] evaluation, recovery
-    - [ ] length, length_predictor, variable_length_evaluation
-  - [ ] `cdrseqgen/methods/ar/`
+  - [ ] `cdrseqgen/methods/`
+    - [ ] `common/`
+    - [ ] `mlm/` 
+    - [ ] `ar/`
+    - [ ] `s2s/` 
   - [ ] `eval/metrics.py`  and `train/` artifact/logging scripts
   - [ ] `train.py` + `train/` (logging)
   - [ ] visualization scripts
@@ -963,7 +956,8 @@ The comparison must run both methods on the **same frozen examples**, with the s
 
 **Datasets**
 - OAS
-  - [x] 21,106 paired sequences (`1287169_1_Paired_All.csv`)
+  - [x] 21,106 paired sequences (`1287169_1_Paired_All.csv`) (pre 0903)
+  - [x] 152,727 paired sequences (8 csvs, 4 donors, filtered)
   - [ ] Remaining paired sequences (→ 1M+ scale)
   - [ ] Unpaired sequences
 - SAbDab2
@@ -993,13 +987,12 @@ The comparison must run both methods on the **same frozen examples**, with the s
       - [x] IgBert (antibody PLM)
       - [x] ProtBert (general PLM)
       - [ ] AbLang2  (antibody PLM)
-  - [ ] Autoregressive method integration
+  - [x] Autoregressive method integration
     - Models
-      - [ ] Custom
-      - [x] IgLM external benchmark adapter
-  - [ ] Encoder-decoder
+      - [x] Custom
+  - [x] Encoder-decoder
     - Models
-      - [ ] Custom
+      - [x] Custom
 - Structure-aware
   - [ ] Invariant Point Attention (IPA)
   - [ ] E(n)-equivariant GNNs
@@ -1017,6 +1010,9 @@ The comparison must run both methods on the **same frozen examples**, with the s
 - [ ] Matched length-free CDRSeqGen/IgLM score and plot
 - [ ] Paired bootstrap confidence intervals
 - [ ] Structure metrics - RMSD, TM-score
+
+**Benchmark**
+- [x] IgLM external benchmark adapter
 
 **Long-term objectives / deliverables**
 - Leakage-safe **benchmark** for CDR-infilling methods (the Phase-1 result)
