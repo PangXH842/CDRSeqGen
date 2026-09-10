@@ -38,7 +38,7 @@ def _records():
 
 
 class _Backbone:
-    def build_tokenizer(self, _model_type):
+    def build_tokenizer(self, _model_type, checkpoint_path=None):
         return TokenizerAdapter.from_custom(AntibodyTokenizer())
 
 

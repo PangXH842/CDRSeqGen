@@ -46,6 +46,8 @@ def main():
         max_len=data_args.max_len,
         num_encoder_layers=model_args.num_encoder_layers,
         num_decoder_layers=model_args.num_decoder_layers,
+        encoder_init=model_args.encoder_init,
+        freeze_encoder=model_args.freeze_encoder,
     )
     trainer = build_seq2seq_trainer(model, training_args, train_dataset, eval_dataset, tokenizer,
                                    callbacks=build_callbacks(model_args, training_args, logger),

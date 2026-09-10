@@ -41,8 +41,8 @@ python -m cdrseqgen.data.preprocess.oas_paired \
 **Several GPUs**: `./scripts/run.sh 2,5,6 mlm_heavy ar_heavy` shards the round's runs across them round-robin,
 one process per device. The runs in a batch are independent, so that is where the parallelism lives
 — there is no DDP inside a single training. They share one batch folder, so the tables and
-dashboards at the end cover the whole round, and per-GPU output goes to `<batch>/logs/gpu<id>.log`
-rather than interleaving on the terminal. Round-robin also balances cost: a suite lists cheap
+dashboards at the end cover the whole round. Each trial writes `<batch>/logs/<config>_<id>.log`;
+multiple GPUs print status lines without interleaving training output. Sweeps use the same sharding. Round-robin also balances cost: a suite lists cheap
 scratch runs first and ESM-2 runs after, so striding hands each device a mix rather than giving one
 of them the whole slow tail. A single GPU behaves exactly as before, streaming to the terminal.
 
@@ -118,7 +118,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_scratch.json       # masked-LM
 CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_ar_scratch.json    # autoregressive
 ```
 
-> **One entrypoint, two methods.** `train.py` dispatches on the config's `"method"` key — absent
+> **One entrypoint, three methods.** `train.py` dispatches on the config's `"method"` key — absent
 > means `mlm`, so all 49 pre-existing configs are untouched. `--method ar` overrides it, for running
 > a config through the other pipeline deliberately. Each method owns its own parser and
 > `main()` in `cdrseqgen/methods/<method>/entrypoint.py`; `train.py` only routes.
@@ -134,8 +134,37 @@ CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_ar_scratch.json    # autoregre
 > masked fixed-native numbers flatters the causal side for a reason unrelated to the objective.
 > Compare length-free on both sides: `evaluate.py --length_mode inferred` is the masked half.
 
-**What the causal method does NOT have yet:** a counterpart to `generate.py`, so the curated
-`showcase/*.json` frameworks cannot be run against a causal checkpoint.
+`generate.py` also dispatches through the method registry. AR/S2S use length-free probe cases;
+existing showcase cases that explicitly request `target_length` need a compatible fixture.
+
+**One launcher for suites and sweeps:** [scripts/run.sh](scripts/run.sh) selects the project
+environment once and invokes [cdrseqgen/experiments.py](cdrseqgen/experiments.py).
+[scripts/sweep.sh](scripts/sweep.sh) is a compatibility alias for the same launcher:
+
+```bash
+./scripts/run.sh 0 compare
+./scripts/run.sh 0,1 sweep lr configs/h3_s2s_scratch.json
+./scripts/sweep.sh 0,1 lr configs/h3_s2s_scratch.json  # identical sweep
+DRY_RUN=1 ./scripts/run.sh 0 compare                  # inspect merged configs; write nothing
+```
+
+Both modes share dataset validation, GPU sharding, per-trial logs, completion checks, and resume.
+`DATA_PATH` overrides a corpus only when explicitly set; otherwise each base config's path wins.
+The launchers work from any directory, resolving relative config/data/output paths from the project
+root. Set `PYTHON=/path/to/python` to select an interpreter; otherwise they activate `cdrprj` when
+the usual Conda installation exists, falling back to the active Python elsewhere.
+
+Each executed round saves `plan.json` (merged configs, dataset hashes, source/runtime identity,
+and ranking policy), `.configs/` (the frozen inputs passed to training), and `runs.tsv` (one current
+status per trial, with device, log, and run paths). Training still writes its fully resolved defaults
+to each run's `run_config.json`. This unifies execution; it does not automatically promote a sweep
+winner into the shipped training configs.
+
+Set `EXPERIMENT_DIR=results/runs/my_round` for either mode to resume that exact plan.
+`SWEEP_DIR` remains an alias in sweep mode. Resume skips only completed trials with compatible
+artifacts, retries failures/incomplete runs, and refuses changed configs, data, source, or protocol.
+Older folders without `plan.json` remain available for analysis; start a fresh folder for this
+runner. A retry updates its trial's status rather than counting as another training seed.
 
 **Run an Automated Experiment Suite:** [`scripts/run.sh`](scripts/run.sh) takes a GPU id and one or more suite names, skips to the next config if one fails, and writes the round's tables and dashboards into the batch folder when it finishes (Step 3).
 ```bash
@@ -149,7 +178,12 @@ CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_ar_scratch.json    # autoregre
 
 # Autoregressive, and the paired comparison
 ./scripts/run.sh 4 ar_heavy            # causal OAS heavy (h1/h2/h3), base + _lc              (6)
-./scripts/run.sh 4 compare             # h3 masked + h3 causal in ONE batch, side by side     (4)
+./scripts/run.sh 4 s2s_heavy           # scratch encoder-decoder H3, base + partner          (2)
+./scripts/run.sh 4 s2s_esm2            # ESM-2 encoder + new decoder, H3 base + partner       (2)
+./scripts/run.sh 4 s2s_igbert          # IgBert encoder + new decoder, same two contexts      (2)
+./scripts/run.sh 4 s2s_protbert        # ProtBert encoder + new decoder, same two contexts    (2)
+./scripts/run.sh 4 s2s_plm             # all three pretrained encoder families               (6)
+./scripts/run.sh 4 compare             # MLM/AR/S2S H3, each base + partner                   (6)
 
 # Antibody/protein-BERT PLM backbones on OAS heavy (first run downloads a ~1.6GB model each)
 ./scripts/run.sh 4 mlm_igbert          # IgBert (antibody-specific)                          (6)
@@ -157,24 +191,56 @@ CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_ar_scratch.json    # autoregre
 ./scripts/run.sh 4 mlm_plm             # both (mlm_igbert + mlm_protbert)                   (12)
 ```
 
-> **The `compare` suite is how the two methods get compared.** Putting a masked and a causal run in
-> the *same* batch folder means `batch_tables.md` and `figures/batch_<ds>.png` render them side by
-> side — `scratch (masked)` against `scratch (causal)` — from one round, rather than a manual merge
-> of two. The dispatcher routes on each config's `"method"` key. For the two masked configs only,
-> `run.sh` also adds `--gen_length_mode inferred`, so the post-training generation panel withholds
-> native length from both methods; ordinary `oas` runs retain their configured fixed-native track.
->
-> **⚠️ The recovery columns still carry a length caveat.** These are teacher-forced
-> best-epoch numbers, and the masked model is handed the loop length while the causal one predicts
-> its own. The compare suite's *generation* panel is length-free on both sides; its checkpoint-
-> selection recovery table is an integration diagnostic, not the fair design comparison.
->
-> `run.sh` forces three overrides onto the masked arm so the pair is actually matched: inferred
-> length (no native mask count), `max_len 256` and `gen_top_p 0.9`. The last two are config
-> defaults that silently differed — `h3_scratch.json` ships `max_len 128`, which truncates the
-> flanks of **12.1% of OAS heavy chains** (2544/21106) while the causal arm at 256 truncates none,
-> and the masked default `gen_top_p` is 1.0 against the AR configs' 0.9. A compare run is therefore
-> not comparable to the Findings masked numbers, which use 128 and 1.0.
+**S2S pretrained encoders.** Start with `s2s_esm2`. The configs under
+`configs/h3_s2s_{esm2,igbert,protbert}[_lc].json` train a pretrained bidirectional encoder plus
+our newly initialized residue decoder. These are encoder-pretrained models; the decoder has no
+pretrained weights. The encoder reads its own amino-acid ids, one native mask token, and native
+CLS/end wrappers. The decoder keeps the same 27-token vocabulary and EOS as scratch S2S.
+A learned projection connects the encoder width to the decoder width.
+
+The initial configs use H3/OAS4 validation, max_len 384, a 128-wide two-layer decoder, LR 3e-5,
+0.06 warmup, 0.01 weight decay, and ten epochs with early stopping. Batch size 4 with eight
+accumulation steps gives an effective training batch of 32 on one GPU. These are starting settings,
+not fitted hyperparameters. The generation protocol matches the H3 comparison: 150 frameworks,
+20 candidates, top_p 0.9, seed 42, IgBert judge, and EOS-selected length.
+
+```bash
+DRY_RUN=1 ./scripts/run.sh 0 s2s_esm2       # review two runs without loading weights
+./scripts/run.sh 0 s2s_esm2                # fine-tune ESM-2 + train the decoder
+FREEZE_ENCODER=true ./scripts/run.sh 0 s2s_esm2  # fixed encoder features; train projection/decoder
+ENCODER_INIT=random ./scripts/run.sh 0 s2s_esm2  # same architecture with a random encoder
+
+# Both controls work in sweep mode too. Keep each setting in its own experiment directory.
+LRS="1e-5 3e-5 1e-4" EPOCH_LIST="10" ./scripts/sweep.sh 0 lr configs/h3_s2s_esm2.json
+# The corresponding config/CLI fields are encoder_init and freeze_encoder:
+CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_s2s_esm2.json --freeze_encoder true
+```
+
+`hidden_size`, `num_attention_heads`, `intermediate_size`, and `num_decoder_layers` configure
+the new decoder. Leave `num_encoder_layers` unset: encoder dimensions come from the PLM checkpoint.
+Frozen encoders keep dropout off during training. Random initialization retains the same encoder
+architecture, tokenizer, and parameter count, so it can help separate pretraining from capacity.
+Encoder controls and their differences are included in the shared runner's plan/resume identity.
+
+Model checkpoints contain the full encoder configuration and weights, projection, and decoder.
+Final and intermediate training checkpoints also save the encoder tokenizer. `generate.py` and
+`evaluate.py` prefer those saved tokenizer files and use the existing S2S generation/evaluation
+path. Reports distinguish `s2s_esm2` from masked ESM-2 and include an S2S PLM recovery table.
+
+A full pretrained encoder-decoder such as ProtT5 is a separate future adapter. Its released
+checkpoint used BART-like residue masking, not original T5 span denoising; its architecture alone
+does not establish a native missing-CDR generation format
+([official model card](https://huggingface.co/Rostlab/prot_t5_xl_uniref50)).
+
+The `compare` suite runs MLM, AR, and S2S in one batch, each with and without partner context.
+All six receive `max_len=384`, temperature 1, top-p 0.9, top-k 0, 150 frameworks × 20 samples,
+generation seed 42, and the IgBert judge. MLM uses inferred length; AR/S2S terminate with EOS.
+Training settings remain those declared in the configs. Parameter counts differ: S2S pins separate
+encoder/decoder depths, so record those counts when interpreting the comparison.
+
+The generation panel compares length-free outputs. Teacher-forced recovery remains a training
+diagnostic: AR/S2S see preceding native residues, and MLM receives the native mask count.
+Length-matched generation recovery also needs its contributing framework population reported.
 
 **Every run lives at `results/runs/<batch>/<run>/` — always two levels under `runs/`.** A `run.sh` round shares one batch
 folder; a standalone `train.py` gets a batch folder of its own, so `results/` never collects loose run
@@ -193,7 +259,7 @@ results/runs/
 ├── 20260811_181946_sweep_h3/           ← validation-safe sweep; results/runs/latest unchanged
 │   ├── h3_OAS_scratch_lr1e-4_wu0.0_wd0.0_s42/
 │   ├── h3_OAS_scratch_lr1e-3_wu0.06_wd0.01_s43/
-│   ├── runs.tsv  summary.tsv  grid.tsv ← the records you read
+│   ├── plan.json  runs.tsv  summary.tsv ← the records you read
 │   ├── figures/                        ← objective_comparison.png
 │   └── logs/                           ← one stdout/stderr capture per trial
 ├── 20260903_113933_ar/                 ← ./scripts/run.sh 3 ar  (suites join with _: _oas_lcdr)
@@ -278,12 +344,13 @@ reported `core_accuracy`/`anchor_accuracy`, and original loop offsets keep the c
 under mixed masking. Loss settings and any `label_smoothing_factor` are persisted in
 `run_config.json`.
 
-**Tune on validation:** [`scripts/sweep.sh`](scripts/sweep.sh) runs a validation-only,
-multi-seed screen. It takes a GPU id and a preset, the same way `run.sh` takes suite names:
+**Tune on validation:** `run.sh <gpus> sweep [preset] [base_config]` runs a validation-only,
+multi-seed screen. The older `sweep.sh <gpus> [preset] [base_config]` command forwards to it:
 
 | preset | grid | trials |
 |---|---|---:|
 | `h3` (default) | 4 LR × 2 warm-up × 2 weight decay × 2 seeds, fixed 30-epoch horizon | 32 |
+| `lr` | 3 LR × 2 seeds, warmup 0.06 / decay 0.01, 20 epochs | 6 |
 | `pilot` | 3 LR × 2 epoch budgets — the 2026-07 "is the budget enough?" grid | 6 |
 | `arch` | 3 widths × 2 depths, FFN tracking width | 6 |
 | `loss` | 3 **distinct** objectives × 3 seeds, generative eval on, ranked by judge perplexity | 9 |
@@ -299,21 +366,20 @@ points collapse to **9** trials.
 > 1e-9) and `3.0/0.0` to `1.0/0.0`. The 08-25 screen ran all five before this was noticed, which is
 > how Findings §13 ended up with the same loss occupying its top two ranks — a free measurement of
 > run-to-run nondeterminism, and the reason §13 can say the objective differences are inside it.
-> **Fixed 2026-08-31**: the grid materialiser canonicalises on the ratio and reports what it drops
-> (`Grid: collapsed N trial(s)…`). To reproduce the determinism control deliberately, pass the two
-> spellings explicitly rather than relying on the grid to duplicate them.
+> The planner canonicalises equivalent objectives and duplicate seeds before launching.
+> For a deliberate determinism control, use separate experiment folders and label it as such.
 
 ```bash
 ./scripts/sweep.sh 4                      # h3 preset
 ./scripts/sweep.sh 4 pilot
 SEEDS="42 43 44" LRS="3e-4 1e-3" ./scripts/sweep.sh 4
-SWEEP_DIR=results/runs/my_sweep ./scripts/sweep.sh 4   # resume into the same directory
+EXPERIMENT_DIR=results/runs/my_sweep ./scripts/run.sh 4 sweep h3  # exact-plan resume
 ./scripts/sweep.sh 4 loss
-DRY_RUN=1 ./scripts/sweep.sh 4 loss       # print the grid, train nothing
+DRY_RUN=1 ./scripts/run.sh 4 sweep loss  # print merged trial configs, train nothing
 ```
 
 Every dimension (`LRS`, `WARMUPS`, `WEIGHT_DECAYS`, `EPOCH_LIST`, `SEEDS`, `HIDDEN_SIZES`,
-`NUM_LAYERS`, `MAX_EPOCHS`, `PATIENCE`, `LOSS_TYPES`, `CORE_WEIGHTS`, `ANCHOR_WEIGHTS`) is
+`NUM_LAYERS`, `PATIENCE`, `LOSS_TYPES`, `CORE_WEIGHTS`, `ANCHOR_WEIGHTS`) is
 env-overridable, so a preset only supplies defaults. Four knobs control what each trial is scored on:
 `RANK_METRIC` (`core` | `whole` | `judge_ppl` | `diversity` | `gen_core` | `length_mae` |
 `length_match` | `valid_rate`), `SELECT_METRIC`
@@ -348,6 +414,16 @@ across seeds on `RANK_METRIC`. It writes `runs.tsv`, `summary.tsv` and
 `objective_comparison.png`, never selects the test partition, skips completed grid
 points on resume, and sets `CDRSEQGEN_SKIP_LATEST=1` so exploratory trials do not replace the main
 usable batch. It also flags a winner whose margin falls below the ~0.006 seed-noise floor as a tie.
+
+Width and depth overrides are independent: `NUM_LAYERS="2 4"` works without `HIDDEN_SIZES`.
+For S2S, a depth override sets both encoder and decoder depth; a width override leaves their
+configured depths intact. Architecture sweeps require scratch backbones; weighted-loss sweeps
+currently require MLM. Incompatible combinations fail before any trial starts.
+
+`summary.tsv` records both `selection_metric` (checkpoint choice) and `rank_metric`/`score_metric`
+(setting ranking), along with ranking direction. Seed counts refer to distinct training seeds.
+Plots for new plans group by the full setting identity, so an LR sweep cannot pool different LRs
+into one cross-entropy curve.
 
 **On the `pilot` preset.** It sweeps `num_train_epochs`, which also reshapes the linear scheduler —
 so a "20 epochs is better" result from it confounds budget with schedule. That is why `h3` fixes the

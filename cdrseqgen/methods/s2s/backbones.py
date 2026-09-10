@@ -1,33 +1,14 @@
-"""Seq2seq backbone registry — resolve(model_type) -> Seq2SeqBackbone.
+"""S2S backbones: scratch, or a protein PLM encoder with a new residue decoder.
 
-Deliberately the same shape as ``methods/mlm/backbones.py`` and ``methods/ar/backbones.py``: one
-entry per model family, a ``matches`` predicate, and an assertion that keeps any generic fallback
-last. Adding a model is one ``register(Seq2SeqBackbone(...))`` entry; entrypoints never branch on
-model type.
-
-  * scratch -- the from-scratch encoder-decoder (models/transformer.py)
-
-**There is deliberately no generic ``hf_seq2seq`` fallback yet, and that is not an oversight.** The
-causal registry ships ``hf_decoder`` because forcing our layout onto a plain causal LM is at least
-well-defined: add three sentinels, resize the embeddings, accept that those rows start random. The
-seq2seq case is different in kind. The whole reason to want a pretrained encoder-decoder here is
-ProtT5, and ProtT5's value is that span infilling **is** its pretraining objective — it marks gaps
-with its own ``<extra_id_N>`` sentinels and emits answers in its own format. A generic fallback that
-bolted our ``<mask>`` onto it and resized the embedding table would discard exactly the advantage it
-was added for, and would then be measured as "pretrained encoder-decoder underperforms", which would
-be a false conclusion about the family rather than a true one about the adapter.
-
-What that path actually needs, none of which exists yet:
-  * a layout description for the encoder stream (``<extra_id_0>`` in place of ``<mask>``)
-  * an extraction step reading the decoder stream back out of ``<extra_id_0> loop <extra_id_1>``
-  * per-config layout selection, so a checkpoint records which arrangement it was trained under
-
-Until then ``resolve`` fails loudly on an unregistered model_type rather than silently doing the
-wrong surgery. See the ``methods/ar/backbones.py`` docstring for the same argument in the causal
-case, where the cost was accepted and stated instead.
+ESM2 and protein BERTs reuse the shared protein tokenizer conventions. Their encoder inputs keep
+native gap/wrapper tokens; targets use the same residue vocabulary and EOS as scratch S2S.
+There is no generic full encoder-decoder fallback. ProtT5 used BART-like residue masking, not
+original T5 span denoising; a future full ProtT5 adapter must validate its actual input/output
+contract instead of assuming native missing-span generation from the architecture name.
 """
 import logging
 from dataclasses import dataclass
+from functools import partial
 from typing import Callable
 
 from cdrseqgen.data.dataset_common import TokenizerAdapter
@@ -47,8 +28,10 @@ class Seq2SeqBackbone:
     load_pretrained_model: Callable[[str], object]
     fallback: bool = False
 
-    def build_tokenizer(self, model_type) -> TokenizerAdapter:
-        return self.load_tokenizer(model_type, self.position_type, self.uses_special_tokens)
+    def build_tokenizer(self, model_type, checkpoint_path=None) -> TokenizerAdapter:
+        from cdrseqgen.methods.common.backbones import tokenizer_source
+        source = tokenizer_source(model_type, checkpoint_path)
+        return self.load_tokenizer(source, self.position_type, self.uses_special_tokens)
 
 
 REGISTRY = []
@@ -66,8 +49,8 @@ def resolve(model_type: str) -> Seq2SeqBackbone:
             return backbone
     raise ValueError(
         f"No seq2seq backbone registered for model_type={model_type!r}. "
-        f"Registered backbones: {[b.id for b in REGISTRY]}. A pretrained encoder-decoder needs a "
-        f"layout-aware adapter first — see the module docstring — not a generic fallback.")
+        f"Registered backbones: {[b.id for b in REGISTRY]}. Supported PLM encoders are ESM2 and "
+        f"protein BERTs; full pretrained encoder-decoders require their own adapter.")
 
 
 from cdrseqgen.methods.common.backbones import load_custom_pretrained as _load_custom_pretrained
@@ -107,6 +90,46 @@ register(Seq2SeqBackbone(
     load_training_model=_build_scratch,
     load_pretrained_model=_load_scratch_pretrained,
 ))
+
+
+def _plm_tokenizer(mt, pos, wrap, *, family):
+    from cdrseqgen.methods.common.backbones import esm_tokenizer, bert_tokenizer
+    loader = esm_tokenizer if family == "esm2" else bert_tokenizer
+    encoder = loader(mt, pos, wrap)
+    for name in ("pad_id", "mask_id", "cls_id", "end_id", "chain_sep_id"):
+        if getattr(encoder, name) is None:
+            raise ValueError(f"{mt}: encoder tokenizer requires {name}")
+    residues = "ACDEFGHIKLMNPQRSTVWY"
+    ids = encoder.encode(residues)
+    if (len(ids) != len(residues) or len(set(ids)) != len(residues)
+            or set(ids) & encoder.special_ids or encoder.decode(ids) != residues):
+        raise ValueError(f"{mt}: encoder tokenizer must preserve canonical residues one token each")
+    adapter = s2s_adapter(position_type=pos)
+    adapter.encoder_tokenizer = encoder
+    adapter.save_pretrained = encoder.save_pretrained
+    return adapter
+
+
+def _build_plm(mt, *, encoder_family, **kwargs):
+    from cdrseqgen.methods.s2s.models.plm import build_model
+    return build_model(mt, encoder_family=encoder_family, **kwargs)
+
+
+def _load_plm_pretrained(path):
+    from cdrseqgen.methods.s2s.models.plm import PLMSeq2SeqConfig, PLMSeq2SeqModel
+    return _load_custom_pretrained(path, PLMSeq2SeqModel, PLMSeq2SeqConfig)
+
+
+for family, match, position in (
+    ("esm2", lambda mt: "esm2" in mt.lower(), "relative"),
+    ("protein_bert", lambda mt: "bert" in mt.lower(), "absolute"),
+):
+    register(Seq2SeqBackbone(
+        id=family, matches=match, position_type=position, uses_special_tokens=True,
+        load_tokenizer=partial(_plm_tokenizer, family=family),
+        load_training_model=partial(_build_plm, encoder_family=family),
+        load_pretrained_model=_load_plm_pretrained,
+    ))
 
 
 # A generic fallback, once one exists, must stay last or a named backbone is silently shadowed.

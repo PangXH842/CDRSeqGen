@@ -207,6 +207,21 @@ class MixedLossDetectionTests(unittest.TestCase):
 
 
 class MethodComparisonTableTests(unittest.TestCase):
+    def test_plm_encoder_families_retain_the_s2s_method(self):
+        from cdrseqgen.visualization.batch_tables import model_family, discover_runs, FAMILY_LABELS
+        self.assertEqual(model_family('s2s_esm2_t12_35M_UR50D'), 's2s_esm2')
+        self.assertEqual(model_family('s2s_IgBert'), 's2s_igbert')
+        self.assertEqual(model_family('s2s_prot_bert'), 's2s_protbert')
+        with tempfile.TemporaryDirectory() as tmp:
+            for suffix in ('esm2_t12_35M_UR50D', 's2s_esm2_t12_35M_UR50D',
+                           's2s_IgBert', 's2s_prot_bert'):
+                (Path(tmp) / ('h3_OAS4_' + suffix)).mkdir()
+            runs = discover_runs(tmp)
+        self.assertEqual(len(runs), 4)
+        self.assertEqual({k[-1] for k in runs},
+                         {'esm2', 's2s_esm2', 's2s_igbert', 's2s_protbert'})
+        self.assertTrue(all(k[-1] in FAMILY_LABELS for k in runs))
+
     def test_every_registered_method_has_a_display_family(self):
         """A method whose run names parse to a family absent from FAMILY_LABELS is silently
         dropped from every table and dashboard — the run completes, the artifacts are written, and

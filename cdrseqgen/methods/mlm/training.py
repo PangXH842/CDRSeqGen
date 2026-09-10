@@ -26,10 +26,10 @@ from cdrseqgen import artifacts
 logger = logging.getLogger(__name__)
 
 
-def get_datasets(model_args, data_args, training_args, backbone) -> Tuple[torch.utils.data.Dataset, torch.utils.data.Dataset, any]:
+def get_datasets(model_args, data_args, training_args, backbone, *, checkpoint_path=None) -> Tuple[torch.utils.data.Dataset, torch.utils.data.Dataset, any]:
     """Handles tokenizer selection, dataset loading, and splitting."""
     # Load TokenizerAdapter from dataset.py as tokenizer.
-    tokenizer = backbone.build_tokenizer(model_args.model_type)
+    tokenizer = backbone.build_tokenizer(model_args.model_type, checkpoint_path=checkpoint_path)
     masking_policy = getattr(data_args, "masking_policy", "full_span")
     mixed_full_span_probability = getattr(data_args, "mixed_full_span_probability", 0.5)
 

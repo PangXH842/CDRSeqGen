@@ -145,13 +145,16 @@ def validate_s2s_decode_steps(max_new_tokens):
 def build_encoder_input(tokenizer, framework):
     """Return (encoder_ids, meta) for one framework: ``pt1 <mask> pt2``.
 
+    A PLM adapter carries encoder_tokenizer separately from its residue decoder tokenizer.
+    Native CLS/end wrappers count against max_len, and optional context uses native encoder ids.
+
     The gap marker carries no length information — it is one token whether the loop is 5 residues or
     30 — which is what keeps length a decoder decision. Training and generation both call this, and
     it takes no generation-time parameter: the 2026-09-02 prompt-divergence bug came from exactly
     this construction site accepting a keyword that differed between the two, and the fix was to
     make the input a deterministic function of (framework, max_len) alone.
     """
-    t = tokenizer
+    t = getattr(tokenizer, "encoder_tokenizer", tokenizer)
     pt1_ids = t.encode(framework["pt1"])
     pt2_ids = t.encode(framework["pt2"])
 
@@ -164,9 +167,14 @@ def build_encoder_input(tokenizer, framework):
     )
     encoder_ids = pt1_ids + [t.mask_id] + pt2_ids
 
-    if framework["max_len"] < ENCODER_LAYOUT_TOKENS:
+    if t.uses_special_tokens:
+        encoder_ids = [t.cls_id] + encoder_ids + [t.end_id]
+
+    minimum = ENCODER_LAYOUT_TOKENS + (2 if t.uses_special_tokens else 0)
+    if framework["max_len"] < minimum:
         raise ValueError(
-            f"max_len={framework['max_len']} cannot hold even the gap marker; raise it to >= 1")
+            f"max_len={framework['max_len']} cannot hold the gap marker and wrappers; "
+            f"raise it to >= {minimum}")
     return encoder_ids, {"pt1_len": len(pt1_ids), "pt2_len": len(pt2_ids)}
 
 
@@ -207,20 +215,21 @@ class Seq2SeqInfillingDataset(AntibodyFrameworkDataset):
         }
 
 
-def s2s_collate_fn(batch, pad_token_id=0):
+def s2s_collate_fn(batch, pad_token_id=0, encoder_pad_token_id=None):
     """Pad the encoder and decoder streams independently to their own longest example.
 
     The two streams have unrelated lengths — a batch can hold a 200-token framework with a 9-residue
     loop — so padding them to a shared maximum would waste most of the decoder. Both pad on the
     RIGHT, which is correct for teacher forcing because every supervised position carries a label
-    and the pad positions are -100. Batched *generation* wants left-padded prompts, so a sampler
-    must pad its own encoder inputs rather than reuse this.
+    and the pad positions are -100. PLM encoders can use a different pad id from the residue decoder.
+    Sampling encodes one unpadded framework at a time and shares it across candidates.
     """
     def pad(key, value):
         return torch.nn.utils.rnn.pad_sequence(
             [item[key] for item in batch], batch_first=True, padding_value=value)
 
-    input_ids = pad("input_ids", pad_token_id)
+    input_ids = pad("input_ids", pad_token_id if encoder_pad_token_id is None
+                    else encoder_pad_token_id)
     decoder_input_ids = pad("decoder_input_ids", pad_token_id)
 
     # Explicit, not `input_ids != pad_token_id`: a real pad id may also be a real residue id.

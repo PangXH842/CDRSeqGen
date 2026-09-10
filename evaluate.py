@@ -238,7 +238,8 @@ def main():
     provenance = evaluation_provenance(args.config, args.model_dir, data_args.data_path)
 
     backbone = method.module('backbones').resolve(model_args.model_type)
-    _, eval_dataset, tokenizer = method.module('training').get_datasets(model_args, data_args, training_args, backbone)
+    _, eval_dataset, tokenizer = method.module('training').get_datasets(
+        model_args, data_args, training_args, backbone, checkpoint_path=args.model_dir)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = backbone.load_pretrained_model(args.model_dir)

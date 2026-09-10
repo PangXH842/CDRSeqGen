@@ -85,6 +85,18 @@ class RankingDirectionTests(unittest.TestCase):
 
 
 class TrialSelectionTests(unittest.TestCase):
+    def test_retry_is_not_a_second_seed_and_full_setting_identity_separates_runs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            map_path = _build_sweep(tmp, [("cross_entropy", 42, 0.32, 7.0)])
+            trial = load_trials(map_path, "core")[0]
+            retry = dict(trial, score=0.34)
+            ranked = rank_settings([trial, retry], True)
+            self.assertEqual(ranked[0]["n_seeds"], 1)
+            self.assertEqual(ranked[0]["mean_score"], 0.34)
+            ranked = rank_settings([dict(trial, setting_id="ar"),
+                                    dict(trial, setting_id="s2s")], True)
+            self.assertEqual(len(ranked), 2)
+
     def test_only_completed_trials_are_scored(self):
         with tempfile.TemporaryDirectory() as tmp:
             map_path = _build_sweep(tmp, [("cross_entropy", 42, 0.32, 7.0)])
@@ -176,6 +188,16 @@ class ReportingNeverFailsTheRunTests(unittest.TestCase):
     def test_summarize_returns_none_when_there_is_no_runs_tsv(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIsNone(summarize_sweep(tmp))
+
+    def test_saved_summary_names_ranking_separately_from_checkpoint_selection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _build_sweep(tmp, [("cross_entropy", 42, 0.32, 7.0)])
+            summarize_sweep(tmp, "judge_ppl", quiet=True)
+            with open(os.path.join(tmp, "summary.tsv")) as handle:
+                row = next(csv.DictReader(handle, delimiter="\t"))
+            self.assertEqual(row["rank_metric"], "judge_ppl")
+            self.assertEqual(row["selection_metric"], "eval_core_accuracy")
+            self.assertEqual(row["higher_is_better"], "False")
 
     def test_summarize_returns_none_when_no_trial_carries_the_metric(self):
         with tempfile.TemporaryDirectory() as tmp:

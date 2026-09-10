@@ -37,9 +37,9 @@ from cdrseqgen.eval import ANCHOR_TRIM
 logger = logging.getLogger(__name__)
 
 
-def get_datasets(model_args, data_args, training_args, backbone):
+def get_datasets(model_args, data_args, training_args, backbone, *, checkpoint_path=None):
     """Tokenizer, train/eval subsets. Same signature as the MLM pipeline's."""
-    tokenizer = backbone.build_tokenizer(model_args.model_type)
+    tokenizer = backbone.build_tokenizer(model_args.model_type, checkpoint_path=checkpoint_path)
     full = CausalInfillingDataset(
         data_args.data_path,
         tokenizer,

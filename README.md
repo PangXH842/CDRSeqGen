@@ -1,8 +1,8 @@
 <!-- Note to AI: Edits allowed OUTSIDE of MANUAL PROTECTION ZONES and INSIDE of AI ACCESS ZONES, and DO NOT COMMIT ON MY BEHALF -->
 # CDRSeqGen: Modular Antibody Infilling Framework
 
-**Date Updated:** 2026-09-07
-**Status:** s2s update
+**Date Updated:** 2026-09-10
+**Status:** S2S pretrained encoder support (ESM-2, IgBert, ProtBert)
 
 ## Project Overview
 CDRSeqGen is a computational immunology framework designed to predict antibody loop sequences given the surrounding framework context. 
@@ -69,15 +69,17 @@ Current implemented features include:
 
 ```text
 CDRSeqGen/
-├── configs/                    # 57 run configs (flat; run.sh references them by path).
+├── configs/                    # 63 run configs (flat; run.sh references them by path).
 │                               #   A config's "method" key selects the pipeline (default mlm)
 │   ├── h{1,2,3}_scratch[.json|_lc|_ag|_ag_lconly] + h{1,2,3}_esm2[...]
 │   ├── h{1,2,3}_igbert[.json|_lc] + h{1,2,3}_protbert[.json|_lc]
 │   ├── l{1,2,3}_scratch[.json|_hc] + l{1,2,3}_esm2[.json|_hc]
 │   ├── h{1,2,3}_ar_scratch[.json|_lc]
+│   ├── h3_s2s_{esm2,igbert,protbert}[.json|_lc]  # pretrained encoder + new residue decoder
 │   └── h3_s2s_scratch[.json|_lc]   # pins num_encoder/decoder_layers 2/2 = 933k params, so the
 │                               #   compare suite is not confounded by 2.3x capacity (see s2s below)
 ├── cdrseqgen/                  # Library package — grouped by concern (entrypoints stay at root)
+│   ├── experiments.py          # Shared suite/sweep planner and executor; shell scripts are entry points
 │   ├── artifacts.py            # Shared names for persisted run artifacts and legacy aliases
 │   ├── data/                   # ALL data code (the data itself lives in dataset/data/)
 │   │   ├── dataset_common.py   # Method-NEUTRAL: tokenizers, framework/target split, context
@@ -130,16 +132,16 @@ CDRSeqGen/
 │   │   │   │                   #   The missing cell of the 2x2: bidirectional conditioning like
 │   │   │   │                   #   mlm, <eos>-chosen length like ar. Contract-identical to ar
 │   │   │   │                   #   throughout, so an s2s/ar/mlm table is one implementation.
-│   │   │   ├── backbones.py    # Seq2seq registry. Only `scratch` is registered: a generic
-│   │   │   │                   #   hf_seq2seq fallback would force our <mask> onto ProtT5 and throw
-│   │   │   │                   #   away the very thing it is wanted for — span infilling IS its
-│   │   │   │                   #   pretraining objective. resolve() fails loudly instead
+│   │   │   ├── backbones.py    # scratch, ESM-2, and protein-BERT encoders. PLM encoders keep
+│   │   │   │                   #   native tokenizers; all decoders use the same residue vocabulary
 │   │   │   ├── training.py     # get_datasets + teacher-forced metrics + Trainer. The metrics do
 │   │   │   │                   #   NOT re-shift: dataset_s2s already offset the decoder pair
 │   │   │   ├── sampling.py     # Decode to <eos>. ONE encoder pass shared by every candidate, and
 │   │   │   │                   #   no padding at all — every decoder row starts at <bos>
 │   │   │   ├── evaluation.py   # Seq2SeqStrategy for the SHARED loop in eval/generative.py
 │   │   │   └── models/
+│   │   │       ├── plm.py      # PLM encoder + width projection + shared residue decoder;
+│   │   │       │               #   fine-tuned/frozen/random controls, complete local checkpoints
 │   │   │       └── transformer.py  # Bidirectional encoder + cross-attending causal decoder.
 │   │   │                       #   Rotary on SELF-attention only. NOT capacity-matched to ar at the
 │   │   │                       #   same num_layers (1.86M vs 800k) — build_model logs the count
@@ -210,11 +212,11 @@ CDRSeqGen/
 ├── evaluate.py                 # Entrypoint — held-out generative evaluation (+ --judge)
 ├── fit_mlm_length.py           # Add MLM length artifacts to an older checkpoint
 ├── scripts/
-│   ├── run.sh                  # Unified runner: ./scripts/run.sh <gpu>[,<gpu>…] [suite ...]
+│   ├── run.sh                  # Launcher: <gpus> [suite ...] or <gpus> sweep [preset] [config]
 │                               #   Suites name their method first: mlm_heavy | mlm_light |
 │                               #   mlm_antigen | mlm_igbert | mlm_protbert | mlm_plm |
-│                               #   ar_heavy | compare | all. Several GPUs shard the round
-│   ├── sweep.sh                # Unified sweep: h3 | pilot | arch | loss | quick presets
+│                               #   ar_heavy | s2s_heavy | s2s_{esm2,igbert,protbert,plm} | compare | all. Several GPUs shard the round
+│   ├── sweep.sh                # Compatibility alias for run.sh <gpus> sweep [preset] [config]
 │   └── unit_tests.sh           # Unit test runner (sets PYTHONPATH; no GPU or data needed)
 ├── env.sh
 ├── README.md                   # What the project is, what it found, what is still open
@@ -812,6 +814,8 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
+- **2026-09-10** -- S2S pretrained encoders: ESM-2/IgBert/ProtBert feed the shared residue decoder through a learned width projection (`methods/s2s/models/plm.py` [new]); `encoder_init=pretrained|random` and `freeze_encoder` controls; new `configs/h3_s2s_{esm2,igbert,protbert}[_lc].json`
+- **2026-09-10** -- `cdrseqgen/experiments.py` [new]: unified suite/sweep planner + executor; `run.sh`/`sweep.sh` cut to thin wrappers over it (374/372 lines -> 13/11), `plan.json`-based exact-plan resume via `EXPERIMENT_DIR` (`SWEEP_DIR` still works as an alias)
 <!-- AI ACCESS ZONE ENDS -->
 - **2026-09-07** -- **SEQ2SEQ UPDATE** (`methods/s2s/`)
 - **2026-09-04** -- Enabled different span layouts: `SpanLayout` in [`data/dataset_ar.py`]
@@ -928,7 +932,8 @@ The comparison must run both methods on the **same frozen examples**, with the s
 - [ ] **Screen the learning rate before any comparison.** `s2s` currently inherits `1e-4` from the *causal* sweep (2026-09-03), which was fitted to a single-stack decoder, not to two stacks plus cross-attention. An untuned arm losing a comparison establishes nothing. `LRS="1e-4 3e-4 1e-3" WARMUPS="0.06" WEIGHT_DECAYS="0.01" SEEDS="42 43" EPOCH_LIST="20" scripts/sweep.sh <gpu> h3 configs/h3_s2s_scratch.json` — 6 trials at the shipped warmup/decay, two seeds so a rank flip is visibly noise
 - [ ] **Run the three-arm `compare` suite**, all six runs in one batch folder. Do NOT splice `s2s` against the 09-04 batch instead: framework selection is deterministic in `gen_seed` so per-framework pairing is *mechanically* valid, but the tree has changed under those numbers, `batch_tables.md` and the dashboards are per-batch-folder artifacts, and the 09-04 table predates the reporting fix. Hand-splicing a comparison table is finding #2 of the last review
 - [ ] Multi-seed it, like every other headline number in this README still needs
-- [ ] **A pretrained encoder-decoder backbone** — the durable argument for this method family. ProtT5 is the only pretrained option across all three methods whose *native* objective is span infilling, so unlike `hf_decoder` it needs no randomly-initialised sentinels bolted on, and unlike IgLM its weights are not the §11 baseline. `methods/s2s/backbones.py` deliberately registers no generic fallback and lists what the real path needs: an encoder-stream layout using `<extra_id_0>`, an extraction step reading the decoder stream back out, and per-config layout selection
+- [x] **Pretrained S2S encoders** (2026-09-10): ESM-2, IgBert, and ProtBert encoders feed the shared residue decoder through a learned width projection. Native encoder tokenizers are separate from decoder ids. `encoder_init=pretrained|random` and `freeze_encoder` provide initialization/feature-extractor controls. H3 suites use the unified runner; these are implementation capabilities, not evidence of improved generation. See [the workflow](WORKFLOW.md#step-2-training--batch-experimentation).
+- [ ] **A full pretrained encoder-decoder backbone**: ProtT5 remains a future adapter. The released checkpoint used BART-like residue masking, **not** original T5 span denoising; validate its real pretraining/input/output contract before designing missing-span extraction ([model card](https://huggingface.co/Rostlab/prot_t5_xl_uniref50)).
 - [ ] Expect a negative result on the architecture axis, and record it as one. §4 measured no benefit from partner-chain or antigen context, and `mlm`/`ar` tie on recovery, so the prior against "better framework conditioning helps recovery" is strong. The informative outcome is judge perplexity: if the 3.15-vs-7.55 gap is really about loop factorisation, `s2s` should hold near 3.15
 <!-- AI ACCESS ZONE ENDS -->
 

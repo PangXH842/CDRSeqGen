@@ -57,6 +57,7 @@ RANKERS = {
 KEY = ("lr", "warmup", "weight_decay", "epochs", "hidden", "layers", "loss", "core_w", "anchor_w")
 
 SUMMARY_FIELDS = list(KEY) + [
+    "setting_id", "scheduler", "rank_metric", "score_metric", "higher_is_better",
     "selection_metric", "n_seeds", "mean_score", "sd_score", "mean_core", "mean_whole",
     "mean_best_epoch", "mean_decay",
 ]
@@ -198,14 +199,21 @@ def load_trials(map_path, rank_metric):
 
 def rank_settings(trials, higher_is_better):
     """One row per setting, seeds collapsed into a mean and a spread, best first."""
-    groups = defaultdict(list)
+    groups = defaultdict(dict)
     for trial in trials:
-        groups[tuple(trial[k] for k in KEY)].append(trial)
+        # New plans carry the full setting identity. Legacy tables can only use their recorded
+        # columns. A retry of one seed is not another independent replicate: keep its last result.
+        key = trial.get("setting_id") or (
+            *[trial[k] for k in KEY], trial.get("scheduler"), trial["selection_metric"])
+        groups[key][trial["seed"]] = trial
 
     ranked = []
-    for key, members in groups.items():
+    for members_by_seed in groups.values():
+        members = list(members_by_seed.values())
         values = [member["score"] for member in members]
-        entry = dict(zip(KEY, key))
+        entry = {k: members[0][k] for k in KEY}
+        entry.update(setting_id=members[0].get("setting_id", ""),
+                     scheduler=members[0].get("scheduler", ""))
         selection_metrics = {member["selection_metric"] for member in members}
         entry.update({
             "selection_metric": (selection_metrics.pop()
@@ -226,11 +234,13 @@ def rank_settings(trials, higher_is_better):
     return ranked
 
 
-def write_summary(ranked, summary_path):
+def write_summary(ranked, summary_path, rank_metric="core"):
     with open(summary_path, "w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=SUMMARY_FIELDS, delimiter="\t")
         writer.writeheader()
-        writer.writerows(ranked)
+        source, metric, higher = RANKERS[rank_metric]
+        writer.writerows(dict(row, rank_metric=rank_metric, score_metric=f"{source}.{metric}",
+                              higher_is_better=higher) for row in ranked)
     return summary_path
 
 
@@ -299,7 +309,7 @@ def summarize_sweep(sweep_dir, rank_metric="core", map_path=None, summary_path=N
         return None
 
     ranked = rank_settings(scored, higher_is_better)
-    write_summary(ranked, summary_path)
+    write_summary(ranked, summary_path, rank_metric)
     if not quiet:
         print(format_report(ranked, rank_metric, higher_is_better))
     print(f"✅ Summary successfully saved as: {summary_path}")

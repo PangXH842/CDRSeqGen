@@ -107,8 +107,14 @@ def _epoch_metrics(run_dir):
 
 def model_family(model):
     """Collapse a model_type/run suffix to the family used in the tables"""
+    from cdrseqgen.methods.registry import DEFAULT_METHOD, METHODS
     m = model.lower()
-    return "scratch" if m == "scratch" else ("esm2" if "esm2" in m else m)
+    prefix, _, backbone = m.partition("_")
+    marker = prefix + "_" if prefix in METHODS and prefix != DEFAULT_METHOD else ""
+    if marker:
+        m = backbone
+    family = "esm2" if "esm2" in m else ("protbert" if m == "prot_bert" else m)
+    return marker + family
 
 
 def discover_runs(batch):
@@ -331,6 +337,19 @@ RECOVERY_TABLES = {
 }
 
 
+RECOVERY_TABLES["s2s_plm"] = {
+    "title": "S2S H3 — PLM encoder + new residue decoder (teacher-forced recovery)",
+    "label_header": "case",
+    "cases": [("OAS H3", "h3", "OAS", ""),
+              ("OAS H3 + partner", "h3", "OAS", "_LC")],
+    "columns": [("scratch", "s2s_scratch", (BASE_CONTEXT,)),
+                ("ESM-2 encoder", "s2s_esm2", (BASE_CONTEXT,)),
+                ("IgBert encoder", "s2s_igbert", (BASE_CONTEXT,)),
+                ("ProtBert encoder", "s2s_protbert", (BASE_CONTEXT,))],
+    "delta": True,
+}
+
+
 def _resolved_context(case, selector):
     _, loop, _, base_context = case
     if selector == BASE_CONTEXT:
@@ -429,6 +448,9 @@ FAMILY_LABELS = {
     "esm2": "ESM-2 (masked)",
     "ar_scratch": "scratch (causal)",
     "s2s_scratch": "scratch (enc-dec)",
+    "s2s_esm2": "ESM-2 encoder (enc-dec)",
+    "s2s_igbert": "IgBert encoder (enc-dec)",
+    "s2s_protbert": "ProtBert encoder (enc-dec)",
 }
 
 def method_of_family(family):

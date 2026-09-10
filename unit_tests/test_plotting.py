@@ -10,6 +10,9 @@ The last one is the science-critical case: on a recovery axis a 0.0 bar and an a
 identical and mean opposite things.
 """
 import os
+import csv
+import json
+from pathlib import Path
 import tempfile
 import unittest
 
@@ -23,7 +26,7 @@ from cdrseqgen.visualization.bargraph_plotter import BarSeries, draw_grouped_bar
 from cdrseqgen.visualization.batch_plots import _context_pair
 from cdrseqgen.visualization.linegraph_plotter import LineSeries, draw_lines
 from cdrseqgen.visualization.scatterplot_plotter import ScatterSeries, draw_scatter
-from cdrseqgen.visualization.sweep_plots import SWEEP_SUBDIRS
+from cdrseqgen.visualization.sweep_plots import SWEEP_SUBDIRS, load_trials as load_sweep_trials
 
 
 class PlotStyleTests(unittest.TestCase):
@@ -148,6 +151,28 @@ class ScatterTests(unittest.TestCase):
 
 
 class SweepSubdirectoryTests(unittest.TestCase):
+    def test_planned_learning_rates_are_separate_settings_and_retries_are_not_seeds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rows, trials = [], []
+            for lr, seed in (("1e-4", 42), ("1e-4", 43), ("1e-3", 42)):
+                run = root / f"run_{lr}_{seed}"
+                run.mkdir()
+                config = dict(loss_type="cross_entropy", learning_rate=float(lr), seed=seed)
+                (run / "run_config.json").write_text(json.dumps(config))
+                (run / "epoch_metrics.csv").write_text("epoch,eval_core_accuracy\n1,0.3\n")
+                (run / "generation_eval.json").write_text(json.dumps({"summary": {}}))
+                rows.append(dict(run_dir=str(run), status="completed", setting_id=lr, seed=seed))
+                trials.append(dict(setting_id=lr, config=config, grid=dict(lr=lr, seed=str(seed))))
+            rows.append(dict(rows[0]))
+            with (root / "runs.tsv").open("w", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=list(rows[0]), delimiter="\t")
+                writer.writeheader()
+                writer.writerows(rows)
+            (root / "plan.json").write_text(json.dumps({"trials": trials}))
+            groups = load_sweep_trials(str(root))
+            self.assertEqual({k: len(v) for k, v in groups.items()}, {"lr=1e-4": 2, "lr=1e-3": 1})
+
     def test_a_sweeps_own_output_dirs_are_not_mistaken_for_trials(self):
         # load_trials falls back to globbing subdirectories when runs.tsv is missing — the
         # interrupted-sweep case — so figures/ and logs/ must be excluded by name or every one

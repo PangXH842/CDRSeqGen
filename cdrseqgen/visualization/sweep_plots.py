@@ -48,7 +48,7 @@ from cdrseqgen.visualization.scatterplot_plotter import ScatterSeries, draw_scat
 from cdrseqgen import artifacts
 
 # A sweep's own output directories, which sit beside its trial folders and are not trials.
-SWEEP_SUBDIRS = frozenset({plot_style.FIGURES_DIRNAME, "logs"})
+SWEEP_SUBDIRS = frozenset({plot_style.FIGURES_DIRNAME, "logs", ".configs"})
 
 
 def objective_label(config):
@@ -89,8 +89,23 @@ def load_trials(sweep_dir):
     stay readable without it.
     """
     map_path = os.path.join(sweep_dir, "runs.tsv")
+    settings_by_run = {}
+    plan_path = os.path.join(sweep_dir, "plan.json")
     if os.path.exists(map_path):
-        rows = pd.read_csv(map_path, sep="\t")
+        # Journal identifiers are opaque strings, even when they resemble numeric values.
+        rows = pd.read_csv(map_path, sep="\t", dtype=str)
+        if os.path.exists(plan_path) and "setting_id" in rows:
+            with open(plan_path) as handle:
+                plan = json.load(handle)
+            # Objective-only grouping pools different LRs/depths as if they were seeds.
+            varying = [key for key in plan["trials"][0]["grid"] if key != "seed" and
+                       len({t["grid"][key] for t in plan["trials"]}) > 1]
+            labels = {t["setting_id"]: (
+                ", ".join(f"{k}={t['grid'][k]}" for k in varying) or objective_label(t["config"]))
+                for t in plan["trials"]}
+            rows = rows.drop_duplicates(["setting_id", "seed"], keep="last")
+            settings_by_run = {r["run_dir"]: (r["setting_id"], labels[r["setting_id"]])
+                               for _, r in rows.iterrows()}
         run_dirs = [r for r in rows.loc[rows["status"] == "completed", "run_dir"] if isinstance(r, str)]
     else:
         # A sweep's own subdirectories are not trials; without this the fallback would report every
@@ -117,10 +132,12 @@ def load_trials(sweep_dir):
         else:
             print(f"⚠️ No generation_eval.json in {run_dir} — panels B–D will skip this trial")
         csv_path = os.path.join(run_dir, artifacts.EPOCH_METRICS_FILENAME)
-        groups[objective_label(config)].append({
+        canonical, label = settings_by_run.get(
+            run_dir, (canonical_objective(config), objective_label(config)))
+        groups[label].append({
             "run_dir": run_dir,
             "seed": config.get("seed"),
-            "canonical": canonical_objective(config),
+            "canonical": canonical,
             "curve": pd.read_csv(csv_path) if os.path.exists(csv_path) else None,
             "generation": generation,
         })

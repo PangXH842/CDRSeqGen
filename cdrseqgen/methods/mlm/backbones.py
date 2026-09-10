@@ -55,8 +55,10 @@ class Backbone:
     load_pretrained_model: Callable[[str], object]               # checkpoint for generation/eval
     fallback: bool = False
 
-    def build_tokenizer(self, model_type) -> TokenizerAdapter:
-        return self.load_tokenizer(model_type, self.position_type, self.uses_special_tokens)
+    def build_tokenizer(self, model_type, checkpoint_path=None) -> TokenizerAdapter:
+        from cdrseqgen.methods.common.backbones import tokenizer_source
+        source = tokenizer_source(model_type, checkpoint_path)
+        return self.load_tokenizer(source, self.position_type, self.uses_special_tokens)
 
 
 REGISTRY = []
@@ -79,7 +81,9 @@ def resolve(model_type: str) -> Backbone:
 
 
 # --- lazy loader helpers (imports kept local so the module is cheap to import) ----------------
-from cdrseqgen.methods.common.backbones import load_custom_pretrained as _load_custom_pretrained
+from cdrseqgen.methods.common.backbones import (
+    load_custom_pretrained as _load_custom_pretrained,
+    esm_tokenizer as _esm_tokenizer, bert_tokenizer as _bert_tokenizer)
 
 # --- custom from-scratch transformer -------------------------------------------
 def _scratch():
@@ -116,10 +120,6 @@ register(Backbone(
 
 
 # --- ESM-2 -------------------------------------------------
-def _esm_tokenizer(mt, pos, wrap):
-    from transformers import EsmTokenizer
-    return TokenizerAdapter.from_hf(EsmTokenizer.from_pretrained(mt), position_type=pos, uses_special_tokens=wrap)
-
 
 def _load_esm(name_or_path):
     from transformers import EsmForMaskedLM
@@ -139,14 +139,6 @@ register(Backbone(
 
 
 # --- antibody / protein BERT-style masked-LMs (IgBert, ProtBert, AntiBERTy, ...) --------------
-def _bert_tokenizer(mt, pos, wrap):
-    from transformers import AutoTokenizer, BertTokenizer
-    try:
-        hf_tok = AutoTokenizer.from_pretrained(mt, use_fast=False)
-    except Exception:
-        hf_tok = BertTokenizer.from_pretrained(mt)
-    return TokenizerAdapter.from_hf(hf_tok, position_type=pos, uses_special_tokens=wrap, space_residues=True)
-
 
 def _load_bert_model(name_or_path):
     from transformers import AutoModelForMaskedLM, BertForMaskedLM

@@ -202,11 +202,14 @@ class Seq2SeqAntibodyModel(PreTrainedModel):
         self.encoder_blocks = nn.ModuleList(
             [EncoderBlock(config) for _ in range(config.num_hidden_layers)])
         self.encoder_norm = nn.LayerNorm(config.hidden_size)
+        self._build_decoder(config)
+        self.post_init()
+
+    def _build_decoder(self, config):
         self.decoder_blocks = nn.ModuleList(
             [DecoderBlock(config) for _ in range(config.num_decoder_layers)])
         self.decoder_norm = nn.LayerNorm(config.hidden_size)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
-        self.post_init()
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):

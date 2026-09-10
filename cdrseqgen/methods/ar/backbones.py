@@ -45,8 +45,10 @@ class CausalBackbone:
     load_pretrained_model: Callable[[str], object]
     fallback: bool = False
 
-    def build_tokenizer(self, model_type) -> TokenizerAdapter:
-        return self.load_tokenizer(model_type, self.position_type, self.uses_special_tokens)
+    def build_tokenizer(self, model_type, checkpoint_path=None) -> TokenizerAdapter:
+        from cdrseqgen.methods.common.backbones import tokenizer_source
+        source = tokenizer_source(model_type, checkpoint_path)
+        return self.load_tokenizer(source, self.position_type, self.uses_special_tokens)
 
 
 REGISTRY = []

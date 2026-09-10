@@ -34,9 +34,9 @@ from cdrseqgen.eval.metrics import core_anchor_indices
 logger = logging.getLogger(__name__)
 
 
-def get_datasets(model_args, data_args, training_args, backbone):
+def get_datasets(model_args, data_args, training_args, backbone, *, checkpoint_path=None):
     """Tokenizer, train/eval subsets. Same signature as the masked and causal pipelines'."""
-    tokenizer = backbone.build_tokenizer(model_args.model_type)
+    tokenizer = backbone.build_tokenizer(model_args.model_type, checkpoint_path=checkpoint_path)
     full = Seq2SeqInfillingDataset(
         data_args.data_path,
         tokenizer,
@@ -111,7 +111,9 @@ def build_seq2seq_trainer(model, training_args, train_ds, eval_ds, tokenizer, ca
         args=training_args,
         train_dataset=train_ds,
         eval_dataset=eval_ds,
-        data_collator=functools.partial(s2s_collate_fn, pad_token_id=tokenizer.pad_id),
+        data_collator=functools.partial(
+            s2s_collate_fn, pad_token_id=tokenizer.pad_id,
+            encoder_pad_token_id=getattr(tokenizer, "encoder_tokenizer", tokenizer).pad_id),
         compute_metrics=functools.partial(s2s_compute_metrics, trim=trim),
         callbacks=callbacks or [],
     )

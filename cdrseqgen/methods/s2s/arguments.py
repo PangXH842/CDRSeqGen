@@ -33,10 +33,18 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ModelArguments(BaseModelArguments):
     method: str = field(default="s2s", metadata={"help": "Selects the encoder-decoder pipeline."})
+    encoder_init: str = field(
+        default="pretrained", metadata={"help": "PLM encoder initialization: pretrained or random "
+                                                "(same-architecture control)."})
+    freeze_encoder: bool = field(
+        default=False, metadata={"help": "Keep PLM encoder weights and dropout fixed; train only "
+                                        "the projection and residue decoder."})
     num_encoder_layers: Optional[int] = field(
         default=None,
-        metadata={"help": "Encoder depth; None = num_layers. Set both this and num_decoder_layers "
+        metadata={"help": "Scratch encoder depth; leave unset for PLMs. Set both this and num_decoder_layers "
                           "to compare against an `ar` run at matched parameter count."})
+    hidden_size: int = field(default=128, metadata={"help": "Scratch width, or PLM residue decoder width."})
+    num_layers: int = field(default=4, metadata={"help": "Default scratch stack depth or PLM decoder depth."})
     num_decoder_layers: Optional[int] = field(
         default=None, metadata={"help": "Decoder depth; None = num_layers."})
 
@@ -66,6 +74,13 @@ def validate_args(model_args, data_args, gen_args):
     """Validate seq2seq-only limits in addition to the shared method contract."""
     validate_common_args(model_args, data_args, gen_args, expected_method="s2s")
     validate_s2s_decode_steps(gen_args.gen_max_new_tokens)
+    if model_args.model_type == "scratch":
+        if model_args.freeze_encoder or model_args.encoder_init != "pretrained":
+            raise ValueError("freeze_encoder and encoder_init controls require a PLM backbone")
+    else:
+        from cdrseqgen.methods.s2s.models.plm import validate_encoder_options
+        validate_encoder_options(model_args.encoder_init, model_args.freeze_encoder,
+                                 model_args.num_encoder_layers)
     for name in ("num_encoder_layers", "num_decoder_layers"):
         value = getattr(model_args, name)
         if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 1):

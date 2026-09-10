@@ -289,7 +289,7 @@ def main(args):
     model_type = configs["model_type"]
     print(f"🧬 Loading '{model_type}' weights onto {device}…")
     backbone = method.module("backbones").resolve(model_type)
-    tokenizer = backbone.build_tokenizer(model_type)
+    tokenizer = backbone.build_tokenizer(model_type, checkpoint_path=args.model_path)
     model = backbone.load_pretrained_model(args.model_path)
     model.to(device)
     model.eval()
