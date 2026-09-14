@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ModelArguments(BaseModelArguments):
     method: str = field(default="s2s", metadata={"help": "Selects the encoder-decoder pipeline."})
+    conditioning_probe_steps: int = field(default=0, metadata={"help": "0 disables fixed validation conditioning probes."})
+    diagnostic_stop_epoch: float = field(default=0.0, metadata={"help": "Stop at this epoch without shortening the LR schedule; 0 disables."})
     encoder_init: str = field(
         default="pretrained", metadata={"help": "PLM encoder initialization: pretrained or random "
                                                 "(same-architecture control)."})
@@ -74,6 +76,11 @@ def validate_args(model_args, data_args, gen_args):
     """Validate seq2seq-only limits in addition to the shared method contract."""
     validate_common_args(model_args, data_args, gen_args, expected_method="s2s")
     validate_s2s_decode_steps(gen_args.gen_max_new_tokens)
+    import math
+    if model_args.conditioning_probe_steps < 0 or not math.isfinite(model_args.diagnostic_stop_epoch) or model_args.diagnostic_stop_epoch < 0:
+        raise ValueError("Diagnostic probe interval and stop epoch must be nonnegative and finite")
+    if model_args.conditioning_probe_steps and data_args.eval_split != "validation":
+        raise ValueError("Conditioning probes require eval_split=validation")
     if model_args.model_type == "scratch":
         if model_args.freeze_encoder or model_args.encoder_init != "pretrained":
             raise ValueError("freeze_encoder and encoder_init controls require a PLM backbone")

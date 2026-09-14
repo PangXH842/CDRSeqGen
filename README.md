@@ -1,28 +1,43 @@
 <!-- Note to AI: Edits allowed OUTSIDE of MANUAL PROTECTION ZONES and INSIDE of AI ACCESS ZONES, and DO NOT COMMIT ON MY BEHALF -->
 # CDRSeqGen: Modular Antibody Infilling Framework
 
-**Date Updated:** 2026-09-11
-**Status:** S2S pretrained encoder support (ESM-2, IgBert, ProtBert)
+**Date Updated:** 2026-09-14
+**Status:** First S2S pretrained encoder matrix complete; tuning and controlled comparisons pending
 
 ## Project Overview
 CDRSeqGen is a computational immunology framework designed to predict antibody loop sequences given the surrounding framework context. 
 
-Current implemented features include: 
-- **Data Preprocessing**: IMGT Bio-Object JSON; current OAS4 corpus: 152,727 paired sequences from four donors (122,181 train / 15,273 validation / 15,273 test). The earlier one-donor corpus has 21,106 pairs. SAbDab2 has 3,984 paired antibodies with antigen (3,234 train / 750 test). Preprocessing can merge multiple donor CSVs and split the merged corpus once.
-- **Addressing Data Leakage**: H3-clustered OAS train/validation/test splits and explicit validation selection. Representative clustering does not guarantee pairwise sequence separation; see [Open problems](#open-problems).
-- **Task-Agnostic Masking**: masking training method for all 6 CDR loops individually by target selection
-- **Pluggable Backbone PLMs**: supports various PLMs, current list: custom transformer (scratch), ESM-2, IgBert, ProtBert
-- **Partner Chain Context**: optional inclusion of non-target chain sequence context
-- **Antigen Context**: optional inclusion of antigen sequence context for SAbDab2 dataset
-- **Context Dropout**: `context_dropout` trains one checkpoint that works with *and* without its optional context (partner chain / antigen drawn independently), instead of a model locked to the regime it was trained in
-- **Generative Sampling**: independent / iterative (Mask-Predict) decoding with temperature (`0` = greedy), top-k, top-p — samples a *library* of candidate loops instead of one argmax guess
-- **Explicit Length Policies**: fixed, bounded, and inferred-length MLM generation; inferred mode classifies one gap sentinel and expands it into residue masks without reading the native loop length
-- **Autoregressive Infilling**: causal span infilling with both framework flanks in the prompt, answer-only loss, rotary positions, and model-chosen loop length via `<eos>`
-- **Encoder-Decoder Infilling**: two-stream span infilling — a *bidirectional* encoder over `pt1 <mask> pt2` and a cross-attending decoder that emits residues until `<eos>`. Unlike the causal layout the loop never shares a sequence with the framework, so no answer reserve competes with optional context for `max_len`
-- **Evaluation Metrics**: *recovery-side* — Sequence Recovery Rate (Per-Residue Accuracy), anchor-excluded core accuracy, anchor accuracy. *Design-side* — diversity, novelty, per-position entropy, pseudo-perplexity, plus judge-scored perplexity for cross-model comparison
-- **Matched External Benchmark**: versioned manifests, model-specific CDRSeqGen/IgLM adapters, shared contract validation and scoring, and optional independent-judge perplexity
-- **Logging & Visualization**: per-run `train.log` (the whole run's record, including the generative-eval table and any uncaught traceback), TensorBoard logging, csv metric extraction, multi-line graph plotter
-- **Extensible Architecture**: method packages isolate each method's assumptions so a new one reuses shared data, metrics, artifacts, and benchmark contracts. A method declares itself in `methods/registry.py` and fills a five-function CLI protocol; the dispatchers, `--decoding` choices and dashboard families all derive from that registry rather than from hard-coded lists
+Current implemented features include:
+
+**Data**
+- **Preprocessing**: IMGT Bio-Object JSON; current OAS4 corpus: 152,727 paired sequences from four donors (122,181 train / 15,273 validation / 15,273 test). The earlier one-donor corpus has 21,106 pairs. SAbDab2 has 3,984 paired antibodies with antigen (3,234 train / 750 test). Preprocessing can merge multiple donor CSVs and split the merged corpus once.
+- **Leakage-controlled splits**: H3-clustered OAS train/validation/test splits and explicit validation selection. Representative clustering does not guarantee pairwise sequence separation; see [Open problems](#open-problems).
+
+**Conditioning context**
+- **Partner chain**: optional inclusion of non-target chain sequence context
+- **Antigen**: optional inclusion of antigen sequence context for SAbDab2 dataset
+- **Context dropout**: `context_dropout` trains one checkpoint that works with *and* without its optional context (partner chain / antigen drawn independently), instead of a model locked to the regime it was trained in
+
+**Infilling methods**
+- **Masked infilling**: masking training method for all 6 CDR loops individually by target selection
+- **Autoregressive infilling**: causal span infilling with both framework flanks in the prompt, answer-only loss, rotary positions, and model-chosen loop length via `<eos>`
+- **Encoder-decoder infilling**: two-stream span infilling — a *bidirectional* encoder over `pt1 <mask> pt2` and a cross-attending decoder that emits residues until `<eos>`. Unlike the causal layout the loop never shares a sequence with the framework, so no answer reserve competes with optional context for `max_len`
+- **Pluggable backbones**: supports various PLMs, current list: custom transformer (scratch), ESM-2, IgBert, ProtBert
+
+**Training & experiments**
+- **Batch experiment runner**: one planner/executor behind `run.sh` drives named suites, hyperparameter sweeps, and declarative multi-arm specs; it shards trials across GPUs, freezes each batch as a `plan.json` (merged configs, dataset hashes, source identity) for exact resume, skips runs whose artifacts are already complete, and writes the round's tables and dashboards when it finishes
+
+**Generation**
+- **Sampling**: independent / iterative (Mask-Predict) decoding with temperature (`0` = greedy), top-k, top-p — samples a *library* of candidate loops instead of one argmax guess
+- **Length policies**: fixed, bounded, and inferred-length MLM generation; inferred mode classifies one gap sentinel and expands it into residue masks without reading the native loop length
+
+**Evaluation**
+- **Metrics**: *recovery-side* — Sequence Recovery Rate (Per-Residue Accuracy), anchor-excluded core accuracy, anchor accuracy. *Design-side* — diversity, novelty, per-position entropy, pseudo-perplexity, plus judge-scored perplexity for cross-model comparison
+- **Matched external benchmark**: versioned manifests, model-specific CDRSeqGen/IgLM adapters, shared contract validation and scoring, and optional independent-judge perplexity
+
+**Engineering**
+- **Logging & visualization**: per-run `train.log` (the whole run's record, including the generative-eval table and any uncaught traceback), TensorBoard logging, csv metric extraction, multi-line graph plotter
+- **Extensible architecture**: method packages isolate each method's assumptions so a new one reuses shared data, metrics, artifacts, and benchmark contracts. A method declares itself in `methods/registry.py` and fills a five-function CLI protocol; the dispatchers, `--decoding` choices and dashboard families all derive from that registry rather than from hard-coded lists
 
 ---
 
@@ -67,10 +82,16 @@ Current implemented features include:
 
 ## 🏗️ Repository Structure
 
+`scripts/` holds thin command-line launchers; `cdrseqgen/` holds executable Python logic.
+The launch direction is `run.sh → python -m cdrseqgen.experiments → train.py`; `sweep.sh`
+forwards to `run.sh`. Single-run settings live in `configs/*.json`, multi-run recipes in
+`configs/experiments/`, and resolved plans and outputs in `results/runs/`.
+
 ```text
 CDRSeqGen/
-├── configs/                    # Flat run configs; the shared runner references them by path.
+├── configs/                    # Run configs and experiment recipes; no executable code.
 │                               #   A config's "method" key selects the pipeline (default mlm)
+│   ├── experiments/            # Dated multi-arm specs referencing the base configs below
 │   ├── h{1,2,3}_scratch[.json|_lc|_ag|_ag_lconly] + h{1,2,3}_esm2[...]
 │   ├── h{1,2,3}_igbert[.json|_lc] + h{1,2,3}_protbert[.json|_lc]
 │   ├── l{1,2,3}_scratch[.json|_hc] + l{1,2,3}_esm2[.json|_hc]
@@ -79,7 +100,7 @@ CDRSeqGen/
 │   └── h3_s2s_scratch[.json|_lc]   # pins num_encoder/decoder_layers 2/2 = 933k params, so the
 │                               #   compare suite is not confounded by 2.3x capacity (see s2s below)
 ├── cdrseqgen/                  # Library package — grouped by concern (entrypoints stay at root)
-│   ├── experiments.py          # Shared suite/sweep planner and executor; shell scripts are entry points
+│   ├── experiments.py          # Suite/sweep/spec planner and executor; called by scripts/run.sh
 │   ├── artifacts.py            # Shared names for persisted run artifacts and legacy aliases
 │   ├── data/                   # ALL data code (the data itself lives in dataset/data/)
 │   │   ├── dataset_common.py   # Method-NEUTRAL: tokenizers, framework/target split, context
@@ -262,7 +283,7 @@ not 500 lines of CLI detail away from the top.
 [5 Held-out eval (`evaluate.py`)](WORKFLOW.md#step-5-generative-evaluation-on-the-held-out-split-evaluatepy) ·
 [Matched benchmark](WORKFLOW.md#matched-external-benchmark)
 
-### Next run: S2S pretrained encoders
+### S2S pretrained encoders: results and next runs
 
 From the repository root, the combined suite is equivalent to listing all three model suites:
 
@@ -281,24 +302,136 @@ These are initial settings, not tuned optima. Each run performs generative evalu
 (150 frameworks × 20 candidates, top_p 0.9, seed 42, IgBert judge).
 
 `FREEZE_ENCODER=true` keeps the encoder fixed; `ENCODER_INIT=random` gives a matching architecture
-with random encoder weights. Both controls work in suite and sweep mode. Run the default matrix
-first, then tune and repeat promising settings across seeds before claiming a pretraining benefit.
+with random encoder weights. Both controls work in suite and sweep mode. The default matrix is
+complete; tune and repeat promising settings across seeds before claiming a pretraining benefit.
 See [the workflow](WORKFLOW.md#step-2-training--batch-experimentation) for control and sweep commands.
 
-**Completed versus pending:** the [scratch S2S LR screen](results/runs/20260907_204721_sweep_lr/summary.tsv)
-completed six trials, and the [fresh MLM/AR/S2S comparison](results/runs/20260908_173143_compare/batch_tables.md)
-completed all six runs. The full 414-test CPU suite passed on September 10, including S2S PLM
-coverage. Real ESM-2/IgBert GPU checks covered training, saving, judge-scored generation, and
-standalone reloads. ProtBert's cached tokenizer
-was checked; its full pretrained weights were not exercised in those GPU smoke runs.
-The full S2S PLM experiment matrix remains to be run; smoke tests establish implementation behavior,
-not generation quality. Commit the reviewed code before launching so the run records its revision.
+**Completed:** the [first full S2S PLM matrix](results/runs/20260913_151152_463868_s2s_plm/batch_tables.md)
+finished all six runs, including full ProtBert training and evaluation. All runs reached ten epochs;
+each produced 3,000/3,000 nonempty, complete candidates with full judge coverage (18,000 total).
+These are seed-42 **validation** results, not held-out test results:
+
+| Encoder | Partner context | Judge perplexity ↓ | Exact length (%) ↑ | Length MAE ↓ | Generated core recovery (%) ↑ | Recovery frameworks / 150 |
+|---|---|---:|---:|---:|---:|---:|
+| ESM-2 | No | 3.441 | 8.93 | 3.832 | 21.95 | 117 |
+| ESM-2 | Yes | 3.609 | 9.07 | 3.708 | 19.99 | 111 |
+| IgBert | No | 3.499 | 8.10 | 3.915 | 20.84 | 113 |
+| IgBert | Yes | 4.132 | 6.70 | 4.364 | 13.33 | 106 |
+| ProtBert | No | 3.471 | 7.77 | 4.010 | 19.87 | 111 |
+| ProtBert | Yes | 3.623 | 7.20 | 4.081 | 20.16 | 103 |
+
+Generated core recovery is conditional on length-matched candidates; the contributing framework
+populations differ. The [earlier scratch comparison](results/runs/20260908_173143_compare/batch_tables.md)
+scored **3.215 / 3.250** judge perplexity without / with partner context. No PLM setting improves
+that metric here, but capacities, optimizer settings, and epoch budgets differ, so this does not
+isolate the effect of pretraining. Five PLM runs achieved their best teacher-forced core recovery at
+epoch 10; ESM-2 + partner peaked at epoch 7. A ten-epoch screen does not establish convergence.
+
+**Stability and comparative performance are separate questions.** The collapse described below
+is a stability failure in one of six runs. All six PLM settings also score worse than the earlier
+scratch reference on judge perplexity; the collapse alone does not explain that broader result.
+These measurements describe the tested settings, but do not isolate the effect of pretraining:
+PLMs had a ten-epoch budget against scratch's twenty, five PLM runs reached their best
+teacher-forced core recovery at the final epoch, and tuning effort and model capacities differ.
+ESM-2 t12, the smallest encoder tested, has the lowest PLM judge perplexity. Budget and optimizer
+settings are possible explanations for this ordering; architecture and pretrained representations
+remain possible explanations too. A comparison with matched data/evaluation protocols and comparable
+tuning budgets would assess the complete systems more fairly. Pretrained-versus-random initialization
+of the same encoder architecture is the more direct control for the contribution of pretraining.
+
+**Next steps:**
+
+1. **IgBert + partner: representation collapse confirmed** by the
+   [September 14 checkpoint diagnostics](results/diagnostics/20260914_igbert/REPORT.md).
+   On 256 validation examples, swapping the framework or partner changes no predicted tokens;
+   final encoder representations are nearly constant. The no-partner checkpoint and original
+   pretrained encoder retain input variation. Training/validation inputs fit within 234 tokens
+   (cap 384), ruling out truncation for this corpus. The initiating event remains unresolved;
+   the epoch-2 loss/anchor deterioration is the leading interval to investigate. Next compare the
+   original LR, a lower LR, and a frozen encoder while recording early conditioning diagnostics.
+   Preserve the original LR schedule when reproducing the first two epochs. Once stable, test
+   context dropout 0 versus 0.5 with explicit evaluation in both context regimes.
+2. Screen **ESM-2 without partner context** over LR and a longer budget; it has the lowest judge
+   perplexity among these PLM runs. The command below runs three LRs × two seeds, up to 20 epochs,
+   with generative evaluation enabled. Checkpoint selection remains teacher-forced core recovery;
+   sweep ranking uses judge perplexity. Inspect recovery, length, and coverage alongside that ranking.
+3. Compare promising settings with **random initialization of the same encoder architecture** and
+   **frozen pretrained encoders**, using comparable tuning budgets, then replicate finalists across
+   additional seeds. Keep the test split untouched during selection.
+4. **Compare tuned scratch S2S and PLM systems under a matched protocol.** Use the same corpus,
+   split, evaluation examples, decoding settings, and scorer, with comparable tuning effort and
+   explicit training budgets. Matching epoch budgets controls data exposure; it does not match
+   compute across model sizes. Running the arms in one batch simplifies bookkeeping, but consistent
+   protocol and provenance also permit comparison across batches. This comparison measures the
+   complete systems; step 3's same-architecture initialization control addresses pretraining.
+
+The immediate diagnostic [experiment spec](configs/experiments/20260914_igbert_diagnostic.json) reuses the IgBert + partner config for three arms: trainable at
+LR 3e-5, trainable at 1e-5, and frozen pretrained encoder at 3e-5. Seed 42, context dropout 0,
+and the original ten-epoch scheduler horizon are retained; a callback stops training after epoch 3.
+All three epoch checkpoints are retained, including optimizer state. Generation is disabled for
+this diagnostic run. `conditioning_probe.jsonl` records projected encoder variation and sensitivity
+to swapping whole encoder memories between 16 fixed validation examples, before training, every
+250 optimizer steps, and at epoch ends. These probes do not select checkpoints or alter training RNG.
+The frozen arm still trains its projection and decoder. Do not set `FREEZE_ENCODER` or `ENCODER_INIT`
+globally in spec mode; put seed and encoder controls in the file. The recipe is an experiment
+record, separate from the permanent suite catalog. Generic diagnostics remain available to future runs.
+
+**How to read it.** The trainable-3e-5 arm is intended to reproduce the original first three epochs
+with the same seed, data seed, context dropout and scheduler horizon. If it does not collapse,
+report that the failure was not reproduced under this rerun; a fixed seed alone does not establish
+identical numerical execution. The lower-LR and frozen arms still provide stability and conditioning
+measurements, but a non-collapsing reproduction control would prevent claiming that those changes
+averted the original failure on the basis of this comparison alone.
+
+The earlier checkpoint diagnostic used 256 validation examples and swapped raw framework flanks;
+it observed ~28.67% changed argmax tokens (mean absolute logit change ~0.577) for the no-partner
+checkpoint versus 0% (~6.6e-7) for the collapsed checkpoint. The running callback uses 16 fixed
+validation examples and swaps entire encoder memories, including partner context. Those historical
+values illustrate the failure; they do not calibrate a pass threshold for the callback. Interpret
+projected encoder variation and swap sensitivity together over training. No numerical pass/fail
+criterion was specified before this batch started. Any threshold chosen from these traces is
+exploratory and should be fixed before a subsequent confirmation run.
+
+With 122,181 training records, microbatch 4 and accumulation 8, this run has **3,819 optimizer
+steps per epoch**, including the final partial accumulation window. Three complete epochs produce
+45 periodic probes at 250-step intervals, plus one initial and three epoch-end probes: **49 records
+per arm**. The original training-loss transition was logged around epochs 1.83–2.09; validation
+anchor accuracy was measured at epoch boundaries, falling from 88.19% at epoch 1 to 81.35% at
+epoch 2. The probes can narrow the transition interval but do not identify its exact update.
+
+Each retained checkpoint in the earlier fully trainable IgBert run occupied approximately
+**4.69 GiB**, including optimizer state. The frozen arm still saves the full encoder weights,
+but its optimizer state covers only the trainable projection and decoder, so its checkpoints
+should be smaller. Budget the two trainable arms and the frozen arm separately, plus final
+model exports and logs; multiplying the fully trainable checkpoint size by all nine checkpoints
+overestimates the expected total.
+
+```bash
+DRY_RUN=1 ./scripts/run.sh 0 spec configs/experiments/20260914_igbert_diagnostic.json
+./scripts/run.sh 0 spec configs/experiments/20260914_igbert_diagnostic.json
+# Or run the three arms concurrently on three available GPUs:
+# ./scripts/run.sh 0,1,2 spec configs/experiments/20260914_igbert_diagnostic.json
+```
+
+After reviewing stability, the ESM-2 tuning command is:
+
+```bash
+# Inspect the six-trial plan first; remove DRY_RUN=1 to launch. Choose available GPU IDs.
+DRY_RUN=1 LRS="1e-5 3e-5 1e-4" SEEDS="42 43" EPOCH_LIST="20" \
+GEN_EVAL=true RANK_METRIC=judge_ppl \
+./scripts/sweep.sh 0 lr configs/h3_s2s_esm2.json
+```
+
+The [scratch S2S LR screen](results/runs/20260907_204721_sweep_lr/summary.tsv) and the earlier
+six-run MLM/AR/S2S comparison are also complete. The 414-test CPU suite passed on September 10;
+that historical check and the completed GPU matrix establish execution coverage, not biological
+quality or a pretraining advantage.
 
 ## 📊 Findings
 
 Phase 1 reports sequence-infilling experiments under the split and selection limitations in
 [Open problems](#open-problems). Historical findings below identify their source batches; the
-[current S2S run status](#next-run-s2s-pretrained-encoders) is recorded separately.
+[current S2S run status](#s2s-pretrained-encoders-results-and-next-runs) is recorded separately.
 
 *Numbers below are from the complete 36-run batch `results/runs/20260818_192606` (6 loops ×
 {scratch, ESM-2} × context × {OAS, SAbDab2}), read at **best epoch** under the coverage-aware
@@ -784,35 +917,32 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ---
 
 ## ⚠️ Current Issues
-*(status reviewed 2026-09-11; historical measurements retain their original batch dates)*
+*(status reviewed 2026-09-14; historical measurements retain their original batch dates)*
 
 ### Open problems
 - **The `OAS4` corpus confounds donor with disease, by construction.** Jaffe 2022 contains exactly four donors and no more (all 580 catalogued paired runs probed 2026-09-03), and their conditions do not overlap: Donor-1 and Donor-2 are SARS-CoV-2, Donor-3 healthy, Donor-4 CMV. A donor-held-out split is therefore also a disease-held-out split, and neither effect can be attributed separately. Mitigated but not removed by every run being **Naive-B-Cells**: naive repertoires are largely pre-antigen-selection, so disease shapes them far less than it shapes memory or plasmablast compartments. Recorded before any `OAS4` experiment was run.
 - **More donors would cost B-cell-type purity.** 96 further donors exist across the other 18 paired studies, but only **one** naive paired run among them (Woodruff_2020); the rest are unsorted, memory, or plasmablast. Somatic hypermutation differs sharply between those compartments, and it lands hardest on the germline-encoded H1/H2 — the loops §6 already shows to be retrieval-bound. Any expansion past four donors must record `BType` per entry (`read_oas_metadata` does not capture it today) and stratify on it, or the heterogeneity becomes invisible in the merged corpus.
 - **`OAS4` results are not comparable to any earlier OAS number.** A different donor set is a different test split. The `oas_multi -> OAS4` tag keeps the two apart in run names and batch tables mechanically, but no table should place them on one axis — the same rule the `_OAS` / `_SD2` tags exist to enforce.
 - **H3 clustering does not guarantee pairwise separation.** The split clusters heavy CDR3 against representatives. The [September audit](results/reviews/0903-0904-review.md) found same-length training neighbors at ≥85% identity for 3/150 evaluated OAS4 H3 frameworks; disjoint cluster IDs do not rule out such neighbors. Other loops have a separate exact-overlap problem: 98% of the older OAS test H1s occur in train (§6). Audit pairwise H3 separation and use target-loop clustering before interpreting non-H3 results as generalisation.
-- **H3 length is close to unpredictable from the framework, and every learned method is below the achievable ceiling.** A non-neural lookup — group training examples by (last 12 residues of FR3 | first 6 of FR4), a crude V/J-gene proxy, and take the modal H3 length — reaches **11.07% exact / 3.01 MAE** on the OAS4 validation split, covering 98.3% of it. Against that: the §10 length head 9.24% / 3.64, causal `<eos>` 7.23% / 4.00, and always predicting the global mode 10.12% / 3.53. So there IS signal (MAE 3.01 against a constant's 3.53, a 15% reduction) but very little, and **neither learned method captures even that much**. Three interventions moved nothing — decoding temperature, a 10x learning-rate range, and 7x more data — which is what a near-flat ceiling predicts. Treat length accuracy as a property to report against this baseline, not a target to optimise; the V/J lookup should replace the global mode as the reference number.
-- **The first learned H3 length head is below its naive baseline.** It reaches 9.24% exact accuracy / 3.64 MAE versus 10.52% / 3.28 for always predicting length 15 (Finding §10). Before treating inferred MLM generation as a competitive method, evaluate probability calibration and top-k length coverage, then test a representation or objective that actually learns the framework-to-length signal.
+- **H3 length is close to unpredictable from the framework, and every learned method is below the achievable ceiling.** A non-neural lookup — group training examples by (last 12 residues of FR3 | first 6 of FR4), a crude V/J-gene proxy, and take the modal H3 length — reaches **11.07% exact / 3.01 MAE** on the OAS4 validation split, covering 98.3% of it. Against that: the §10 length head 9.24% / 3.64, causal `<eos>` 7.23% / 4.00, and always predicting the global mode 10.12% / 3.53. So there IS signal (MAE 3.01 against a constant's 3.53, a 15% reduction) but very little, and **neither learned method captures even that much**. Three interventions moved nothing — decoding temperature, a 10x learning-rate range, and 7x more data — which is what a near-flat ceiling predicts. The same verdict holds on the older split the length head was measured on: 9.24% / 3.64 against 10.52% / 3.28 for always predicting length 15 (§10) — below its naive baseline there too. Treat length accuracy as a property to report against these baselines, not a target to optimise; the V/J lookup should replace the global mode as the reference number. Before treating inferred MLM generation as competitive, evaluate probability calibration and top-k length coverage, then test a representation or objective that actually learns the framework-to-length signal.
 - **Training still optimizes recovery, not design.** The masked-LM objective rewards reproducing the native loop; the generative metrics only *measure* design quality after the fact — nothing trains for it. Findings §7 shows the two can disagree outright (H1: 0.99 recovery, 0.002 diversity). A design-aligned objective stays open (Phase 2). Re-weighting tokens *within* the masked-LM objective has now been tested and does not help (§13), so this needs a different objective class rather than a better weighting.
-- **Run-to-run nondeterminism exceeds the seed spread, and only seeds are ever reported.** Two bit-identical objectives at identical seeds — `cross_entropy` and `weighted 1.0/1.0` — ended 0.0014 apart in teacher-forced core, all three seeds in the same direction, against a within-objective seed sd of 0.0003–0.0007 (§13). The two differ only in floating-point reduction order. So a seed sd *understates* reproducibility by 2–4×, which bears directly on the ±0.006 tie threshold in `sweep.sh` and the σ ≈ 0.0028 noise floor in §4. Every "error bar" in this README is a seed spread and should be read as a lower bound. Cheap fix: keep one duplicated setting per sweep as a deliberate determinism control.
+- **Run-to-run nondeterminism exceeds the seed spread, and only seeds are ever reported.** The strongest evidence is qualitative: on 2026-09-14 the IgBert + partner collapse **failed to reproduce** at the same seed and settings — the 09-13 run degraded through epoch 2 (loss 1.7379 → 1.7684, anchor 0.8819 → 0.8135) while the replay improved (1.745 → 1.651, 0.8757 → 0.8820). Same nominal configuration, opposite outcomes. The quantitative case is older and milder: two bit-identical objectives at identical seeds — `cross_entropy` and `weighted 1.0/1.0`, differing only in floating-point reduction order — ended 0.0014 apart in teacher-forced core, all three seeds in the same direction, against a within-objective seed sd of 0.0003–0.0007 (§13). So a seed sd *understates* reproducibility by at least 2–4× on stable runs and can miss a total training failure on unstable ones, which bears directly on the ±0.006 tie threshold in `sweep.sh` and the σ ≈ 0.0028 noise floor in §4. Every "error bar" in this README is a seed spread and should be read as a lower bound. Cheap fix: keep one duplicated setting per sweep as a deliberate determinism control.
 - **Loss-sweep selection and ranking are separate.** The shared runner now defaults the `loss` preset to whole-span checkpoint selection (`SELECT_METRIC=accuracy`) and judge-perplexity ranking (`RANK_METRIC=judge_ppl`). This makes anchor collapse visible to selection, but does not train directly for design quality. Historical loss-screen results retain their original checkpoint-selection policy; new summaries label both selection and ranking metrics.
-- **Scratch S2S has completed experiments; pretrained S2S has implementation checks.** The [September 8 comparison](results/runs/20260908_173143_compare/batch_tables.md) contains six completed runs. Without partner context, judge perplexity is 7.512 / 3.154 / 3.215 for MLM / AR / S2S, with inferred length for MLM and EOS termination for AR/S2S. This is one training seed, and conditional recovery uses different length-matched subsets. It does not establish an AR-versus-S2S winner. The new S2S PLM matrix has not yet been measured.
+- **Scratch and pretrained S2S have completed initial experiments.** The [September 8 comparison](results/runs/20260908_173143_compare/batch_tables.md) contains six completed runs. Without partner context, judge perplexity is 7.512 / 3.154 / 3.215 for MLM / AR / S2S, with inferred length for MLM and EOS termination for AR/S2S. This is one training seed, and conditional recovery uses different length-matched subsets. It does not establish an AR-versus-S2S winner. The [first S2S PLM matrix](#s2s-pretrained-encoders-results-and-next-runs) also completed all six runs: judge perplexity is 3.441–4.132, with no improvement over the earlier scratch S2S reference. Unequal capacities/budgets, one seed, and incomplete convergence prevent attributing this to pretraining; IgBert + partner has confirmed encoder representation collapse ([diagnostics](results/diagnostics/20260914_igbert/REPORT.md)), but the 2026-09-14 replay at the same seed and settings did **not** reproduce it (`20260914_140305_226060_igbert_diagnostic`), so the failure is not deterministic and its trigger, incidence and remedy all remain open.
 - **The S2S LR screen and shipped defaults use different optimizer settings.** The [six-trial scratch screen](results/runs/20260907_204721_sweep_lr/summary.tsv) tested LR 1e-4 / 3e-4 / 1e-3 at warmup 0.06 and decay 0.01, seeds 42/43; 3e-4 has the lowest mean judge perplexity in that screen. The fresh comparison and current scratch configs use LR 1e-4 with zero warmup/decay. A sweep does not automatically promote its settings into configs. New PLM configs start at LR 3e-5 with warmup 0.06 and decay 0.01 and still need tuning.
 - **The `compare` suite's three arms are matched on protocol but not on capacity.** Corpus, split, evaluation frameworks, candidate count, `top_p`, `max_len`, judge and seed all match; parameter counts do not. `ar` is 800k, and `s2s` is 933k (1.17x) even after pinning its stacks to 2/2 — the closest match that keeps real depth on both sides, since the nearest-by-count alternative needed a single-layer encoder and would have gutted the one thing the method exists to test. The counts are logged in every `train.log`; **quote them in any table**, and do not read a 1.17x-larger model's win as an architecture result until the `arch` sweep separates the two.
 - **The causal method's plausibility advantage is judge-specific, and a native-referenced metric contradicts it.** On OAS4 H3 the causal model reaches judge perplexity 3.15 against masked 9.35 at equal recovery — but BLOSUM62 global alignment over *every* attempt puts it behind: 0.146 against 0.199. The two disagree because both are confounded by length in opposite directions: the aligned score charges gap penalties for the 93% of causal draws whose length is wrong, while the masked arm is handed the native length and never pays one; judge perplexity is length-blind and native-free, so it is indifferent to exactly what causal is bad at. Neither is a clean method comparison until both arms predict their own length (the `compare` suite). Also worth recording: **core BLOSUM is ~0 for every H3 model** (causal 0.020, masked -0.001, ESM-2 0.003) — core substitutions are on average no better than the matrix expects between unrelated residues, which exact-match core recovery of ~0.20 made look like partial credit.
 - **The judge shares the eval distribution.** IgBert was trained on OAS paired repertoires — the same distribution as the OAS eval split it judges. It's applied identically to every model, so the *comparison* is fair, but absolute perplexities are OAS-flavoured; an off-distribution judge would be a stronger check.
 - **Generative sweep is H3/OAS only.** The matrix covered CDR-H3 on OAS (150 held-out frameworks × 4 models). L-chain loops, SAbDab2, and the antigen configs have not been swept generatively.
 - **Sampler is marginal-based, not learned-joint — now measured.** The `iterative` (Mask-Predict) decoder approximates the loop joint by conditioning on committed residues, but the model is still a masked-LM trained on independent-position recovery. As of 2026-07-28 this is no longer a suspicion: iterative and `independent` are **within noise on every metric** on H3/OAS/ESM-2 (recovery 0.4057 vs 0.4072; judge-ppl 7.14 vs 7.23) at ~15× the compute. The conditioning buys nothing because the learned marginals are already near-independent — AR and S2S now provide autoregressive training paths; their free-running evaluations must be assessed separately from this historical MLM decoding comparison.
-- **Five runs hit their epoch ceiling, all of them context runs.** `h1_SD2_LC`, `h2_OAS_LC`, `h3_OAS_LC`, `l1_OAS_HC`, `l3_OAS_HC` peaked at epoch 19–20 of 20 in the 07-29 batch. Their numbers are lower bounds, so the §4 partner-chain penalty (−0.0102) is an upper bound on the true effect. A scratch-only sweep at 30–40 epochs would settle it (~1 hour; scratch is 60 of the batch's 226 minutes).
-- **Uncertainty coverage is incomplete.** MLM context/loss studies and LR screens include multiple seeds, and the IgLM comparison has paired bootstrap intervals. The fresh three-method comparison is still single-seed. Seed spread, repeated-run variation, and uncertainty across evaluation frameworks measure different things; small method/context differences need matched replication.
+- **Three runs hit their epoch ceiling, all of them context runs.** `h1_OAS_LC`, `h1_SD2_LC` and `l3_OAS_HC` (all scratch) peaked at their final epoch, 20 of 20, in [`20260818_192606`](results/runs/20260818_192606) — the batch the Findings tables quote. Their numbers are lower bounds, so the §4 partner-chain penalty (−0.0102) is an upper bound on the true effect. A scratch-only sweep at 30–40 epochs would settle it (~1 hour; scratch is 60 of the batch's 226 minutes). The earlier 07-29 batch had five such runs; `h2_OAS_LC`, `h3_OAS_LC` and `l1_OAS_HC` no longer hit the ceiling in the 08-18 re-run.
+- **Uncertainty coverage is incomplete.** MLM context/loss studies and LR screens include multiple seeds, and the IgLM comparison has paired bootstrap intervals. The fresh three-method comparison and the S2S PLM matrix are still single-seed. Seed spread, repeated-run variation, and uncertainty across evaluation frameworks measure different things; small method/context differences — light chain hurting scratch by ~0.01 while staying neutral for ESM-2, for example — need matched replication and error bars before they can be claimed.
 - **Every batch through 2026-08-17 selected checkpoints on the test split.** Not just the 07-29 runs: `eval_split` defaulted to empty, which fell back to "every non-train entry", and `processed_oas_data.json` has only `train`/`test` — so early stopping, `load_best_model_at_end`, the reported `eval_*` metrics, and `generation_eval.json` all read the final holdout. The 08-17 post-refactor batch (`results/runs/20260817_200051`) is affected too; its logs read `2111 eval (split: all non-train)`. **Fixed 2026-08-18**: `get_datasets` now refuses an unset `eval_split` whenever a `test` split exists, and the 36 OAS configs declare `processed_oas_tuning.json` + `eval_split: validation`. **Resolved for OAS 2026-08-31**: the matrix was re-run as `results/runs/20260818_192606` and every Findings table now quotes it, so the OAS numbers are validation-selected and the test partition is untouched. Two things still stand: the **SAbDab2** rows come from configs declaring `eval_split: test` and remain selection-on-holdout (see the SAbDab2 entry below), and any figure elsewhere in this README still sourced from a pre-08-18 batch — the Step 4 decoding table, the §12 confidence numbers, and the §3 position breakdown — has not been re-derived and stays exploratory.
 - **Neither fixed-length policy is unbiased — report both.** *(Re-run 2026-08-21; see Findings §11.)* `constrain` corrupts IgLM's loop endings; `filter` is fair per-example but drops the frameworks IgLM cannot length-match (5 of 25, skewing long), so it scores an easier subset. Current practice: report `filter` on a matched population and state the dropout. A policy that is unbiased in both respects — e.g. raising the attempt budget until every framework is covered, or reporting per-length-bucket — is still open. Historical note on `constrain`: IgLM's `constrain` policy sets `min_length = max_length = native_length`, which suppresses its end-of-span logit until that length is reached — so it writes past its loop into FR4. Only 2% of constrained loops carry the J-gene motif against 20% naturally (Findings §11), and every fixed-length CDRSeqGen-versus-IgLM number is inflated in CDRSeqGen's favour. Re-run with the adapter's `filter` mode (retain only naturally length-matched draws; ~12 attempts per accepted candidate at IgLM's 8.4% match rate) before making any fixed-length claim. The length-free track is unaffected — IgLM uses natural EOS there.
 - **SAbDab2 has no validation partition.** Its split comes from the source `ab_ag_split` column, which is `train`/`test` only, so its 12 configs now declare `eval_split: test` — honest, but still selection on the holdout. A three-way SAbDab2 split (or a fixed validation carve-out of its train partition) is needed before any SAbDab2 comparison is reportable.
 - **Hyperparameter selection is not yet frozen.** The validation-safe 32-trial scratch-H3 screen completed on 2026-08-11 and placed `1e-3` / 0.06 warm-up / 0.01 weight decay first at 0.32305 mean validation core recovery. Its margin over the runner-up was only 0.00036 across two seeds and changed sign by seed, so additional shared confirmation seeds are still required before touching the final test split.
 - **Checkpoint-selection policy is still config-declared.** The current configs select core recovery except the four OAS-L2 configs, which select whole-span because those runs have only 1.4% core coverage. Artifact reporting no longer hard-codes that loop name: it derives the metric from recorded coverage. Training should eventually validate or derive `metric_for_best_model` from the dataset before a run, so a future dataset cannot inherit an obsolete L2 exception.
-- ~~**Scratch architecture isn't tunable.**~~ **Fixed 2026-07-27.** `num_attention_heads` and `intermediate_size` are now `ModelArguments` fields forwarded by `build_model` ([`transformer.py`](cdrseqgen/methods/mlm/models/transformer.py)). `intermediate_size` defaults to `None` = **4 × hidden_size**, so the FFN ratio tracks width instead of silently drifting (at the old fixed 512, widening to 256 quietly halved the ratio and would have confounded any architecture sweep). Defaults reproduce the old geometry exactly (128 → 512), and a `hidden_size % num_attention_heads` check now fails loudly instead of deep inside `nn.MultiheadAttention`.
-- **Single-seed runs.** Small differences (e.g. light chain hurts scratch ~0.01, neutral for ESM-2) need multiple seeds + error bars before they can be claimed.
-- **Implementation checks do not establish experimental conclusions.** The September 10 suite passed 414 tests, including real tiny ESM/BERT weights, encoder freezing, gradients, separate vocabularies, and exact checkpoint reloads. Actual ESM-2/IgBert GPU smoke runs also exercised training and generation with the real judge. Full ProtBert weights and the full PLM matrix remain untested in that record. Passing checks does not establish split separation, convergence, or biological quality; see [the test guide](unit_tests/README.md).
+- **Implementation checks do not establish experimental conclusions.** The suite passed 419 tests as of 2026-09-14, including real tiny ESM/BERT weights, encoder freezing, gradients, separate vocabularies, and exact checkpoint reloads. Actual ESM-2/IgBert GPU smoke runs also exercised training and generation with the real judge. The September 13 PLM batch subsequently completed full ESM-2, IgBert, and ProtBert training and generation in all six settings. Passing checks does not establish split separation, convergence, or biological quality; see [the test guide](unit_tests/README.md).
 - **Structure not yet available.** SAbDab2 preprocessing parses *sequences* only; the Phase-2 structure objective needs a coordinate-parsing step (or predicted structures via IgFold/ABlooper).
 
 ### How to read the numbers
@@ -847,9 +977,10 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
-- **2026-09-10** -- S2S pretrained encoders: ESM-2/IgBert/ProtBert feed the shared residue decoder through a learned width projection (`methods/s2s/models/plm.py` [new]); `encoder_init=pretrained|random` and `freeze_encoder` controls; new `configs/h3_s2s_{esm2,igbert,protbert}[_lc].json`
-- **2026-09-10** -- `cdrseqgen/experiments.py` [new]: unified suite/sweep planner + executor; `run.sh`/`sweep.sh` cut to thin wrappers over it (374/372 lines -> 13/11), `plan.json`-based exact-plan resume via `EXPERIMENT_DIR` (`SWEEP_DIR` still works as an alias)
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-09-14** -- [RECLAIM] Revised reclamation list
+- **2026-09-10** -- Added PLMs for S2S: ESM-2, IgBert, ProtBert
+- **2026-09-10** -- `cdrseqgen/experiments.py` [new]: unified suite/sweep planner + executor for `run.sh`/`sweep.sh` (to be moved to `scripts/`?)
 - **2026-09-07** -- **SEQ2SEQ UPDATE** (`methods/s2s/`)
 - **2026-09-04** -- Enabled different span layouts: `SpanLayout` in [`data/dataset_ar.py`]
 - **2026-09-04** -- Added BLOSUM62 in `eval/metrics.py`
@@ -869,11 +1000,9 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **2026-08-21** -- `scripts/sweep.sh` [new]: merged `sweep_h3.sh`, `sweep_scratch.sh` into unified hyperparameter sweep script
 - **2026-08-21** -- `results/` storage reorganized
 - **2026-08-21** -- IgLM benchmark fix: fixed-length for IgLM now filters samples that match the native length than forced EOS (is this approach ok??)
-- **2026-08-18** -- [RECLAIM] `dataset.py`, `preprocess/common.py`
 - **2026-08-18** -- project wide claude fix
 - **2026-08-17** -- Produced IgLM benchmark results
 - **2026-08-17** -- Numerous `test/` scripts
-- **2026-08-17** -- [RECLAIM] Code restructure, progress reset
 - **2026-08-17** -- Enabled variable-length generation
 - **2026-08-14** -- Flowchart updated in `misc/`
 - **2026-08-14** -- `artifacts.py`[new]: stores current and legacy filenames as global constants
@@ -896,165 +1025,180 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ## ⏭️ Roadmap
 
 <!-- AI ACCESS ZONE BEGINS -->
-> **Objective-first:** the target is **CDR-H3 design**. **Phase 1** = a leakage-controlled *sequence benchmark* (the current models plateau near 0.32 core recovery under the tested settings; see Findings). The active milestone is to position that result against a published sequence-infilling baseline under one matched evaluation protocol. **Phase 2** = *structure-conditioned* design (RMSD-to-native; exact target to lock with advisor). Everything below is a tool toward that objective.
+> **Objective-first:** the target is **CDR-H3 design**. **Phase 1** = a leakage-controlled *sequence benchmark* (models plateau near 0.32 core recovery under the tested settings; see Findings), positioned against a published sequence-infilling baseline under one matched evaluation protocol. **Phase 2** = *structure-conditioned* design (RMSD-to-native; exact target to lock with advisor). Everything below is a tool toward that objective.
 
 ### Active milestone — matched CDRSeqGen vs IgLM benchmark
 
-**Primary baseline:** [IgLM](https://github.com/Graylab/IgLM), because it is the closest published and reproducible match to CDRSeqGen's sequence-infilling task. IgCraft is the intended second sequence baseline after the comparison interface is stable; structure/antigen models such as IgGM belong to Phase 2 and should not be mixed into the sequence-only table.
+**Primary baseline:** [IgLM](https://github.com/Graylab/IgLM) — the closest published, reproducible match to CDRSeqGen's sequence-infilling task. IgCraft is the intended second sequence baseline once the comparison interface is stable; structure/antigen models such as IgGM belong to Phase 2 and must not enter the sequence-only table.
 
-The comparison must run both methods on the **same frozen examples**, with the same number of candidates and the same scorer. It has two distinct tracks and they must not be collapsed into one number:
+Both methods run on the **same frozen examples**, with the same candidate count and the same scorer, across two tracks that must never be collapsed into one number:
 
-1. **Fixed-length redesign (first deliverable).** Supply the native H3 length to both models. This matches CDRSeqGen's current mask construction and permits position-wise recovery, including the existing anchor/core split.
-2. **Length-free infilling.** Supply only the flanking framework. IgLM terminates with EOS; CDRSeqGen predicts a checkpoint-specific length from one gap sentinel and then expands that choice into residue masks. Report validity, length error, edit similarity, and length-matched AAR rather than collapsing this into the fixed-length result.
+1. **Fixed-length redesign (first deliverable).** Native H3 length supplied to both models. Matches CDRSeqGen's mask construction and permits position-wise recovery with the anchor/core split.
+2. **Length-free infilling.** Only the flanking framework supplied. IgLM terminates with EOS; CDRSeqGen predicts a length from one gap sentinel, then expands it into residue masks. Report validity, length error, edit similarity and length-matched AAR separately.
 
-**Implementation plan**
+**Done — harness and first comparison (through 2026-08-21).** Versioned H3 manifests from the clustered OAS split; model-independent shared scorer; manifest-driven CDRSeqGen adapter (provenance-validated, checkpoint-hashed, resumable) and attempt-bounded IgLM adapter (kept outside the MLM backbone registry); explicit fixed-length policy (`constrain` default, `filter` audit mode); checkpoint-specific length head with bounded/inferred generation and migration tooling; separate `length_free` manifest/adapter/scorer contract; validated shared evaluator (AAR, diversity, novelty, entropy, length buckets, runtime, revision-pinned IgBert judge); official infill example reproduced (125/125 constrained draws valid, zero adapter failures). **Result: IgLM leads on both tracks** (§11) — recovery, length error, edit similarity and judge perplexity. Paired bootstrap ([`bootstrap.py`](benchmark/bootstrap.py), example as the resampling unit): **only 4 of 8 metrics resolve at 95%** — IgLM's judge-perplexity, length-MAE and edit-similarity leads hold, CDRSeqGen's diversity edge holds, and every recovery comparison is unresolved at n = 25. ⚠️ **Rescore on a clean tree before quoting** — stored scores carry `repository_dirty: true` at commit `0e7e499`, and the intervals must be regenerated after that rescore.
 
-- [x] Freeze versioned H3 benchmark manifests from the clustered OAS evaluation split. Each record carries a stable ID, heavy-chain `pt1`/`pt2`, native H3, native length, and split provenance; both adapters consume the exact same file.
-- [x] Add a model-independent shared scorer that accepts both adapters' `{example_id, native, samples}` records, validates the paired experiment contract, and keeps model-specific sampling outside scoring.
-- [x] Add a manifest-driven CDRSeqGen benchmark adapter for existing checkpoints. It validates run/task/context provenance, recreates training-time tokenization and truncation, preserves duplicate draws, hashes checkpoint artifacts, and writes resumable records in the same schema as IgLM.
-- [x] Add an attempt-bounded IgLM adapter around the official pretrained checkpoint. It records model/checkpoint provenance, conditioning tokens, sampling parameters, per-example seeds, failures, raw generated lengths, runtime, and resumable progress; IgLM remains outside the masked-LM backbone registry.
-- [x] **Re-run the fixed-length track in `filter` mode.** Done 2026-08-21: IgLM leads on both tracks once the constraint is removed (§11). Artifact: `results/benchmark/oas_h3_validation_smoke_v1/scores/filter_matched.json`
 - [ ] Cover the 5 frameworks `filter` drops — raise the attempt budget or report per-length-bucket, so the fixed-length population isn't silently the easier subset
-- [x] Define the fixed-length IgLM policy explicitly. Default `constrain` forces IgLM's end-of-span at the supplied native length through its underlying generation API; audit mode `filter` preserves every variable-length draw and reports match/acceptance counts under a finite attempt budget.
-- [x] Validate the shared evaluator on both 25-framework validation outputs: whole-span/core/anchor AAR, diversity, native-distance novelty, unique fraction, per-position entropy, length buckets, validity/length rates, generation runtime per candidate, and a revision-pinned IgBert judge. Final test scoring remains gated on freezing the sampling policy.
-- [x] Add a checkpoint-specific CDRSeqGen length head, bounded/inferred generation, and migration tooling for old sequence checkpoints without changing the backbone architecture.
-- [x] Add a separate `length_free` manifest/adapter/scorer contract: retain all valid lengths, condition positional AAR on length matches, and score every candidate with length error, edit similarity, diversity, and the shared judge.
-- [x] Fit the tuned scratch checkpoint's first length head and run its 25-framework × 20-candidate length-free validation output; preserve the below-mode-baseline result rather than hiding it.
-- [x] Run the matched IgLM natural-EOS validation output, score both adapters together, and render the length-free comparison dashboard. **Result: IgLM leads on recovery, length error, edit similarity, and judge perplexity (Findings §11).** Rescore on a clean tree before quoting — the stored scores carry `repository_dirty: true` at commit `0e7e499`.
-- [x] Add paired uncertainty ([`bootstrap.py`](benchmark/bootstrap.py)): the example is the resampling unit and one draw is applied to both arms. **Result: only 4 of 8 metrics resolve at 95%** — IgLM's judge-perplexity, length-MAE and edit-similarity leads hold, CDRSeqGen's diversity edge holds, and every recovery comparison is unresolved at n = 25 (§11). Regenerate the intervals after the clean-tree rescore rather than carrying these over.
-- [ ] Produce side-by-side evaluation curves: recovery by H3-length bucket, accuracy by relative H3 position, and the recovery--diversity frontier across matched sampling settings. Do not compare CDRSeqGen training curves with a frozen pretrained IgLM checkpoint; training curves become meaningful only if IgLM is retrained on the same corpus and should then use tokens/examples seen rather than epoch number.
-- [x] Reproduce the official IgLM infill example and validate the adapter on 25 frozen validation frameworks (125/125 constrained draws valid and length-matched; zero adapter failures). Reproducing a reported paper-scale benchmark remains pending.
-- [ ] Audit training-data overlap. A frozen IgLM model was pretrained on OAS, so performance on the local OAS holdout is not automatically a leakage-free generalization estimate. Report the frozen-model comparison with this limitation, and separately investigate either retraining IgLM on the exact local training split or constructing a post-training/independent test set.
-- [ ] Write one comparison artifact containing the manifest hash, model provenance, complete parameters, per-example records, aggregate table, confidence intervals, and plot paths so the result is reproducible from a single command.
+- [ ] Produce side-by-side curves: recovery by H3-length bucket, accuracy by relative H3 position, and the recovery–diversity frontier across matched sampling settings. Do **not** compare CDRSeqGen training curves against a frozen IgLM checkpoint; that becomes meaningful only if IgLM is retrained on the same corpus, and should then use tokens/examples seen rather than epoch number
+- [ ] Audit training-data overlap. Frozen IgLM was pretrained on OAS, so the local OAS holdout is not automatically a leakage-free generalization estimate. Report the limitation, and investigate either retraining IgLM on the exact local training split or building an independent test set
+- [ ] Write one comparison artifact — manifest hash, model provenance, full parameters, per-example records, aggregate table, confidence intervals, plot paths — reproducible from a single command
 
-**General — next steps**
-- [x] Sampler used by `generate.py` (temperature / top-k / top-p, independent + iterative Mask-Predict) + generative metrics ([`sampling.py`](cdrseqgen/methods/mlm/sampling.py), [`metrics.py`](cdrseqgen/eval/metrics.py))
-- [x] Sweep the generative metrics across the H3 model/context matrix (150 held-out frameworks × 4 models, IgBert judge)
-- [x] **Reporting hygiene** — recovery tables derive core-versus-whole validity from recorded `eval_core_coverage`, label both metric and coverage, and never branch on the loop name. Checkpoint-selection configs remain explicit and must be validated against future datasets (see Open problems).
-- [x] Plumb `num_attention_heads` / `intermediate_size` through `build_model` — `intermediate_size` now defaults to 4 × `hidden_size` (prerequisite for any architecture sweep)
+**General**
+
+**Done.** Sampler (temperature/top-k/top-p, independent + iterative Mask-Predict) and generative metrics ([`sampling.py`](cdrseqgen/methods/mlm/sampling.py), [`metrics.py`](cdrseqgen/eval/metrics.py)); generative sweep across the H3 model/context matrix (150 held-out frameworks × 4 models, IgBert judge); reporting hygiene (core-vs-whole validity derived from recorded `eval_core_coverage`, both labeled, never branching on loop name); `num_attention_heads`/`intermediate_size` plumbed through `build_model` (`intermediate_size` defaults to 4 × `hidden_size`); three-way clustered OAS splitting with explicit validation/test selection and full run provenance; 32-trial validation-safe H3 screen — top region `1e-3` LR / 0.06 warmup / 0.01 weight decay at **0.32305** mean two-seed core recovery; core/anchor loss screen — **no re-weighting beats plain cross-entropy**, and core-only collapses the anchors without helping the core (§13); `loss` grid canonicalised by core-to-anchor ratio (2026-09-10); policy-aware decoding with `anchor_trim` propagated into generative evaluation (2026-08-31); checkpoint selection separated from ranking (whole-span for selection, judge perplexity for ranking; historical results keep their original policy).
+
 - [ ] **Per-loop split** — cluster on the *target* CDR, not always heavy CDR3, then re-run the OAS matrix. Everything non-H3 in Findings is retrieval-bounded until this lands (§6)
-- [x] Implement three-way clustered OAS splitting, explicit validation/test selection, full run provenance, and the validation-safe H3 sweep
-- [x] Run the 32-trial validation-safe scratch H3 screen ([`sweep.sh`](scripts/sweep.sh)); top region: `1e-3` LR / 0.06 warm-up / 0.01 weight decay at 0.32305 mean validation core recovery (two seeds)
 - [ ] Confirm the top two sweep settings with additional shared seeds, freeze the selected config, then evaluate it once on the untouched test split
 - [ ] Multi-seed the key H3 configs (error bars on the ±0.01 model/context deltas)
-- [x] **Run the core/anchor loss screen** ([`sweep.sh`](scripts/sweep.sh) `loss` preset, 10/15 trials). Result: no re-weighting beats plain cross-entropy, and core-only collapses the anchors without helping the core (§13). Closes the "is the loss weighting a lever?" question in the negative
-- [ ] Finish the loss screen's two missing `weighted 3.0/1.0` seeds (43, 44) so the only distinct untested setting is measured rather than noise-bounded; skip `3.0/0.0` entirely — it is the same objective as `1.0/0.0`
-- [x] Canonicalise the `loss` grid by core-to-anchor ratio in the shared runner (2026-09-10). Equivalent objectives and duplicate seeds no longer create extra trials. A deliberate repeated-run determinism check needs a separate experiment directory.
+- [ ] Finish the loss screen's two missing `weighted 3.0/1.0` seeds (43, 44) so the only distinct untested setting is measured rather than noise-bounded; skip `3.0/0.0` — it is the same objective as `1.0/0.0`
 - [ ] Settle the §12 self-vs-judge ordering with one 150 × 20 `evaluate.py` run on the tuned checkpoint — the 08-25 screen inverted it at 100 × 10
-- [x] Make decoding policy-aware and propagate `anchor_trim` into generative evaluation (2026-08-31)
-- [x] Separate loss-sweep checkpoint selection from ranking: default whole-span accuracy for selection and judge perplexity for ranking; both are labeled in new summaries. Historical results keep their original policy.
 - [ ] Re-run the 07-24 batch under core-based checkpoint selection (those 36 runs predate the fix; their saved weights were picked on whole-span)
-- [ ] Lock the Phase-2 objective + primary metric with advisor
+- [ ] Lock the Phase-2 objective and primary metric with advisor
 
-**Autoregressive method — next steps**
-- [x] **Retrain all six `ar` configs** under the fixed `LOOP_LENGTH_RESERVE`. Done 2026-09-02, batch `20260902_164544_ar`; `valid_rate` ~1.0 confirms the `<eos>` mechanism is healthy post-fix
-- [x] **Answer the length question on H3, not H1.** H1/H2 are perfect (1.000 length, 1.000 core, 0.000 diversity) and meaningless — §6's retrieval regime. On H3: **8.3% exact length, 3.80 MAE**, against §10's length head at 9.24%/3.64 and a modal-length baseline at 10.52%/3.28. `<eos>` does **not** beat the length head, and both sit below the constant baseline on the natural length distribution
-- [x] **Exclude decoding as the cause** (2026-09-03). A temperature sweep on the trained checkpoint cuts MAE only 4.31 -> 3.48 from T=1.0 to greedy, and exact-match never moves off ~8%. The model's mean length is well calibrated (16.11 vs 16.17 native) but under-dispersed, correlating 0.396 with the target — it hedges toward the mean rather than reading the framework
-- [x] **Exclude learning rate as the cause** (2026-09-03, `20260903_155940_sweep_h3`). 3e-4/1e-3/3e-3 x 2 seeds: every metric unresolved, rankings mutually contradictory, and the shipped `1e-4` matches or beats all three. Teacher-forced core moves 0.0005 across a 10x range against a 0.006 noise floor
-- [x] **Tested whether the length ceiling is data-limited** — it is not (2026-09-04, `20260903_192305`). At 7.2x the data the causal model held at exactly 1.13x its corpus's own modal-length MAE, the same ratio as on 21k. A V/J-conditioned lookup then put the achievable ceiling at 11.07% / 3.01, barely above a constant. **Length is now a reported property, not an optimisation target.**
-- [ ] **Sweep capacity** (`arch` preset) on the expanded corpus rather than the current one: at 0.8M parameters capacity and data scale plausibly interact, so an answer at 21k would not transfer. Now also the axis that would settle whether `s2s`'s 1.17x parameter edge matters; `sweep.sh` drives both encoder and decoder depth on an s2s base config as of 2026-09-07
-- [x] A causal counterpart to [`generate.py`](generate.py). Done 2026-09-07 (`ar/cli.py` + `ar/case_generation.py`); `generate.py` now dispatches through the registry and drives a causal checkpoint. **The remaining blocker is the fixture, not the code** (diagnosed 2026-09-07): every `showcase/*.json` carries one "design only" case with no `target_truth` and an explicit `target_length`, because a masked LM must be told a length when there is no native to derive one from. Both length-free methods reject that key and abort the whole file. Verified that dropping it runs all three H3 cases correctly. **Decision needed:** add length-free probe sets, or relax the two CLIs to warn-and-ignore a length request they cannot honour
-- [ ] **Harden `SpanLayout` before registering a second layout** (found in review, 2026-09-04; none of it affects the shipped `CDRSEQGEN_CAUSAL` or any current result): `build_prompt` receives the whole framework dict **including `target`**, so a layout could leak the answer into its own prompt and the training-equals-generation test would still pass; `n_layout_tokens` is unverified metadata that drives truncation, with no assertion that the assembled example matches it; `CausalInfillingDataset` does not validate its layout, so an invalid one trains a whole run before generation rejects it; and `validate_layout` accepts a residue token as the terminator, which would stop decoding at that amino acid
+**Autoregressive method**
+
+**Done — the length question is closed (through 2026-09-04).** All six `ar` configs retrained under the fixed `LOOP_LENGTH_RESERVE` (`20260902_164544_ar`; `valid_rate` ~1.0 confirms the `<eos>` mechanism is healthy). H1/H2 are perfect and therefore meaningless (§6 retrieval regime); on H3 the causal model reaches **8.3% exact length / 3.80 MAE**, against §10's length head at 9.24%/3.64 and a modal-length baseline at 10.52%/3.28 — `<eos>` does **not** beat the length head, and both sit below the constant baseline on the natural length distribution. Three causes excluded: decoding (temperature sweep moves MAE only 4.31 → 3.48 from T=1.0 to greedy, exact-match never leaves ~8%; mean length well calibrated at 16.11 vs 16.17 native but under-dispersed, correlating 0.396 with the target); learning rate (`20260903_155940_sweep_h3` — teacher-forced core moves 0.0005 across a 10× range against a 0.006 noise floor); data scale (`20260903_192305` — at 7.2× the data the model held at exactly 1.13× its corpus's own modal-length MAE, and a V/J-conditioned lookup puts the achievable ceiling at 11.07% / 3.01). **Length is now a reported property, not an optimisation target.** The causal `generate.py` counterpart landed 2026-09-07 (`ar/cli.py` + `ar/case_generation.py`, dispatching through the registry).
+
+- [ ] **Decide the showcase fixture** — blocking the causal CLI (diagnosed 2026-09-07). Every `showcase/*.json` carries one "design only" case with no `target_truth` and an explicit `target_length`, because a masked LM must be told a length when there is no native to derive one from. Both length-free methods reject that key and abort the whole file; dropping it runs all three H3 cases correctly. Either add length-free probe sets, or relax the two CLIs to warn-and-ignore a length request they cannot honour
+- [ ] **Sweep capacity** (`arch` preset) on the expanded corpus rather than the current one: at 0.8M parameters capacity and data scale plausibly interact, so an answer at 21k would not transfer. Also the axis that would settle whether `s2s`'s 1.17× parameter edge matters; `sweep.sh` drives both encoder and decoder depth on an s2s base config
+- [ ] **Harden `SpanLayout` before registering a second layout** (review finding 2026-09-04; none of it affects the shipped `CDRSEQGEN_CAUSAL` or any current result): `build_prompt` receives the whole framework dict **including `target`**, so a layout could leak the answer into its own prompt and the training-equals-generation test would still pass; `n_layout_tokens` is unverified metadata that drives truncation; `CausalInfillingDataset` does not validate its layout, so an invalid one trains a whole run before generation rejects it; and `validate_layout` accepts a residue token as the terminator, which would stop decoding at that amino acid
 - [ ] Record `span_layout_id` in `run_config.json` and compare it in the checkpoint-compatibility check — otherwise changing a backbone's layout silently reinterprets older checkpoints
-- [ ] A pretrained causal backbone through `methods/ar/backbones.py` (the registry contains `scratch` and a generic `hf_decoder` fallback; a validated protein causal adapter is still pending). **Partial prerequisite 2026-09-04**: `SpanLayout` lets a backbone declare its own prompt/answer arrangement. It is NOT yet sufficient for a native format that needs generated-output conversion or wrapper tokens — `validate_layout` deliberately refuses those, and IgLM's own format needs `validate_generated_seq` + `iglm_to_infilled` on top. A layout-aware extraction step is still missing, along with per-config layout selection, conditioning fields on the framework dict, and a wired layout on the `hf_decoder` path. Note the format and the checkpoint are separate questions — adopting IgLM's *layout* is clean, fine-tuning IgLM's *weights* is not, since it was pretrained on OAS and is the §11 baseline, making causal scratch-vs-pretrained the mirror of the masked scratch-vs-ESM-2 axis
-- [ ] **Automate one GPU + real-judge smoke run.** Three defects reached live runs past a fully green 293-test suite — the device mismatch, the prompt divergence and the missing `pseudo_log_likelihood` import — because the suite did not exercise the full GPU training-to-generation path with a real judge. CPU scratch-model checks now cover part of that path; an opt-in end-to-end GPU test remains needed. **The 2026-09-07 `s2s` landing ran this by hand** (1 epoch on `processed_oas_tuning`, GPU, real IgBert judge, then `generate.py` and `evaluate.py` against the checkpoint) and it is exactly what caught the three enumeration bugs — none of which the 389-test CPU suite could see. That is the argument for automating it, not a substitute
+- [ ] **A pretrained causal backbone** through `methods/ar/backbones.py` (registry has `scratch` and a generic `hf_decoder` fallback). `SpanLayout` is only a partial prerequisite: it cannot express a native format needing generated-output conversion or wrapper tokens, and IgLM's format additionally needs `validate_generated_seq` + `iglm_to_infilled`. Still missing: layout-aware extraction, per-config layout selection, conditioning fields on the framework dict, and a wired layout on the `hf_decoder` path. Format and checkpoint are separate questions — adopting IgLM's *layout* is clean, fine-tuning IgLM's *weights* is not, since it was pretrained on OAS and is the §11 baseline
+- [ ] **Automate one GPU + real-judge smoke run.** Three defects reached live runs past a fully green CPU suite — device mismatch, prompt divergence, and the missing `pseudo_log_likelihood` import — because no test exercised the full GPU training-to-generation path with a real judge. The 2026-09-07 `s2s` landing ran this by hand and caught exactly those three; that is the argument for automating it, not a substitute
 
-**Encoder-decoder method — next steps**
-- [x] **Implement `s2s` end to end** (2026-09-07): two-stream data view, bidirectional encoder + cross-attending decoder, backbone registry, training, decode-to-`<eos>` sampling, a strategy for the shared evaluation loop, CLI, entrypoint, configs, an `s2s_heavy` suite, and `compare` extended to three arms. 44 new tests
-- [x] **Verify the full path outside the test suite** (2026-09-07): GPU training with the real IgBert judge (`valid_generation_rate` 0.975, `judge-cov` 1.000), plus `generate.py` and `evaluate.py` against the resulting checkpoint. After one epoch the model already emits canonical H3s — `AQRGVGAFDP`, `ARGSSGGIPFFDY` — with `AR`/`AQ` starts and `FDY`/`MDV` J-gene ends
-- [x] **Run the scratch S2S learning-rate screen.** Six completed trials in [20260907_204721_sweep_lr](results/runs/20260907_204721_sweep_lr/summary.tsv): three LRs × two seeds, warmup 0.06, decay 0.01. The legacy summary’s `mean_score` is judge perplexity; `selection_metric` describes checkpoint selection. Settings have not been automatically promoted into the scratch configs.
-- [x] **Run the three-arm `compare` suite.** All six runs completed together in [20260908_173143_compare](results/runs/20260908_173143_compare/batch_tables.md), using OAS4 validation and length-free generation for all three methods. Multi-seed confirmation remains pending.
-- [ ] Multi-seed it, like every other headline number in this README still needs
-- [x] **Pretrained S2S encoders** (2026-09-10): ESM-2, IgBert, and ProtBert encoders feed the shared residue decoder through a learned width projection. Native encoder tokenizers are separate from decoder ids. `encoder_init=pretrained|random` and `freeze_encoder` provide initialization/feature-extractor controls. H3 suites use the unified runner; these are implementation capabilities, not evidence of improved generation. See [the workflow](WORKFLOW.md#step-2-training--batch-experimentation).
-- [ ] **A full pretrained encoder-decoder backbone**: ProtT5 remains a future adapter. The released checkpoint used BART-like residue masking, **not** original T5 span denoising; validate its real pretraining/input/output contract before designing missing-span extraction ([model card](https://huggingface.co/Rostlab/prot_t5_xl_uniref50)).
-- [ ] Run the S2S PLM matrix, then tune and replicate promising settings. Use random initialization of the same encoder architecture to separate pretraining from capacity; frozen encoders test whether fixed features suffice. Report generation metrics and contributing populations alongside teacher-forced recovery.
+**Encoder-decoder method**
+
+**Done.** `s2s` implemented end to end 2026-09-07 (two-stream data view, bidirectional encoder + cross-attending decoder, backbone registry, training, decode-to-`<eos>` sampling, shared-evaluation strategy, CLI, entrypoint, configs, `s2s_heavy` suite, `compare` extended to three arms; 44 new tests), with the full path verified outside the suite on GPU against the real IgBert judge (`valid_generation_rate` 0.975, `judge-cov` 1.000). Scratch S2S LR screen complete ([20260907_204721_sweep_lr](results/runs/20260907_204721_sweep_lr/summary.tsv) — 3 LRs × 2 seeds; settings not promoted into the scratch configs), as is the three-arm [`compare` suite](results/runs/20260908_173143_compare/batch_tables.md) on OAS4 validation with length-free generation for all three methods. Pretrained encoders landed 2026-09-10: ESM-2, IgBert and ProtBert feed the shared residue decoder through a learned width projection, with separate encoder tokenizers and `encoder_init`/`freeze_encoder` controls — implementation capability, not evidence of improved generation. The [full PLM matrix](results/runs/20260913_151152_463868_s2s_plm/batch_tables.md) completed 2026-09-13 (six runs, 18,000 complete candidates, full judge coverage), and the IgBert + partner [collapse was diagnosed](results/diagnostics/20260914_igbert/REPORT.md) 2026-09-14.
+
+- [ ] **The collapse did not reproduce** (batch `20260914_140305_226060_igbert_diagnostic`, running). Replaying the original settings at seed 42 improved through the epoch-2 window instead of failing: eval loss 1.745 → 1.651 and anchor accuracy 0.8757 → 0.8820, where the 09-13 run went 1.7379 → 1.7684 and 0.8819 → 0.8135. Encoder conditioning stayed intact (swap-argmax change ~0.23 at epoch 2.3, against 0% in the collapsed checkpoint). **The failure is therefore not deterministic under these settings**, so the lower-LR and frozen arms cannot be read as evidence that either prevents it. One non-reproduction establishes no incidence rate, and the source of the nondeterminism is unconfirmed
+- [ ] Replicate promising settings across seeds and report collapse incidence alongside performance — one failure and one clean replay establish neither the rate nor run-to-run variance
+- [ ] Once conditioning is demonstrably stable, compare **context dropout 0 versus 0.5** with both context regimes evaluated explicitly, and screen **ESM-2 learning rates** on a longer budget (lowest judge perplexity of the PLM runs). Use **random initialization of the same encoder architecture** to separate pretraining from capacity, and frozen encoders to test whether fixed features suffice. Report generation metrics and contributing populations alongside teacher-forced recovery
+- [ ] **Compare tuned scratch and PLM systems under a matched protocol.** Match corpus, split, evaluation and comparable tuning effort; state epoch and compute budgets. The current judge-perplexity gap (PLMs 3.441–4.132 versus scratch 3.215/3.250) describes the tested systems; differing capacities and architectures still confound attribution to pretraining. Retain the same-architecture pretrained-versus-random control
+- [ ] Calibrate conditioning criteria for the exact 16-example encoder-memory probe and fix them before a confirmation run. This batch began without a numerical pass/fail criterion, so thresholds developed from its own traces are exploratory; the earlier 256-example raw-framework-swap measurements are illustrative references, not calibrated callback thresholds
+- [ ] **A full pretrained encoder-decoder backbone**: ProtT5 remains a future adapter. The released checkpoint used BART-like residue masking, **not** original T5 span denoising; validate its real pretraining/input/output contract before designing missing-span extraction ([model card](https://huggingface.co/Rostlab/prot_t5_xl_uniref50))
 <!-- AI ACCESS ZONE ENDS -->
 
 - [ ] Project flowchart (0814, outdated)
 
 - **Operation Reclamation** -- Manual code cleaning: Comprehend and rewrite the project content in my own terms - previous work handled by AI resulted in the project almost becoming a "black box" for the developer himself 
-  - [ ] `data/` scripts 
-    - [ ] `dataset.py`, `frameworks.py` (0818)
-    - [ ] `preprocess/` scripts
-  - [ ] `cdrseqgen/methods/`
-    - [ ] `common/`
-    - [ ] `mlm/` 
-    - [ ] `ar/`
-    - [ ] `s2s/` 
-  - [ ] `eval/metrics.py`  and `train/` artifact/logging scripts
-  - [ ] `train.py` + `train/` (logging)
-  - [ ] visualization scripts
-  - [ ] `evaluate.py`
-  - [ ] `generate.py`
-  - [ ] `fit_mlm_length.py`
-  - [ ] bash scripts (`run.sh`, `sweep.sh`, `unit_tests.sh`)
-  - [ ] `benchmark/` scripts (`adapters/`, `export_manifest.py`, `scorer.py`)
-  - [ ] `unit_tests/` scripts
+  - [ ] `benchmark/`
+    - [ ] `adapters/` 
+    - [ ] `_common`, `bootstrap`, `export_manifest`, `scorer`
+    - [ ] `plot_comparison`
+    - [ ] README
+  - [ ] `cdrseqgen/` 
+    - [ ] `data/`
+      - [ ] `preprocess/` 
+      - [ ] `dataset_<method>`
+    - [ ] `eval/` (`generative`, `metrics`)
+    - [ ] `methods/mlm/`
+      - [ ] custom model
+      - [ ] length scripts (`length`, `length_predictor`, `variable_length...`)
+      - [ ] `arguments`, `backbones`, `losses`
+      - [ ] `cli`, `entrypoint`, `training`
+      - [ ] `evaluation`
+      - [ ] `case_generation`, `sampling`
+    - [ ] `methods/ar/`
+      - [ ] custom model
+      - [ ] `arguments`, `backbones`
+      - [ ] `cli`, `entrypoint`, `training`
+      - [ ] `evaluation`
+      - [ ] `case_generation`, `sampling`
+    - [ ] `methods/s2s/`
+      - [ ] custom model
+      - [ ] `arguments`, `backbones`
+      - [ ] `cli`, `entrypoint`, `training`
+      - [ ] `evaluation`
+      - [ ] `case_generation`, `sampling`
+      - [ ] `diagnostics` (??)
+    - [ ] `methods/common/`
+      - [ ] `arguments` 
+      - [ ] `backbones`
+      - [ ] `callbacks`
+      - [ ] `evaluation`
+      - [ ] `sampling`
+      - [ ] `training`
+    - [ ] `train/` (logging scripts)
+    - [ ] `visualization/` 
+  - [ ] `unit_tests/`
+  - [ ] entrypoint scripts
   - [ ] README
 
 **Datasets**
 - OAS
-  - [x] 21,106 paired sequences (`1287169_1_Paired_All.csv`) (pre 0903)
-  - [x] 152,727 paired sequences (8 csvs, 4 donors, filtered)
-  - [ ] Remaining paired sequences (→ 1M+ scale)
+  - [x] 21,106 paired sequences (`1287169_1_Paired_All.csv`; pre-2026-09-03)
+  - [x] OAS4: 152,727 paired sequences (8 CSVs, 4 donors; Naive-B-Cells)
+  - [ ] Expand paired data after auditing available donors, B-cell types and attainable scale
   - [ ] Unpaired sequences
 - SAbDab2
-  - [x] 3,984 paired Ab with resolved antigen
-  - [ ] Remaining ~10k+ structures without antigen
+  - [x] 3,984 paired antibodies with resolved antigen
+  - [ ] Inventory and process remaining structures without antigen
 - Other sources
   - [ ] SAbDab / Thera-SAbDab
 
 **Preprocessing**
 - [x] Bio-Object JSON schema (14 IMGT regions)
-- [x] Partner-chain context (light ↔ heavy)
+- [x] Partner-chain context (light <-> heavy)
 - [x] Antigen context (SAbDab2)
-- [x] Clustered train/test split (OAS) -- H3 homology-leak-safe
-- [x] Optional clustered train/validation/test split for tuning -- preserves the historical test set
-- [ ] Structure / coordinate parsing 
-- [ ] Unpaired-OAS preprocessor (`preprocess_oas_unpaired.py`)
+- [x] Clustered split (H3) (prevents data leakage)
+- [ ] Structure / coordinate parsing
+- [ ] Unpaired-OAS preprocessor
 
 **Training / methods**
 - Sequence-only
+  - General
+    - [x] Context dropout (partner chain, antigen)
   - [x] Masked-LM infilling
     - [x] Fixed-native generation
+    - [x] Sampling strategies: independent vs iterative
     - [x] Bounded/inferred generation plumbing and checkpoint artifacts
-    - [ ] Learned H3 length predictor that beats the naive mode baseline
+    - [x] Predicts length before infilling residues
     - Models
-      - [x] From-scratch transformer (baseline)
-      - [x] ESM-2 (general PLM)
-      - [x] IgBert (antibody PLM)
-      - [x] ProtBert (general PLM)
-      - [ ] AbLang2  (antibody PLM)
-  - [x] Autoregressive method integration
+      - [x] Custom transformer
+      - [x] ESM-2
+      - [x] IgBert
+      - [x] ProtBert
+      - [ ] AbLang2
+  - [x] Autoregressive infilling
     - Models
-      - [x] Custom
-  - [x] Encoder-decoder
+      - [x] Custom transformer
+  - [x] Encoder-decoder infilling
+    - [x] Frozen-encoder and same-architecture random-initialization controls
+    - [x] Optional conditioning diagnostics and early stopping that preserves the LR schedule
+    - [ ] Establish stable IgBert + partner training with diagnostic controls
+    - [ ] Tune and replicate promising settings; compare pretrained and random initialization
+    - [ ] Full pretrained encoder-decoder adapter
     - Models
-      - [x] Custom
+      - [x] Custom transformer
+      - [x] ESM-2
+      - [x] IgBert
+      - [x] ProtBert
 - Structure-aware
   - [ ] Invariant Point Attention (IPA)
   - [ ] E(n)-equivariant GNNs
   - [ ] Diffusion (dyMEAN / DiffAb-informed)
-  - [ ] Antigen cross-attention / epitope-contact signal  
+  - [ ] Antigen cross-attention / epitope-contact signal
 
 **Evaluation**
-- [x] Sequence recovery (AAR) -- whole-span
-- [x] Sequence recovery (AAR) -- core, anchor-excluded
-- [x] Perplexity -- self, judge
-- [x] Diversity -- pairwise Hamming, unique fraction, per-position entropy
-- [x] Novelty -- uniqueness vs train set
-- [x] Length-free metrics -- validity, length match/MAE, edit similarity, length-matched AAR
-- [x] Matched fixed-length CDRSeqGen/IgLM validation smoke test
-- [ ] Matched length-free CDRSeqGen/IgLM score and plot
-- [ ] Paired bootstrap confidence intervals
-- [ ] Structure metrics - RMSD, TM-score
+- [x] Sequence recovery (AAR) — whole-span, core and anchors
+- [x] Self perplexity / pseudo-perplexity and shared judge scoring
+- [x] Diversity — pairwise Hamming, unique fraction, per-position entropy
+- [x] Novelty — uniqueness versus training set
+- [x] Length-free metrics — validity, length match/MAE, edit similarity, conditional length-matched AAR
+- [x] Coverage and contributing populations reported alongside conditional recovery
+- [ ] Paired bootstrap confidence intervals for the final matched comparisons
+- [ ] Structure metrics — RMSD, TM-score
 
 **Benchmark**
 - [x] IgLM external benchmark adapter
+- [x] Matched fixed-length CDRSeqGen/IgLM validation smoke test
+- [ ] Matched length-free CDRSeqGen/IgLM score and plot
+- [ ] Final held-out evaluation after model and protocol selection
 
 **Long-term objectives / deliverables**
-- Leakage-safe **benchmark** for CDR-infilling methods (the Phase-1 result)
+- Leakage-audited benchmark for CDR-infilling methods
 - Structure-conditioned CDR-H3 design
 - Integrated sequence + structure design framework
 - Benchmark paper and/or a novel antibody-design method
+
 <!-- MANUAL PROTECTION ZONE ENDS -->

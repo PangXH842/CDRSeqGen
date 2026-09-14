@@ -95,9 +95,10 @@ def flag(value):
     raise ValueError(f"Expected true/false, got {value!r}")
 
 
-def load_config(path, env):
+def load_config(path, env, overrides=None):
     with Path(path).open() as handle:
         config = json.load(handle)
+    config.update(overrides or {})
     config["method"] = resolve(config.get("method", "mlm")).name
     if env.get("ENCODER_INIT") or env.get("FREEZE_ENCODER"):
         if config["method"] != "s2s" or config.get("model_type") == "scratch":
@@ -137,6 +138,57 @@ def suite_trials(names, env):
                 config["gen_length_mode"] = "inferred"
         trials.append(dict(source=path, config=config, grid={}, suffix=""))
     return trials
+
+
+def spec_trials(path, env):
+    """Expand a declarative recipe into the ordinary suite execution format.
+
+    Paths use the repository root, like suite configs. Merge base < shared < arm;
+    DATA_PATH may relocate the corpus, but arm controls must be explicit in the spec.
+    """
+    for key in ("SEED", "ENCODER_INIT", "FREEZE_ENCODER"):
+        if env.get(key):
+            raise ValueError(f"Spec mode: set {key} in the spec overrides instead of the environment")
+    with Path(path).open() as handle:
+        spec = json.load(handle)
+
+    def fields(value, allowed, where):
+        if not isinstance(value, dict) or value.keys() - allowed:
+            raise ValueError(f"{where}: expected an object with fields {sorted(allowed)}")
+
+    def name(value, where):
+        if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", value):
+            raise ValueError(f"{where}: use a nonempty name containing letters, digits, '_' or '-'")
+        return value
+
+    fields(spec, {"name", "base_config", "overrides", "trials"}, "Experiment spec")
+    experiment = name(spec.get("name"), "Experiment name")
+    shared = spec.get("overrides", {})
+    if not isinstance(shared, dict):
+        raise ValueError("Spec overrides must be an object")
+    arms = spec.get("trials")
+    if not isinstance(arms, list) or not arms:
+        raise ValueError("Spec trials must be a nonempty list")
+    trials, labels, identities = [], set(), set()
+    for arm in arms:
+        fields(arm, {"name", "base_config", "overrides"}, "Trial")
+        label = name(arm.get("name"), "Trial name")
+        if label in labels:
+            raise ValueError(f"Duplicate trial name: {label}")
+        labels.add(label)
+        base = arm.get("base_config", spec.get("base_config"))
+        if not isinstance(base, str) or not base:
+            raise ValueError(f"{label}: specify base_config on the spec or trial")
+        overrides = arm.get("overrides", {})
+        if not isinstance(overrides, dict):
+            raise ValueError(f"{label}: overrides must be an object")
+        config = load_config(base, env, {**shared, **overrides})
+        identity = fingerprint(config)
+        if identity in identities:
+            raise ValueError(f"{label}: duplicate resolved config; use distinct settings or seeds")
+        identities.add(identity)
+        trials.append(dict(source=base, config=config, grid={}, suffix=label))
+    return trials, experiment
 
 
 def sweep_trials(preset, base, env):
@@ -271,7 +323,12 @@ def build_plan(arguments, env):
     if len(set(devices)) != len(devices):
         raise ValueError("Duplicate GPU ids would oversubscribe the same device")
     rest = arguments[1:] or ["all"]
-    if rest[0] == "sweep":
+    if rest[0] == "spec":
+        if len(rest) != 2:
+            raise ValueError("Usage: run.sh <gpus> spec <experiment.json>")
+        trials, name = spec_trials(rest[1], env)
+        mode, rank = "suite", None  # Reuse suite validation, execution, reports and resume.
+    elif rest[0] == "sweep":
         if len(rest) > 3:
             raise ValueError("Usage: run.sh <gpus> sweep [preset] [base_config]")
         mode, name = "sweep", rest[1] if len(rest) > 1 else "h3"
@@ -478,9 +535,10 @@ def _execute_locked(plan, devices, output, env):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"Suites: {', '.join(SUITES)}\nPresets: {', '.join(PRESETS)}\n\n"
-               "run.sh <gpus> [suite ...]\nrun.sh <gpus> sweep [preset] [base_config]\n\n"
+               "run.sh <gpus> [suite ...]\nrun.sh <gpus> sweep [preset] [base_config]\nrun.sh <gpus> spec <experiment.json>\n\n"
                "Shared overrides: PYTHON, DATA_PATH, DRY_RUN=1, EXPERIMENT_DIR (exact resume).\n"
-               "S2S PLM controls (both modes): ENCODER_INIT=pretrained|random, FREEZE_ENCODER=true|false.\n"
+               "S2S PLM controls (suites/sweeps): ENCODER_INIT=pretrained|random, FREEZE_ENCODER=true|false.\n"
+               "Spec: base_config + shared/per-trial overrides; put seed/encoder controls in the file.\n"
                "Suite: SEED. Sweep: LRS, WARMUPS, WEIGHT_DECAYS, SEEDS, EPOCH_LIST, HIDDEN_SIZES,\n"
                "NUM_LAYERS, LOSS_TYPES, CORE_WEIGHTS, ANCHOR_WEIGHTS, GEN_EVAL, RANK_METRIC,\n"
                "SELECT_METRIC, GEN_EXAMPLES, GEN_SAMPLES, PATIENCE, STOP_THRESHOLD, SCHEDULER.\n"

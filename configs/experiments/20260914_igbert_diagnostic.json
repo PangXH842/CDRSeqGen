@@ -1,0 +1,39 @@
+{
+  "name": "igbert_diagnostic",
+  "base_config": "configs/h3_s2s_igbert_lc.json",
+  "overrides": {
+    "encoder_init": "pretrained",
+    "seed": 42,
+    "data_seed": 42,
+    "context_dropout": 0.0,
+    "num_train_epochs": 10,
+    "diagnostic_stop_epoch": 3,
+    "conditioning_probe_steps": 250,
+    "early_stopping_patience": 0,
+    "save_total_limit": null,
+    "run_generative_eval": false
+  },
+  "trials": [
+    {
+      "name": "original",
+      "overrides": {
+        "learning_rate": 3e-05,
+        "freeze_encoder": false
+      }
+    },
+    {
+      "name": "lower_lr",
+      "overrides": {
+        "learning_rate": 1e-05,
+        "freeze_encoder": false
+      }
+    },
+    {
+      "name": "frozen",
+      "overrides": {
+        "learning_rate": 3e-05,
+        "freeze_encoder": true
+      }
+    }
+  ]
+}

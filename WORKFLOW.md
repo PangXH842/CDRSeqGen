@@ -166,6 +166,28 @@ artifacts, retries failures/incomplete runs, and refuses changed configs, data, 
 Older folders without `plan.json` remain available for analysis; start a fresh folder for this
 runner. A retry updates its trial's status rather than counting as another training seed.
 
+**Run an experiment spec:** for a one-off controlled comparison, keep the recipe in a JSON file
+under `configs/experiments/` instead of adding a permanent suite or another shell script:
+
+```bash
+DRY_RUN=1 ./scripts/run.sh 0 spec configs/experiments/20260914_igbert_diagnostic.json
+./scripts/run.sh 0,1,2 spec configs/experiments/20260914_igbert_diagnostic.json
+```
+
+A spec contains `name`, an optional shared `base_config`, optional shared `overrides`, and a
+nonempty `trials` list. Each trial has a unique `name`, optional `base_config`, and optional
+`overrides`. Settings merge in this order: base config → shared overrides → trial overrides.
+Config and data paths are relative to the repository root, as with regular suites. Trial names
+use letters, digits, underscores, and hyphens; the first character must be a letter or digit.
+Identical resolved trials are rejected; declare distinct settings or seeds explicitly.
+
+`DATA_PATH` may override the resolved corpus path. Put `seed`/`data_seed`, `encoder_init`, and
+`freeze_encoder` in the spec; their environment overrides are rejected to avoid changing the
+meaning of individual arms. `DRY_RUN`, GPU assignment, `EXPERIMENT_DIR`, resolved `plan.json`,
+completion checks, and batch reporting use the existing suite executor. The dated IgBert recipe
+can be archived after diagnosis without changing the runner; its monitoring and scheduler-preserving
+stop options remain reusable.
+
 **Run an Automated Experiment Suite:** [`scripts/run.sh`](scripts/run.sh) takes a GPU id and one or more suite names, skips to the next config if one fails, and writes the round's tables and dashboards into the batch folder when it finishes (Step 3).
 ```bash
 # One runner, suites chosen (and combined) by arg:  ./scripts/run.sh <gpu> [suite ...]

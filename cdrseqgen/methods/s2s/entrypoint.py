@@ -53,6 +53,12 @@ def main():
                                    callbacks=build_callbacks(model_args, training_args, logger),
                                    trim=model_args.anchor_trim)
 
+    if model_args.conditioning_probe_steps or model_args.diagnostic_stop_epoch:
+        from cdrseqgen.methods.s2s.diagnostics import ConditioningProbe
+        trainer.add_callback(ConditioningProbe(
+            eval_dataset, trainer.data_collator, model_args.conditioning_probe_steps,
+            model_args.diagnostic_stop_epoch))
+
     run_training_pipeline(trainer, training_args, tokenizer=tokenizer)
 
     if gen_args.run_generative_eval:
