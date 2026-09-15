@@ -28,6 +28,7 @@ LENGTH_HEAD_FILENAME = "length_head.safetensors"
 # grep, and a reader that missed it degrades silently (a missing generation_eval.json is simply a
 # trial with no generative metrics, not an error).
 GENERATION_EVAL_FILENAME = "generation_eval.json"
+CONTEXT_ABLATION_FILENAME = "generation_eval_without_partner.json"
 EPOCH_METRICS_FILENAME = "epoch_metrics.csv"
 
 # A processed corpus carries its provenance in a sibling file: data.json -> data.metadata.json.

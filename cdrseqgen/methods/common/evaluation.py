@@ -3,6 +3,7 @@ import logging
 import os
 
 from cdrseqgen import artifacts
+from cdrseqgen.data.dataset_common import evaluation_context_view
 from cdrseqgen.eval.generative import build_judge
 from cdrseqgen.methods.registry import resolve
 
@@ -21,21 +22,33 @@ def post_training_generation(method, trainer, tokenizer, eval_dataset, data_args
                 target_region=data_args.target_region,
                 include_partner_chain=data_args.include_partner_chain,
                 include_antigen=data_args.include_antigen, device=training_args.device)
-        return resolve(method).evaluate(
-            trainer.model, tokenizer, eval_dataset, device=training_args.device,
-            num_examples=gen_args.gen_num_examples, num_samples=gen_args.gen_num_samples,
-            temperature=gen_args.gen_temperature, top_k=gen_args.gen_top_k, top_p=gen_args.gen_top_p,
-            stratify=gen_args.gen_stratify, seed=gen_args.gen_seed,
-            skip_perplexity=gen_args.gen_skip_perplexity,
-            judge_model=judge_model, judge_tokenizer=judge_tokenizer, judge_dataset=judge_dataset,
-            judge_name=gen_args.gen_judge, anchor_trim=anchor_trim,
-            output_path=os.path.join(training_args.output_dir, artifacts.GENERATION_EVAL_FILENAME),
-            title=f'{os.path.basename(training_args.output_dir)}   target={data_args.target_region}',
-            meta={'model_dir': training_args.output_dir, 'method': method,
-                  'target_region': data_args.target_region,
-                  'include_partner_chain': bool(data_args.include_partner_chain),
-                  'include_antigen': bool(data_args.include_antigen)},
-            **(method_options or {}))
+        regimes = [(bool(data_args.include_partner_chain), artifacts.GENERATION_EVAL_FILENAME)]
+        if getattr(gen_args, 'gen_eval_context_ablation', False):
+            regimes.append((False, artifacts.CONTEXT_ABLATION_FILENAME))
+        primary = None
+        for partner, filename in regimes:
+            context_dataset = evaluation_context_view(eval_dataset, include_partner_chain=partner)
+            result = resolve(method).evaluate(
+                trainer.model, tokenizer, context_dataset, device=training_args.device,
+                num_examples=gen_args.gen_num_examples, num_samples=gen_args.gen_num_samples,
+                temperature=gen_args.gen_temperature, top_k=gen_args.gen_top_k, top_p=gen_args.gen_top_p,
+                stratify=gen_args.gen_stratify, seed=gen_args.gen_seed,
+                skip_perplexity=gen_args.gen_skip_perplexity,
+                judge_model=judge_model, judge_tokenizer=judge_tokenizer, judge_dataset=judge_dataset,
+                judge_name=gen_args.gen_judge, anchor_trim=anchor_trim,
+                output_path=os.path.join(training_args.output_dir, filename),
+                title=f'{os.path.basename(training_args.output_dir)}   target={data_args.target_region}',
+                meta={'model_dir': training_args.output_dir, 'method': method,
+                      'target_region': data_args.target_region,
+                      'include_partner_chain': partner,
+                      'training_context_dropout': data_args.context_dropout,
+                      'eval_context_dropout': 0.0,
+                      'judge_include_partner_chain': bool(data_args.include_partner_chain),
+                      'include_antigen': bool(data_args.include_antigen)},
+                **(method_options or {}))
+            if filename == artifacts.GENERATION_EVAL_FILENAME:
+                primary = result
+        return primary
     except Exception:
         logger.exception('Generative evaluation failed; the trained model remains saved.')
         return None

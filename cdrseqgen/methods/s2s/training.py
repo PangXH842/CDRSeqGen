@@ -26,7 +26,7 @@ import numpy as np
 import torch
 from transformers import Trainer
 
-from cdrseqgen.data.dataset_common import select_split_indices
+from cdrseqgen.data.dataset_common import select_split_indices, evaluation_context_view
 from cdrseqgen.data.dataset_s2s import Seq2SeqInfillingDataset, s2s_collate_fn
 from cdrseqgen.eval import ANCHOR_TRIM
 from cdrseqgen.eval.metrics import core_anchor_indices
@@ -51,9 +51,9 @@ def get_datasets(model_args, data_args, training_args, backbone, *, checkpoint_p
         full.data, getattr(data_args, "eval_split", ""), data_path=data_args.data_path,
         seed=training_args.seed, test_size=getattr(data_args, "test_size", 0.1))
 
-    # No masking view: the encoder never carries the loop, so one dataset serves training and eval.
+    # Share records while keeping training context dropout out of validation.
     train_ds = torch.utils.data.Subset(full, train_idx)
-    eval_ds = torch.utils.data.Subset(full, eval_idx)
+    eval_ds = torch.utils.data.Subset(evaluation_context_view(full), eval_idx)
     logger.info(f"📊 Data loaded: {len(train_ds)} train (seq2seq), "
                 f"{len(eval_ds)} eval (split: {eval_label}).")
     return train_ds, eval_ds, tokenizer

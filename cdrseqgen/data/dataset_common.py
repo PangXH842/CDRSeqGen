@@ -19,6 +19,7 @@ has no use for.
 Note ``mask_id`` on the adapter is optional for exactly that reason: a causal tokenizer need not
 have a mask token, and requiring one was the concrete thing coupling this layer to masked LMs.
 """
+import copy
 import hashlib
 import json
 import logging
@@ -265,6 +266,25 @@ def framework_for_dataset(dataset, index):
     if not hasattr(dataset, "framework_parts"):
         raise TypeError("variable-length generation requires a dataset with framework_parts()")
     return dataset.framework_parts(index)
+
+
+def evaluation_context_view(dataset, *, include_partner_chain=None):
+    """Share records/tokenizer while disabling stochastic training context dropout.
+
+    Preserve Subset ordering, including nested subsets, so context comparisons use identical
+    examples. Never mutate a training dataset or the view used by the other evaluation arm.
+    """
+    if isinstance(dataset, torch.utils.data.Subset):
+        return torch.utils.data.Subset(
+            evaluation_context_view(dataset.dataset, include_partner_chain=include_partner_chain),
+            dataset.indices)
+    if not isinstance(dataset, AntibodyFrameworkDataset):
+        raise TypeError("Context evaluation requires an AntibodyFrameworkDataset")
+    view = copy.copy(dataset)
+    view.context_dropout = 0.0
+    if include_partner_chain is not None:
+        view.include_partner_chain = bool(include_partner_chain)
+    return view
 
 
 def select_split_indices(records, eval_split, *, data_path, seed, test_size=0.1):

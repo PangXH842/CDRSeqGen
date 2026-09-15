@@ -1,0 +1,130 @@
+{
+  "name": "context_dropout",
+  "overrides": {
+    "eval_split": "validation",
+    "include_partner_chain": true,
+    "num_train_epochs": 20,
+    "early_stopping_patience": 3,
+    "metric_for_best_model": "core_accuracy",
+    "gen_eval_context_ablation": true,
+    "run_generative_eval": true,
+    "gen_num_examples": 150,
+    "gen_num_samples": 20,
+    "gen_top_p": 0.9,
+    "gen_top_k": 0,
+    "gen_temperature": 1.0,
+    "gen_seed": 42,
+    "gen_stratify": false,
+    "gen_judge": "Exscientia/IgBert"
+  },
+  "trials": [
+    {
+      "name": "ar_scratch_cd00_s42",
+      "base_config": "configs/h3_ar_scratch_lc.json",
+      "overrides": {
+        "context_dropout": 0.0,
+        "seed": 42,
+        "data_seed": 42
+      }
+    },
+    {
+      "name": "ar_scratch_cd50_s42",
+      "base_config": "configs/h3_ar_scratch_lc.json",
+      "overrides": {
+        "context_dropout": 0.5,
+        "seed": 42,
+        "data_seed": 42
+      }
+    },
+    {
+      "name": "ar_scratch_cd00_s43",
+      "base_config": "configs/h3_ar_scratch_lc.json",
+      "overrides": {
+        "context_dropout": 0.0,
+        "seed": 43,
+        "data_seed": 43
+      }
+    },
+    {
+      "name": "ar_scratch_cd50_s43",
+      "base_config": "configs/h3_ar_scratch_lc.json",
+      "overrides": {
+        "context_dropout": 0.5,
+        "seed": 43,
+        "data_seed": 43
+      }
+    },
+    {
+      "name": "s2s_scratch_cd00_s42",
+      "base_config": "configs/h3_s2s_scratch_lc.json",
+      "overrides": {
+        "context_dropout": 0.0,
+        "seed": 42,
+        "data_seed": 42
+      }
+    },
+    {
+      "name": "s2s_scratch_cd50_s42",
+      "base_config": "configs/h3_s2s_scratch_lc.json",
+      "overrides": {
+        "context_dropout": 0.5,
+        "seed": 42,
+        "data_seed": 42
+      }
+    },
+    {
+      "name": "s2s_scratch_cd00_s43",
+      "base_config": "configs/h3_s2s_scratch_lc.json",
+      "overrides": {
+        "context_dropout": 0.0,
+        "seed": 43,
+        "data_seed": 43
+      }
+    },
+    {
+      "name": "s2s_scratch_cd50_s43",
+      "base_config": "configs/h3_s2s_scratch_lc.json",
+      "overrides": {
+        "context_dropout": 0.5,
+        "seed": 43,
+        "data_seed": 43
+      }
+    },
+    {
+      "name": "s2s_esm2_cd00_s42",
+      "base_config": "configs/h3_s2s_esm2_lc.json",
+      "overrides": {
+        "context_dropout": 0.0,
+        "seed": 42,
+        "data_seed": 42
+      }
+    },
+    {
+      "name": "s2s_esm2_cd50_s42",
+      "base_config": "configs/h3_s2s_esm2_lc.json",
+      "overrides": {
+        "context_dropout": 0.5,
+        "seed": 42,
+        "data_seed": 42
+      }
+    },
+    {
+      "name": "s2s_esm2_cd00_s43",
+      "base_config": "configs/h3_s2s_esm2_lc.json",
+      "overrides": {
+        "context_dropout": 0.0,
+        "seed": 43,
+        "data_seed": 43
+      }
+    },
+    {
+      "name": "s2s_esm2_cd50_s43",
+      "base_config": "configs/h3_s2s_esm2_lc.json",
+      "overrides": {
+        "context_dropout": 0.5,
+        "seed": 43,
+        "data_seed": 43
+      }
+    }
+  ]
+}

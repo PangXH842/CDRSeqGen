@@ -112,8 +112,8 @@ class SplitTests(unittest.TestCase):
 
 
 class NoMaskingViewTests(unittest.TestCase):
-    def test_train_and_eval_share_one_dataset(self):
-        # A causal example never reveals the answer, so there is no full_span view to build.
+    def test_train_and_eval_share_records_with_separate_context_views(self):
+        # Context settings must be isolated even though parsed records and tokenizer are shared.
         path = _data(["train", "train", "validation"])
         backbone = resolve("scratch")
         train, evaluation, _ = get_datasets(
@@ -121,7 +121,9 @@ class NoMaskingViewTests(unittest.TestCase):
             Args(data_path=path, max_len=128, target_region="h3", include_partner_chain=False,
                  include_antigen=False, eval_split="validation", context_dropout=0.0, test_size=0.1),
             Args(seed=42), backbone)
-        self.assertIs(train.dataset, evaluation.dataset)
+        self.assertIsNot(train.dataset, evaluation.dataset)
+        self.assertIs(train.dataset.data, evaluation.dataset.data)
+        self.assertIs(train.dataset.tokenizer, evaluation.dataset.tokenizer)
         os.unlink(path)
 
 

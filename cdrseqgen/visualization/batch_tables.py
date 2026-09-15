@@ -685,6 +685,40 @@ def build_table(name, runs, *, decoding_paths=None):
     )
 
 
+def context_ablation_table(runs):
+    """Show both inference regimes and training dropout explicitly, without pooling seeds."""
+    rows = []
+    for run_dir in sorted(set(runs.values())):
+        extra = os.path.join(run_dir, artifacts.CONTEXT_ABLATION_FILENAME)
+        if not os.path.isfile(extra):
+            continue
+        config_path = find_run_config(run_dir)
+        with open(config_path) as handle:
+            config = json.load(handle)
+        for filename, partner in ((artifacts.GENERATION_EVAL_FILENAME, "with"),
+                                  (artifacts.CONTEXT_ABLATION_FILENAME, "without")):
+            with open(os.path.join(run_dir, filename)) as handle:
+                payload = json.load(handle)
+            summary = payload.get("summary", {})
+            def number(value):
+                return "—" if value is None else f"{value:.4f}"
+            rows.append([os.path.basename(run_dir), str(config.get("context_dropout", 0)),
+                         str(config.get("seed", 42)), partner,
+                         number(payload.get("generation_validity", {}).get("valid_generation_rate")),
+                         number(summary.get("edit_similarity_mean")),
+                         number(summary.get("core_recovery_mean")),
+                         number(summary.get("length_match_rate")),
+                         number(summary.get("judge_perplexity_mean"))])
+    if not rows:
+        return ""
+    return markdown_table("Partner-context ablation",
+        ["Run", "Train dropout", "Seed", "Eval partner", "Validity", "Edit similarity",
+         "Conditional core", "Length match", "Judge PPL"], rows) + (
+        "\nJudge context is fixed to the configured training context in both regimes. "
+        "Core recovery uses length-matched candidates; inspect JSON records for contributing "
+        "populations. Edit similarity excludes invalid candidates; interpret alongside validity.\n")
+
+
 def render_tables(batch, runs, wanted=None, *, decoding_paths=None, source=None):
     """Every requested table as one Markdown document, ready to print or write.
 
@@ -705,6 +739,9 @@ def render_tables(batch, runs, wanted=None, *, decoding_paths=None, source=None)
     for name in wanted:
         blocks.append(build_table(name, runs) + "\n")
 
+    context = context_ablation_table(runs)
+    if context:
+        blocks.append(context + "\n")
     decoding = build_table("decoding", runs, decoding_paths=decoding_paths)
     if decoding:
         blocks.append(decoding + "\n")

@@ -166,6 +166,16 @@ artifacts, retries failures/incomplete runs, and refuses changed configs, data, 
 Older folders without `plan.json` remain available for analysis; start a fresh folder for this
 runner. A retry updates its trial's status rather than counting as another training seed.
 
+**Context-dropout experiments:** training dropout is disabled in validation for all methods.
+`gen_eval_context_ablation=true` evaluates the selected checkpoint with and without partner context,
+keeping the judge's partner context fixed. It requires a partner-enabled config and generative
+evaluation. Both `generation_eval.json` and `generation_eval_without_partner.json` are required for
+completion; the batch table includes both regimes. [Screen protocol and checkpoint-evaluation commands](configs/experiments/20260915_context_dropout.md).
+For manual evaluation use the original config with `--partner_context with|without`; use
+`--judge_partner_context with|without` to explicitly hold judge context constant. Both default to
+`trained` (the original config's context). Context choices are recorded in the output metadata and
+filename identity. The test split remains unused during this screen.
+
 **Run an experiment spec:** for a one-off controlled comparison, keep the recipe in a JSON file
 under `configs/experiments/` instead of adding a permanent suite or another shell script:
 

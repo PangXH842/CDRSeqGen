@@ -9,8 +9,8 @@ from the objective rather than from taste:
 
   * **No masking view.** The MLM builds a separate ``full_span`` view for evaluation so partially
     revealed native residues cannot leak into reported recovery. A causal example never reveals any
-    of the answer — the loss mask puts -100 across the whole prompt — so train and eval share one
-    dataset.
+    of the answer — the loss mask puts -100 across the whole prompt — so train and eval share parsed
+    records, with a separate context view that disables dropout for evaluation.
   * **No loss registry.** The model computes its own next-token loss. §13 established that
     re-weighting core against anchor moves nothing, so there is no reason to rebuild that machinery
     on this side.
@@ -30,7 +30,7 @@ import torch
 from transformers import Trainer
 
 from cdrseqgen.data.dataset_ar import CausalInfillingDataset, causal_collate_fn
-from cdrseqgen.data.dataset_common import select_split_indices
+from cdrseqgen.data.dataset_common import select_split_indices, evaluation_context_view
 from cdrseqgen.eval.metrics import core_anchor_indices
 from cdrseqgen.eval import ANCHOR_TRIM
 
@@ -54,9 +54,9 @@ def get_datasets(model_args, data_args, training_args, backbone, *, checkpoint_p
         full.data, getattr(data_args, "eval_split", ""), data_path=data_args.data_path,
         seed=training_args.seed, test_size=getattr(data_args, "test_size", 0.1))
 
-    # No masking view: a causal example never exposes the answer, so one dataset serves both.
+    # Share records while keeping training context dropout out of validation.
     train_ds = torch.utils.data.Subset(full, train_idx)
-    eval_ds = torch.utils.data.Subset(full, eval_idx)
+    eval_ds = torch.utils.data.Subset(evaluation_context_view(full), eval_idx)
     logger.info(f"📊 Data loaded: {len(train_ds)} train (causal), "
                 f"{len(eval_ds)} eval (split: {eval_label}).")
     return train_ds, eval_ds, tokenizer

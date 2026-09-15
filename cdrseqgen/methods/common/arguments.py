@@ -73,6 +73,8 @@ class BaseGenerationArguments:
     """Post-training generative evaluation. ON by default."""
 
     run_generative_eval: bool = field(default=True)
+    gen_eval_context_ablation: bool = field(default=False, metadata={
+        "help": "Also evaluate without partner context, keeping judge context fixed; requires partner training."})
     gen_num_examples: int = field(default=150, metadata={"help": "Eval frameworks (-1 = all)."})
     gen_num_samples: int = field(default=20, metadata={"help": "Candidates per framework."})
     gen_temperature: float = field(default=1.0)
@@ -101,6 +103,9 @@ def validate_common_args(model_args, data_args, gen_args, *, expected_method):
 
     if not 0.0 <= data_args.context_dropout <= 1.0:
         raise ValueError("context_dropout must be between 0 and 1")
+    if getattr(gen_args, "gen_eval_context_ablation", False):
+        if not data_args.include_partner_chain or not gen_args.run_generative_eval or gen_args.gen_num_examples == 0:
+            raise ValueError("gen_eval_context_ablation requires partner context and generative evaluation")
     if (isinstance(model_args.anchor_trim, bool)
             or not isinstance(model_args.anchor_trim, int)
             or model_args.anchor_trim < 0):

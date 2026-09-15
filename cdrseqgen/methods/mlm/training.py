@@ -18,7 +18,7 @@ from typing import Tuple
 
 import torch
 
-from cdrseqgen.data.dataset_common import select_split_indices
+from cdrseqgen.data.dataset_common import select_split_indices, evaluation_context_view
 from cdrseqgen.data.dataset_mlm import AntibodyInfillingDataset
 from cdrseqgen.methods.common.training import run_training_pipeline  # re-export for old callers
 from cdrseqgen import artifacts
@@ -56,7 +56,7 @@ def get_datasets(model_args, data_args, training_args, backbone, *, checkpoint_p
     # These lightweight views share parsed records/tokenizer but not masking behavior. Training may
     # reveal native residues; validation must always begin with the entire loop masked or recovery
     # would leak the answer.
-    eval_full_dataset = full_dataset.masking_view("full_span")
+    eval_full_dataset = evaluation_context_view(full_dataset.masking_view("full_span"))
     train_ds = torch.utils.data.Subset(full_dataset, train_idx)
     eval_ds = torch.utils.data.Subset(eval_full_dataset, val_idx)
 

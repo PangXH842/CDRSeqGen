@@ -28,6 +28,7 @@ from cdrseqgen.artifacts import (
     processed_metadata_path,
     read_run_config,
 )
+from cdrseqgen.data.dataset_common import evaluation_context_view
 from cdrseqgen.methods.registry import decoding_choices, resolve as resolve_method, checkpoint_method
 from cdrseqgen.train.logging import configure_logging
 
@@ -145,6 +146,8 @@ def default_output_path(args):
         "judge": args.judge,
         "judge_path": args.judge_path,
     }
+    identity['partner_context'] = getattr(args, 'partner_context', 'trained')
+    identity['judge_partner_context'] = getattr(args, 'judge_partner_context', 'trained')
     if getattr(args, 'max_new_tokens', None) is not None:
         identity['max_new_tokens'] = args.max_new_tokens
     digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:10]
@@ -191,6 +194,10 @@ def main():
                          "file under <model_dir>/evaluations/).")
     ap.add_argument("--overwrite", action="store_true",
                     help="Replace an existing output with the same path/parameters.")
+    ap.add_argument("--partner_context", choices=('trained', 'with', 'without'), default='trained',
+                    help="Explicit generator context ablation; evaluation always disables training context dropout.")
+    ap.add_argument("--judge_partner_context", choices=('trained', 'with', 'without'), default='trained',
+                    help="Judge context, independent of generator ablation; default uses the original config context.")
     ap.add_argument("--force", action="store_true",
                     help="Evaluate despite checkpoint/config input-contract mismatches. Every "
                          "mismatch is retained in the output provenance.")
@@ -241,6 +248,10 @@ def main():
     _, eval_dataset, tokenizer = method.module('training').get_datasets(
         model_args, data_args, training_args, backbone, checkpoint_path=args.model_dir)
 
+    partner = data_args.include_partner_chain if args.partner_context == 'trained' else args.partner_context == 'with'
+    judge_partner = data_args.include_partner_chain if args.judge_partner_context == 'trained' else args.judge_partner_context == 'with'
+    eval_dataset = evaluation_context_view(eval_dataset, include_partner_chain=partner)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = backbone.load_pretrained_model(args.model_dir)
     model.to(device)
@@ -255,7 +266,7 @@ def main():
             data_path=data_args.data_path,
             max_len=data_args.max_len,
             target_region=data_args.target_region,
-            include_partner_chain=data_args.include_partner_chain,
+            include_partner_chain=judge_partner,
             include_antigen=data_args.include_antigen,
             device=device,
         )
@@ -279,7 +290,11 @@ def main():
             "target_region": data_args.target_region,        # loop this eval ran on (from --config)
             "model_trained_for": trained_for,                # loop the checkpoint was trained for (run_config)
             "eval_split": data_args.eval_split,
-            "include_partner_chain": bool(data_args.include_partner_chain),
+            "include_partner_chain": bool(partner),
+            "training_include_partner_chain": bool(data_args.include_partner_chain),
+            "training_context_dropout": data_args.context_dropout,
+            "eval_context_dropout": 0.0,
+            "judge_include_partner_chain": bool(judge_partner),
             "include_antigen": bool(data_args.include_antigen),
             "compatibility": {
                 "problems": problems,

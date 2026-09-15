@@ -1,27 +1,16 @@
 #!/usr/bin/env bash
-# Bulk-download the OAS human paired repertoires into the gitignored data blob at
-# <repo>/dataset/data/raw/, resolved from THIS script's own location so it works from any CWD.
+# Downloads and extracts OAS raw data csv.gz files:
+#   - paired chains
+#   - 4 donors, 2 csvs each, 8 total -> ~150000 samples
 #
-# The wget lines below are bare (no -O/-P), so they write into the working directory — hence the
-# `cd`. Without it, running this from the repo root scattered .csv.gz files across <repo>/.
-# No `set -e` on purpose: one dead URL should not abort the remaining downloads.
-#
-# Usage:  bash cdrseqgen/data/preprocess/download_oas_paired.sh    (downloads AND extracts)
+# Usage:  bash cdrseqgen/data/preprocess/download_oas_paired.sh
 #   then: python -m cdrseqgen.data.preprocess.oas_paired \
 #             --input_file dataset/data/raw/oas/*_Paired_All.csv \
 #             --output_file dataset/data/processed/processed_oas_multi.json \
 #             --split cluster --test_size 0.1 --validation_size 0.1 --seed 42
-#
-# The selection below is Jaffe 2022, its FOUR donors (the whole study -- there is no fifth), two
-# naive runs each so the donors stay balanced for a future donor-held-out split. Every run is
-# Naive-B-Cells on purpose: memory and plasmablast repertoires carry heavy somatic hypermutation,
-# which would shift the germline-encoded H1/H2 distribution far more than the disease labels do.
-# Probed 2026-09-03: outside Jaffe only ONE naive paired run exists in this catalogue
-# (Woodruff_2020), so more donors means accepting mixed B-cell types.
 
-# THREE levels up: this script lives at <repo>/cdrseqgen/data/preprocess/, so ../.. only reaches
-# <repo>/cdrseqgen. It used to, and silently downloaded into <repo>/cdrseqgen/dataset/data/raw/ --
-# which .gitignore does not cover, since its `dataset/data/` pattern is anchored to the repo root.
+# --- Download ---------------------------------------------------------------------------------
+# Set destination directory (script to be run inside the preprocess/ directory)
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)" || exit 1
 if [[ ! -d "$ROOT/cdrseqgen" || ! -f "$ROOT/train.py" ]]; then
     echo "❌ Resolved repo root '$ROOT' does not look like CDRSeqGen (no cdrseqgen/ + train.py)."
@@ -31,7 +20,8 @@ fi
 DEST="$ROOT/dataset/data/raw/oas/"
 mkdir -p "$DEST" || exit 1
 cd "$DEST" || exit 1
-echo "⬇️  Downloading OAS paired repertoires into: $DEST"
+
+echo "⬇️ Downloading OAS paired repertoires into: $DEST"
 
 # Donor 1: SARS-COV-2 (19627, 19085)
 wget -c https://opig.stats.ox.ac.uk/webapps/ngsdb/paired/Jaffe_2022/csv/1287203_1_Paired_All.csv.gz
@@ -47,9 +37,6 @@ wget -c https://opig.stats.ox.ac.uk/webapps/ngsdb/paired/Jaffe_2022/csv/1287171_
 wget -c https://opig.stats.ox.ac.uk/webapps/ngsdb/paired/Jaffe_2022/csv/1287169_1_Paired_All.csv.gz
 
 # --- Extract ----------------------------------------------------------------------------------
-# The preprocessor reads plain CSV, so unpack here rather than leaving it as a step to remember.
-# `-k` keeps the .gz: it is a tenth of the size of the CSV and means a corrupted extraction never
-# costs another 154 MB download. Every stage is skippable, so re-running the script is cheap.
 echo ""
 echo "📦 Extracting..."
 extracted=0
@@ -65,8 +52,7 @@ for archive in *.csv.gz; do
         skipped=$((skipped + 1))
         continue
     fi
-    # Verify before unpacking: a truncated download would otherwise become a truncated CSV, and
-    # pandas reads a truncated OAS CSV without complaining.
+    # Verify for truncated csvs
     if ! gunzip -t "$archive" 2>/dev/null; then
         echo "  ❌ $archive is corrupt — delete it and re-run to fetch again"
         failed=$((failed + 1))

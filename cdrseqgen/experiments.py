@@ -24,7 +24,7 @@ import sys
 import threading
 
 from cdrseqgen.artifacts import (
-    EPOCH_METRICS_FILENAME, GENERATION_EVAL_FILENAME, RUN_CONFIG_FILENAME,
+    EPOCH_METRICS_FILENAME, GENERATION_EVAL_FILENAME, CONTEXT_ABLATION_FILENAME, RUN_CONFIG_FILENAME,
     atomic_write_json, sha256_file,
 )
 from cdrseqgen.methods.registry import resolve
@@ -384,10 +384,14 @@ def completed_artifacts(run_dir, config):
             if not next(csv.DictReader(handle), None):
                 return False
         if needs_generation(config):
-            with (root / GENERATION_EVAL_FILENAME).open() as handle:
-                payload = json.load(handle)
-            if not payload.get("records") or not payload.get("summary"):
-                return False
+            filenames = [GENERATION_EVAL_FILENAME]
+            if config.get('gen_eval_context_ablation'):
+                filenames.append(CONTEXT_ABLATION_FILENAME)
+            for filename in filenames:
+                with (root / filename).open() as handle:
+                    payload = json.load(handle)
+                if not payload.get("records") or not payload.get("summary"):
+                    return False
     except (OSError, ValueError, TypeError):
         return False
     return True
