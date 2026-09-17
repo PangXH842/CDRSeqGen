@@ -983,6 +983,9 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-09-15** -- **Experiments table added:** timeline for future framework development and experiments for conference-ready results
+- **2026-09-15** -- [RECLAIM] `data/preprocess/`
+- **2026-09-15** -- Span layout + context dropout edits
 - **2026-09-14** -- [RECLAIM] Revised reclamation list
 - **2026-09-10** -- Added PLMs for S2S: ESM-2, IgBert, ProtBert
 - **2026-09-10** -- `cdrseqgen/experiments.py` [new]: unified suite/sweep planner + executor for `run.sh`/`sweep.sh` (to be moved to `scripts/`?)
@@ -1053,6 +1056,28 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - [ ] **State the regime honestly.** 122,181 training pairs, 0.8M–420M parameters, single-digit-hour runs, one corpus family. The conclusions are about this scale; say so rather than letting a reader generalise them
 - [ ] **Produce the evidence package and release artifacts.** Main comparison table, conditioning/control figure, length and coverage breakdown, uncertainty estimates, compute and failure accounting — each figure with a defined claim and a reproducible source artifact. Pin code/environment versions, configs, manifests, model provenance and scoring commands, preserving historical runs' real provenance rather than back-dating it. Write methods and limitations alongside the experiments, then related work, results and discussion
 
+### Experiment coverage across methods
+
+Status snapshot: **2026-09-15**. **☑** experiment completed; **◐** partial or historical evidence; **↻** in progress; **☐** pending; **—** requires a pretrained AR adapter first. Completion means exploratory results exist, not that the paper's final confirmation is finished. Pending cells are candidates, not a requirement to fill the entire matrix; prioritize matched context comparisons, the controls needed to interpret them, and confirmation across seeds. The detailed checklists below specify the follow-up work.
+
+| Experiment category | MLM | AR | S2S |
+|---|---|---|---|
+| **Scratch baseline** | ☑ | ☑ | ☑ |
+| **Pretrained models** | ☑ ESM-2, IgBert, ProtBert | ☐ Pretrained causal adapter and experiments | ☑ ESM-2, IgBert, ProtBert **encoders** |
+| **Scratch learning-rate tuning** | ☑ Broader hyperparameter screen | ☑ LR screen | ☑ LR screen; settings not yet promoted |
+| **PLM learning-rate tuning** | ☐ Matched follow-up as needed | — | ☐ ESM-2 four-run screen prepared; launch not verified |
+| **Train with versus without partner context** | ◐ Existing comparisons; match final protocol | ◐ Historical runs; **2 matched no-partner runs pending** | ◐ Existing comparisons; **4 matched no-partner runs pending** |
+| **Context dropout 0 versus 0.5; evaluate both regimes** | ☑ Historical experiments; protocol differs | ☑ Current screen: 4/4 complete; analysis pending | ☑ Scratch: 4/4 complete; analysis pending; ↻ ESM-2: 2/4 complete |
+| **Same architecture: pretrained versus random initialization** | ☐ | — | ☐ ESM-2 control; code available |
+| **Frozen versus trainable pretrained weights** | ☐ | — | ◐ IgBert diagnostic trained; generation pending. ☐ ESM-2; code available |
+| **Conditioning/collapse diagnostics** | ◐ Context sensitivity studied | ◐ Context-ablation results available | ◐ IgBert probes complete; generation and replication pending |
+| **Length-free generation and length analysis** | ☑ Length-head experiments | ☑ EOS/length analysis | ☑ Generation metrics; comparative analysis ongoing |
+| **Decoding/sampling sensitivity** | ☑ Independent/iterative and sampling studies | ☑ Temperature/length study | ☐ Controlled sampling screen |
+| **Matched external IgLM benchmark** | ◐ Small pilot; final comparison pending | ☐ | ☐ |
+| **Additional seeds for selected contrasts** | ☐ | ☐ Seeds 44–46 | ☐ Seeds 44–46 |
+| **Light-chain experiments under target-loop-specific splits** | ◐ Historical runs; corrected split required | ☐ After split work | ☐ After split work |
+| **Final frozen protocol, uncertainty estimates and held-out evaluation** | ☐ | ☐ | ☐ |
+
 ### Active milestone — matched CDRSeqGen vs IgLM benchmark
 
 **Primary baseline:** [IgLM](https://github.com/Graylab/IgLM) — the closest published, reproducible match to CDRSeqGen's sequence-infilling task. IgCraft is the intended second sequence baseline once the comparison interface is stable; structure/antigen models such as IgGM belong to Phase 2 and must not enter the sequence-only table.
@@ -1098,9 +1123,11 @@ Both methods run on the **same frozen examples**, with the same candidate count 
 
 - [x] **Complete the three-arm IgBert diagnostic** (`20260914_140305_226060_igbert_diagnostic`). All arms finished three epochs, with 49 finite probe records and three epoch checkpoints each. The original-LR replay did not reproduce the earlier collapse within this window. Epoch-3 validation loss / core recovery: original 1.6092 / 0.3836; lower LR 1.6954 / 0.3566; frozen 1.6185 / 0.3814. All retained conditioning. This establishes neither failure incidence nor a preventive effect of freezing/lower LR. See the [completed diagnostic report](results/diagnostics/20260915_igbert_summary/REPORT.md).
 - [ ] **Evaluate the three saved diagnostic checkpoints generatively.** Same validation examples and 150 × 20 generation protocol, with fixed partner context for generator and judge; no retraining. [Commands](configs/experiments/20260915_context_dropout.md#evaluate-the-completed-igbert-diagnostic-checkpoints-first).
-- [ ] **Run the AR/S2S context-dropout screen.** [Spec](configs/experiments/20260915_context_dropout.json): scratch AR, scratch S2S and ESM-2 S2S × dropout 0/0.5 × seeds 42/43. Each checkpoint is evaluated with/without partner context while judge context stays fixed. Validation dropout is disabled. [Prospective screen protocol](configs/experiments/20260915_context_dropout.md); launch is pending.
-- [ ] Replicate promising settings across seeds and report collapse incidence alongside performance — one failure and one clean replay establish neither the rate nor run-to-run variance
-- [ ] Once conditioning is demonstrably stable, compare **context dropout 0 versus 0.5** with both context regimes evaluated explicitly, and screen **ESM-2 learning rates** on a longer budget (lowest judge perplexity of the PLM runs). Use **random initialization of the same encoder architecture** to separate pretraining from capacity, and frozen encoders to test whether fixed features suffice. Report generation metrics and contributing populations alongside teacher-forced recovery
+- [ ] **Run the AR/S2S context-dropout screen.** [Spec](configs/experiments/20260915_context_dropout.json): scratch AR, scratch S2S and ESM-2 S2S × dropout 0/0.5 × seeds 42/43. Each checkpoint is evaluated with/without partner context while judge context stays fixed. Validation dropout is disabled. [Prospective screen protocol](configs/experiments/20260915_context_dropout.md); launched as `20260915_131629_103719_context_dropout`. Review both context regimes and contributing populations when complete.
+- [ ] **Add six models trained without partner context — next training batch.** Scratch AR, scratch S2S and ESM-2 S2S × seeds 42/43, with `include_partner_chain: false` and `context_dropout: 0`. Match the current screen within each model: OAS4 H3 validation split, optimizer, batch size, 20-epoch maximum, early stopping and checkpoint-selection metric. Evaluate the same 150 × 20 examples/candidates without generator partner context and with fixed partner context for the judge. Compare against partner-trained dropout 0 and 0.5 models; removing the partner only at inference does not replace this training control. Express the follow-up through the existing JSON-spec runner.
+- [ ] **Confirm selected contrasts with seeds 44–46.** Select follow-ups using validation results, then extend both sides of each contrast, including both dropout conditions when testing a dropout benefit. Report individual seeds and paired differences; keep the test split untouched until settings and endpoints are frozen. For IgBert stability follow-ups, also report collapse incidence: one failure and one clean replay establish neither its rate nor run-to-run variance.
+- [ ] **Separate ESM-2 pretraining from capacity and adaptation.** After reviewing the context screen, compare trainable pretrained, trainable randomly initialized, and frozen pretrained encoders of the same ESM-2 architecture, initially at seeds 42/43. Hold the decoder, corpus, context policy and evaluation protocol fixed; reuse current runs only where settings match. Use `encoder_init`/`freeze_encoder` in a JSON spec. Allow comparable validation tuning effort, since random initialization may require a different learning rate. Report generation quality, validity and contributing populations alongside teacher-forced recovery.
+- [ ] **Screen ESM-2 learning rates on a longer budget**, once conditioning is stable, using the selected context policy and shared validation protocol. Its low judge perplexity in the initial PLM matrix motivates follow-up, but judge perplexity alone must not select the final system.
 - [ ] **Compare tuned scratch and PLM systems under a matched protocol.** Match corpus, split, evaluation and comparable tuning effort; state epoch and compute budgets. The current judge-perplexity gap (PLMs 3.441–4.132 versus scratch 3.215/3.250) describes the tested systems; differing capacities and architectures still confound attribution to pretraining. Retain the same-architecture pretrained-versus-random control
 - [ ] Calibrate conditioning criteria for the exact 16-example encoder-memory probe and fix them before a confirmation run. This batch began without a numerical pass/fail criterion, so thresholds developed from its own traces are exploratory; the earlier 256-example raw-framework-swap measurements are illustrative references, not calibrated callback thresholds
 - [ ] **A full pretrained encoder-decoder backbone**: ProtT5 remains a future adapter. The released checkpoint used BART-like residue masking, **not** original T5 span denoising; validate its real pretraining/input/output contract before designing missing-span extraction ([model card](https://huggingface.co/Rostlab/prot_t5_xl_uniref50))
@@ -1116,7 +1143,7 @@ Both methods run on the **same frozen examples**, with the same candidate count 
     - [ ] README
   - [ ] `cdrseqgen/` 
     - [ ] `data/`
-      - [ ] `preprocess/` 
+      - [x] `preprocess/` (0915)
       - [ ] `dataset_<method>`
     - [ ] `eval/` (`generative`, `metrics`)
     - [ ] `methods/mlm/`
@@ -1151,6 +1178,7 @@ Both methods run on the **same frozen examples**, with the same candidate count 
   - [ ] `unit_tests/`
   - [ ] entrypoint scripts
   - [ ] README
+  - [ ] local `results/`
 
 **Datasets**
 - OAS

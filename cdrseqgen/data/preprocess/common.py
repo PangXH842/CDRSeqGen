@@ -1,19 +1,22 @@
-"""Shared scaffolding for the data preprocessing scripts (csv -> json)
+"""Shared validation, chain assembly, CLI arguments and output for preprocessing.
 
 Entities:
-  * REGIONS         -- the 7 IMGT region names, in order
-  * CDRS            -- the 3 CDR keys
-  * valid_regions   -- filter out invalid regions (empty, NaN, etc)
-  * build_chain     -- assemble full aa sequence and H/L chain numbering with 7 regions dict
-  * add_io_args     -- --input_file / --output_file / --limit
-  * print_funnel    -- one-line "N raw -> ... -> N kept (skipped ...)" summary
-  * write_processed -- create the output tree and write the JSON
+  * REGIONS                  -- the seven IMGT region keys, in sequence order
+  * CDRS                     -- the three CDR keys that must have nonempty strings
+  * valid_regions            -- check region types and nonempty CDRs
+  * build_chain              -- combine region strings, full sequence and numbering
+  * optional_text            -- normalize optional source fields to text or None
+  * add_io_args              -- add input/output paths and an optional row limit
+  * print_funnel             -- report filtering stages and skipped-row counts
+  * write_processed          -- create parent directories and write the entry list
+  * write_processed_metadata -- hash the processed file and write its provenance sidecar
 
 Notes:
-  * Each script keeps its own extraction step, because the sources differ in kind: OAS ships
-    ready-made `*_aa_heavy` columns, while SAbDab2 must be folded up from per-residue numbering.
-  * dataset/data/ is gitignored, so the output tree never exists on a fresh clone — write_processed
-    creates it rather than failing.
+  * Source-specific extraction stays in oas_paired.py and sabdab2.py. Both emit heavy/light
+    chain objects with the same region keys; numbering retains each source's representation.
+  * Validation checks region presence/types and nonempty CDRs, not amino-acid alphabets,
+    numbering structure, or agreement between regions and the full sequence.
+  * Write the processed JSON before its metadata: the sidecar hashes the bytes on disk.
 """
 import hashlib
 import json
@@ -26,20 +29,31 @@ CDRS = ("cdr1", "cdr2", "cdr3")
 
 
 def valid_regions(region_dict):
-    """Boolean to filter out invalid regions (empty, NaN, etc)"""
+    """Return whether all seven regions are strings and all three CDRs are nonempty.
+
+    Missing keys and non-string values, including NaN, fail validation. Empty framework
+    strings are allowed. Residue characters and numbering are not checked here.
+    """
     if not all(isinstance(region_dict.get(r), str) for r in REGIONS):
         return False
     return all(region_dict[cdr] for cdr in CDRS)
 
 
 def build_chain(regions, full_aa, numbering):
-    """Takes the region dict (the 7 regions) and add the full aa sequence and the corresponding
-    IMGT numbering (heavy/light) to the dict"""
+    """Return a new chain dictionary containing regions, full_aa and imgt_numbering.
+
+    The supplied region dictionary is not modified. Full sequence and numbering are stored
+    as supplied, without validation or conversion of the source-specific numbering format.
+    """
     return {**regions, "full_aa": full_aa, "imgt_numbering": numbering}
 
 
 def optional_text(value):
-    """Return a stripped string or None for pandas/JSON missing values."""
+    """Return stripped text, or None for missing or blank values.
+
+    None, NaN and pandas missing scalars become None; other values are converted with str.
+    Literal strings such as "nan" are retained rather than interpreted as missing values.
+    """
     if value is None:
         return None
     try:
@@ -52,11 +66,11 @@ def optional_text(value):
 
 
 def add_io_args(parser, *, input_default, output_default, input_help, multiple=False):
-    """Attach common io args.
+    """Add --input_file, --output_file and --limit to an argparse parser; return it.
 
-    `multiple` makes --input_file variadic, for a preprocessor that builds ONE corpus from several
-    source files (OAS paired, where a corpus is several donors' repertoires). It stays off by
-    default so single-source preprocessors keep a plain string.
+    input_default, output_default and input_help define the source-specific paths/help.
+    With multiple=True, --input_file accepts one or more paths and its default is a list;
+    otherwise it is a single value. The caller applies --limit after its source filters.
     """
     if multiple:
         default = [input_default] if isinstance(input_default, str) else list(input_default)
@@ -70,14 +84,22 @@ def add_io_args(parser, *, input_default, output_default, input_help, multiple=F
 
 
 def print_funnel(stages, skipped, kept):
-    """One-line row funnel: 'Rows: 100 raw -> 80 productive -> 78 kept (skipped 1 x, 1 y).'"""
+    """Print filtering stages, the final kept count and optional skipped-row counts.
+
+    stages is an ordered iterable of (count, label) pairs. skipped maps reasons to counts;
+    kept is the final number of entries. Counts are supplied by the caller, not recomputed.
+    """
     chain = " -> ".join(f"{n} {label}" for n, label in stages)
     detail = ", ".join(f"{n} {label}" for label, n in skipped.items())
     print(f"Rows: {chain} -> {kept} kept" + (f" (skipped {detail})." if detail else "."))
 
 
 def write_processed(data, output_file):
-    """Write the processed entries as JSON, creating the output tree if it doesn't exist"""
+    """Write entries as JSON to output_file and print their count.
+
+    Create missing parent directories and overwrite an existing file. Provenance is written
+    separately by write_processed_metadata after this output exists.
+    """
     os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
     with open(output_file, "w") as f:
         json.dump(data, f)
@@ -85,7 +107,13 @@ def write_processed(data, output_file):
 
 
 def write_processed_metadata(output_file, metadata):
-    """Write a provenance sidecar for a processed JSON file."""
+    """Hash an existing processed JSON, write its metadata sidecar, and return its Path.
+
+    The sidecar path comes from processed_metadata_path. Its defaults record a schema
+    version, the processed filename and SHA-256 of its bytes. Caller-supplied metadata adds
+    source/filter/split details and takes precedence if it repeats a default key. Existing
+    sidecar content is overwritten; output_file must already exist.
+    """
     output_path = Path(output_file)
     digest = hashlib.sha256()
     with output_path.open("rb") as handle:

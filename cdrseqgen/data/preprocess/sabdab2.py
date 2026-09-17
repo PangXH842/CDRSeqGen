@@ -1,30 +1,33 @@
-"""Data preprocessing script: SAbDab2, antigen-aware (abag_split.csv)
+"""Data preprocessing script: SAbDab2 paired antibody-antigen sequences.
 
 Data:
-  * Source                  -- abag_split.csv (.cif available but not used yet)
-  * Size                    -- 3984
-  * Modality                -- sequence and structure coordinates
+  * Source                  -- abag_split.csv; associated CIF files are not read here
+  * Current processed set   -- 3,984 retained entries from the recorded 15,641-row CSV
+  * Modality                -- structure-derived sequences and IMGT numbering; no coordinates
   * Paired-chain context    -- yes
-  * Antigen context         -- yes
+  * Antigen context         -- resolved protein/peptide sequences
 
 Key Functions:
-  * build_entries       -- master function: load CSV, filter rows, split regions, assemble entries
-  * split_imgt_regions  -- parsed per-residue numbering -> the seven IMGT region strings
-  * is_protein_antigen  -- keep protein/peptide antigens, drop sugar/hapten/ion-only entries
+  CLI (__main__)
+  * build_entries           -- filter one CSV and assemble paired-chain entries
+    * is_protein_antigen    -- require every listed antigen type to be protein or peptide
+    * split_imgt_regions    -- collect seven IMGT region strings from parsed residue numbering
+    * (common -- build_chain, valid_regions, print_funnel, optional_text)
 
 Notes:
-  * Regions are derived from SAbDab2's per-residue IMGT numbering rather than ready-made columns.
-  * The 'split' field is SAbDab2's own `ab_ag_split` column, NOT computed here — unlike the OAS
-    script, which has to cluster CDR3s itself. SAbDab2 ships an antibody-antigen-aware split.
-  * Structure-derived, so this is the antigen/binding dataset; OAS remains the large unbound
-    sequence one.
-  * Multiple antigen chains are joined with 'X', not '/': no amino-acid vocabulary has a token for
-    '/' (it would encode to <unk>), while 'X' is the standard unknown-residue convention.
-  * Reason for 15641 CSV rows -> 3984 entries (no SAbDab2 official figure):
-    The funnel: 15641 raw -> 12160 paired (drops 3350 SD-H + 67 VNAR + 64 SD-L single-domain)
-    -> 3985 protein/peptide antigen (drops 8175 with no antigen or a non-protein one)
-    -> 3985 with a resolved antigen sequence (drops 0) -> 3984 kept. The final row lost is
-    pdb_000011sz_C_D, whose heavy CDR1 is empty. Every run reprints this funnel.
+  * Keep paired FAB/FV/FAB+FC entries with protein/peptide antigen types and a nonempty
+    resolved antigen sequence. Parse both numbering columns and require nonempty CDRs.
+  * Regions are derived from residue numbering. Full chain sequences retain the source's
+    VH_numerable_seq/VL_numerable_seq values; numbering is also stored in each chain object.
+  * Copy ab_ag_split directly into split. This script performs no clustering, deduplication,
+    validation-partition construction or independent verification of the source split.
+  * Join multiple antigen sequences with 'X' in place of '/'; retain antigen chain IDs and
+    the source antigen-type string. Missing species stays None rather than becoming human.
+  * The recorded filtering funnel was 15,641 raw -> 12,160 paired -> 3,985 protein/peptide
+    antigen -> 3,985 with resolved antigen sequence -> 3,984 kept. The final rejected row,
+    pdb_000011sz_C_D, had an empty heavy CDR1. Counts depend on the input version and limit.
+  * The CLI writes the entry JSON plus a hashed provenance sidecar with source path,
+    species completeness and filtering/split settings. Structure coordinates are not exported.
 """
 import argparse
 import json
@@ -59,11 +62,15 @@ PROTEIN_AG_TYPES = {"PROTEIN", "PEPTIDE"}
 
 
 def split_imgt_regions(numbering):
-    """Fold parsed numbering into the seven region strings.
+    """Return seven IMGT region strings from parsed residue-numbering records.
 
-    `numbering` is a decoded *_numbering_list column: [[aa, [imgt_pos, insertion_code]], ...].
-    Taking it already-parsed (rather than the raw JSON string) mirrors the OAS script, where the
-    numbering is parsed once in the loop and reused for the entry's imgt_numbering field.
+    numbering contains [amino_acid, [position, insertion_code]] records decoded from a
+    *_numbering_list column. Inclusive IMGT_BOUNDARIES select each region by numeric position;
+    insertion codes do not change membership, and residues retain their input order. Positions
+    outside all boundaries are ignored; regions with no residues become empty strings.
+
+    No sorting or numbering-schema validation is performed. Malformed record shapes/types
+    can raise during iteration, even when their enclosing JSON parsed successfully.
     """
     regions = {name: [] for name in IMGT_BOUNDARIES}
     for aa, (pos, _ins) in numbering:
@@ -75,19 +82,31 @@ def split_imgt_regions(numbering):
 
 
 def is_protein_antigen(agtypes):
-    """Keep only protein/peptide antigens; excludes sugar/hapten/ion-only entries."""
+    """Return True only when every slash-separated type is PROTEIN or PEPTIDE.
+
+    The input must be a string. Matching is case-sensitive without whitespace normalization;
+    mixed protein/non-protein lists, empty strings and missing values return False.
+    """
     if not isinstance(agtypes, str):
         return False
     return all(t in PROTEIN_AG_TYPES for t in agtypes.split("/"))
 
 
 def build_entries(csv_path, limit=None):
-    """Load SAbDab2's abag_split.csv and build one entry per usable antibody-antigen complex.
+    """Return paired antibody-antigen entries from SAbDab2's abag_split.csv.
 
-    Keeps paired heavy+light structures (Fab / Fv / Fab+Fc — single-domain excluded) whose antigen is
-    a resolved protein or peptide, then drops rows whose numbering won't parse or that have an empty
-    CDR, printing the surviving count at each stage. `limit` truncates the input for a quick
-    sanity check. Returns the entry list; 'split' comes from the CSV, so no split step follows.
+    Filter to PAIRED_TYPES, exclusively protein/peptide antigen types, and nonmissing,
+    nonempty resolved antigen sequences. Apply limit after these filters (None or zero
+    leaves all rows). Parse VH/VL numbering JSON, derive regions and skip JSON parse failures
+    or invalid regions/empty CDRs, printing the filtering funnel and rejection counts.
+
+    Entries preserve INSTANCE, heavy/light chain IDs, nullable species, PDB/SAbDab provenance,
+    full chain sequences and numbering. Join antigen sequences with 'X', retain chain IDs/types,
+    and copy ab_ag_split unchanged. No split assignment or deduplication follows here.
+
+    Missing columns and invalid decoded numbering structures propagate as errors; only the
+    explicit JSON parse failures and region checks are handled as skipped rows. No CIF files
+    are read and no coordinates are included in the returned list.
     """
     df = pd.read_csv(csv_path, low_memory=False)
     n_raw = len(df)

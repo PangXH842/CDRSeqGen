@@ -17,7 +17,7 @@ if [[ ! -d "$ROOT/cdrseqgen" || ! -f "$ROOT/train.py" ]]; then
     echo "   Refusing to create a data tree there."
     exit 1
 fi
-DEST="$ROOT/dataset/data/raw/oas/"
+DEST="$ROOT/dataset/data/raw/oas/" # [to edit]
 mkdir -p "$DEST" || exit 1
 cd "$DEST" || exit 1
 

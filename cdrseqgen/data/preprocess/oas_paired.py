@@ -1,36 +1,39 @@
-"""Data preprocessing script: OAS, paired chains
+"""Data preprocessing script: OAS paired antibody sequences.
 
 Data:
-  * Source                  -- 1287169_1_Paired_All.csv (to be expanded)
-  * Size                    -- 21106
+  * Source                  -- OAS, 8 csvs from 6 donors
+  * Size                    -- 152727
   * Modality                -- sequence-only
   * Paired-chain context    -- yes
   * Antigen context         -- no
 
 Key Functions:
-  * build_entries        -- master function: load CSV, filter rows, parse numbering, assemble entries
-  * add_split_field      -- attach the per-entry 'split' field (cluster / random / none)
-  * cluster_by_cdr3      -- greedy CD-HIT-style clustering of heavy CDR3s into clonal families
-  * assign_cluster_split -- hold out whole clusters until ~test_size of entries are in test
-  * build_regions        -- collect the seven IMGT region columns for one chain
+  CLI (__main__)
+  * build_corpus            -- merge sources, optionally deduplicate pairs, collect statistics
+    * read_oas_metadata     -- parse each CSV's source, species, run and subject metadata
+    * build_entries         -- filter one CSV and assemble paired-chain entries
+      * build_regions       -- collect seven precomputed IMGT region columns for one chain
+      * (common -- build_chain, valid_regions, print_funnel)
+  * add_split_field         -- attach split labels in place and report cluster overlap
+    * cluster_by_cdr3       -- group equal-length heavy CDR3s by representative identity
+    * assign_cluster_splits -- allocate whole clusters to train/validation/test
 
 Notes:
-  * Keeps productive heavy+light pairs and lifts each chain's seven IMGT regions straight from OAS's
-    own `*_aa_heavy` / `*_aa_light` columns.
-  * The split started out random — train.py simply drew one at load time, which is still what
-    `--split none` gives you (`--split random` is that same split, seeded and written to the file).
-    `--split cluster` was added later and is now the default. Why it was added:
-      - A random split is not leakage-safe. Clonal relatives — CDR3s a few somatic mutations apart —
-        land on both sides of it, so a model can score well by recognising near-duplicates instead
-        of generalising.
-      - Measured on the current 21,106-sequence file: random leaks 76 of 2,111 test entries (3.6%)
-        back into train; the clustered split leaks 0.
-      - The effect on results turned out small — re-running moved the H3 core metric by <= 0.004 —
-        so this is about being able to defend the number, not about rescuing it.
-  * Splitting lives here rather than in train.py because it has to respect sequence identity across
-    the whole corpus. Every mode prints the same leakage count, so whichever you pick is auditable.
-  * Entries carry NO antigen — OAS is unbound repertoire sequence. Antigen-conditioned runs use
-    sabdab2.py, which emits the same schema plus an 'antigen' block.
+  * The corpus count above describes the current processed_oas_multi.metadata.json, not a
+    fixed property of this script. Inputs, filters, row limits and deduplication determine size.
+  * Keep rows marked productive for both chains, with parseable ANARCI numbering, string
+    values for all seven regions and nonempty CDRs. Region strings come directly from OAS.
+  * Merge all inputs before splitting. Exact deduplication (the default) keeps the first
+    occurrence of each full heavy/light sequence pair, including its source attribution.
+  * The default split clusters heavy CDR3 only. Same-length sequences join the first matching
+    representative at the chosen identity threshold; this is not an all-pairs homology audit
+    and does not prevent similarity leakage for other target loops.
+  * Test clusters are allocated before optional validation clusters. With the same entries,
+    cluster assignments and seed, adding validation preserves the historical test set.
+  * Random splitting assigns entries individually and reports shared cluster IDs. Mode none
+    leaves split fields untouched (new entries have none) and skips the clustering audit.
+  * The CLI writes the entry JSON and a provenance sidecar with its hash, source composition,
+    deduplication counts, longest CDR lengths and preprocessing/split settings.
 """
 import argparse
 import ast
@@ -54,7 +57,13 @@ from cdrseqgen.data.preprocess.common import (
 
 
 def read_oas_metadata(csv_path):
-    """Read and normalize OAS's JSON metadata record from the first CSV row."""
+    """Return normalized source metadata from an OAS CSV's one-field first row.
+
+    Parse that field as JSON, lowercase/strip Species and convert Run to int. Return dataset,
+    run, species, source_url, author and subject; optional source fields may be None. Invalid
+    row/JSON content, missing required values or a non-integer run raise rather than silently
+    assigning a species or run. The sequence-table rows are not loaded here.
+    """
     with open(csv_path, newline="") as handle:
         row = next(csv.reader(handle), None)
     if not row or len(row) != 1:
@@ -81,17 +90,15 @@ def read_oas_metadata(csv_path):
 
 
 def cluster_by_cdr3(cdr3_seqs, identity=0.85):
-    """Greedy CD-HIT-style clustering of heavy CDR3s to catch clonally-related antibodies.
+    """Return (cluster_ids, n_clusters) from greedy, same-length sequence clustering.
 
-    Added to support the 'cluster' split: this is the sequence-identity grouping a leakage-safe
-    holdout has to respect, and the yardstick the leakage count is measured against.
+    cdr3_seqs is an ordered sequence of heavy-CDR3 strings. Within each length bucket, assign
+    each sequence to the first representative with at least identity * length matching
+    positions, or create a new representative. IDs correspond to the original input order.
 
-    Clonal variants share CDR3 *length* and differ only by a few somatic mutations, so we bucket by
-    length and greedily assign each sequence to the first cluster representative it matches at
-    >= `identity` amino-acid identity (a new representative otherwise). Same-length identity captures
-    the dominant somatic-hypermutation case; for indel-aware clustering, swap in MMseqs2/CD-HIT.
-
-    Returns (cluster_id_per_seq, n_clusters).
+    Only representatives are compared: clustering is order-dependent, ignores indels and is
+    not a connected-components or all-pairs similarity guarantee. It does not establish that
+    all clonal relatives share a cluster. Split audits below count overlap of these IDs.
     """
     by_len = defaultdict(list)
     for i, s in enumerate(cdr3_seqs):
@@ -118,17 +125,15 @@ def cluster_by_cdr3(cdr3_seqs, identity=0.85):
     return cluster_id, next_cid
 
 
-def assign_cluster_split(cluster_ids, test_size=0.1, seed=42):
-    """Backward-compatible two-way clustered split."""
-    return assign_cluster_splits(cluster_ids, test_size=test_size, validation_size=0.0, seed=seed)
-
-
 def assign_cluster_splits(cluster_ids, test_size=0.1, validation_size=0.0, seed=42):
-    """Assign whole CDR3 clusters to train/validation/test.
+    """Return one train/validation/test label per supplied cluster ID.
 
-    Test clusters are allocated first using the historical shuffle, so adding validation does not
-    change the established test set. Validation clusters then come from what was previously training
-    data. Both sizes are fractions of the complete corpus.
+    Shuffle distinct clusters with seed, then allocate whole clusters to test followed by
+    validation until each reaches its rounded target count. Both fractions refer to all
+    entries; whole-cluster allocation can overshoot a target. Remaining clusters are train.
+
+    Fractions must be nonnegative and sum to less than one. For identical cluster_ids,
+    test_size and seed, changing validation_size does not change test membership.
     """
     if test_size < 0 or validation_size < 0 or test_size + validation_size >= 1:
         raise ValueError("test_size and validation_size must be non-negative and sum to less than 1")
@@ -156,10 +161,16 @@ def assign_cluster_splits(cluster_ids, test_size=0.1, validation_size=0.0, seed=
 
 
 def add_split_field(processed_data, mode, test_size, seed, cluster_identity, validation_size=0.0):
-    """Attach a per-entry train/test or train/validation/test split field.
+    """Attach split labels to processed_data in place and print cluster-ID overlap.
 
-    With a clustered split, test clusters are allocated first and validation clusters second. This
-    preserves the historical test set when validation_size changes from zero to a positive value.
+    mode='cluster' assigns whole heavy-CDR3 clusters; mode='random' shuffles individual
+    entries and allocates test then validation fractions. Both cluster the heavy CDR3s at
+    cluster_identity to report shared cluster counts for each pair of partitions. This
+    report is not an exhaustive cross-partition sequence-similarity search.
+
+    mode='none' returns without assigning/removing labels or running the audit. The CLI
+    restricts mode to these three choices. Fractions are relative to the complete entry list;
+    seed controls allocation, and validation_size=0 gives a train/test split. Returns None.
     """
     if mode == "none":
         print("No 'split' field written — train.py will draw a random split at load time (leaky).")
@@ -207,17 +218,26 @@ def add_split_field(processed_data, mode, test_size, seed, cluster_identity, val
 
 
 def build_regions(row, suffix):
-    """The seven IMGT region strings for one chain: suffix='heavy' -> {'fwr1': row['fwr1_aa_heavy'], ...}"""
+    """Return seven region values from an OAS row for suffix='heavy' or 'light'.
+
+    For example, fwr1 comes from row['fwr1_aa_heavy'] for the heavy chain. Values are copied
+    without validation; a missing source column raises KeyError. valid_regions checks them.
+    """
     return {r: row[f"{r}_aa_{suffix}"] for r in REGIONS}
 
 
 def build_entries(csv_path, limit=None, source_metadata=None):
-    """Load the OAS paired CSV and build one entry per usable antibody.
+    """Return paired-chain entries from one OAS CSV, before deduplication or splitting.
 
-    Keeps productive heavy+light pairs (no stop codons / frameshifts), then drops rows whose ANARCI
-    numbering won't parse or that have a missing/empty region, printing the surviving count at each
-    stage. `limit` truncates the input for a quick sanity check. Returns the entry list with no
-    'split' field yet; add_split_field attaches that.
+    Use source_metadata when supplied, otherwise read the CSV's first metadata row. Load the
+    table after that row and keep pairs whose two productive flags equal 'T'. Apply limit
+    after this filter (None or zero leaves all rows), then parse ANARCI numbering with
+    literal_eval and require valid region strings/nonempty CDRs on both chains.
+
+    Numbering parse failures and invalid regions are counted and skipped. Missing columns or
+    other schema errors propagate. Entries retain both sequence IDs, source species/run/subject,
+    heavy-chain isotype, full sequences, seven regions per chain and the parsed numbering.
+    No antigen or split field is added. Print the filter funnel before returning the list.
     """
     source_metadata = source_metadata or read_oas_metadata(csv_path)
 
@@ -275,19 +295,20 @@ def build_entries(csv_path, limit=None, source_metadata=None):
 
 
 def build_corpus(csv_paths, limit=None, dedup=True):
-    """Build ONE entry list from several OAS paired CSVs, each read with its own metadata.
+    """Merge OAS CSVs into one entry list and return (entries, per_file, stats).
 
-    Concatenation happens here, before any split is assigned, and that ordering is the whole point.
-    `add_split_field` clusters heavy CDR3s and allocates WHOLE clusters to train/validation/test, so
-    running it per file would give each file an independent clustering — one clonal family could
-    then land in train from donor A's file and in test from donor B's, and the merged JSON would
-    look perfectly well-formed. Splitting once over the merged list is what makes a multi-donor
-    corpus leakage-safe.
+    Read each path in order with its own metadata and build_entries filters. limit applies
+    to productive rows separately in each file, not to the final corpus. With dedup=True,
+    keep only the first occurrence of each exact (heavy.full_aa, light.full_aa) pair across
+    all files; retain the first entry's identifiers and provenance. dedup=False keeps repeats.
 
-    `limit` is per file, since it exists to sanity-check a source rather than to size the corpus.
+    per_file records source metadata, path and retained contribution counts, including files
+    that contribute no entries. stats contains duplicates_dropped, source subject labels
+    (donors), species, and longest_loop lengths for h1-h3/l1-l3. A missing subject is represented
+    as the string 'None' in the subject summary; this is not donor-identity validation.
 
-    Returns (entries, per_file, stats). `per_file` carries each source's metadata plus how many
-    entries it contributed, so the sidecar can show the composition.
+    No split is assigned here. Call add_split_field once on the merged entries so the same
+    clustering is used across every input file. Print source contributions and corpus statistics.
     """
     entries, per_file = [], []
     seen = {}
