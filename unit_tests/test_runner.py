@@ -26,7 +26,11 @@ class ExperimentRunnerTests(unittest.TestCase):
         shutil.copytree(ROOT / 'configs', self.workspace / 'configs')
         shutil.copytree(ROOT / 'scripts', self.workspace / 'scripts')
         self.corpus = self.workspace / 'alternate corpus.json'
-        self.corpus.write_text(json.dumps([{'split': s} for s in ('train', 'validation', 'test')]))
+        # Entries carry both chains: a corpus with a null chain is a real case (unpaired OAS),
+        # and validate_datasets now refuses partner context a corpus cannot supply.
+        self.corpus.write_text(json.dumps(
+            [{'split': s, 'heavy': {'full_aa': 'H'}, 'light': {'full_aa': 'L'}}
+             for s in ('train', 'validation', 'test')]))
         for p in (self.workspace / 'configs').glob('*.json'):
             config = json.loads(p.read_text())
             config.update(data_path=str(self.corpus), eval_split='validation')
@@ -182,6 +186,31 @@ os.execv(sys.executable, [sys.executable, *args])
             self.assertEqual([t['config']['hidden_size'] for t in plan['trials']], [128, 192])
             self.assertEqual({t['config']['num_layers'] for t in plan['trials']}, {4})
 
+    def test_an_unpaired_corpus_refuses_partner_context_instead_of_ignoring_it(self):
+        """Unpaired OAS has no light chain. Asking for it must fail, not train uncontextualised.
+
+        Without this the run trains with no context, is still named `_lc`, and lands in the
+        partner-context column of every table -- a silently invalid comparison.
+        """
+        unpaired = self.workspace / 'unpaired.json'
+        unpaired.write_text(json.dumps([{'split': s, 'heavy': {'full_aa': 'H'}, 'light': None}
+                                        for s in ('train', 'validation', 'test')]))
+        for name in ('configs/h3_scratch_lc.json', 'configs/h3_scratch.json'):
+            path = self.workspace / name
+            config = json.loads(path.read_text())
+            config['data_path'] = str(unpaired)
+            path.write_text(json.dumps(config))
+
+        result = self.invoke('0', 'sweep', 'lr', 'configs/h3_scratch_lc.json')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('partner-chain', result.stderr)
+        self.assertIn('light', result.stderr)
+        self.assertFalse(self.records(), "nothing may train before the gate rejects the plan")
+
+        # The same corpus is fine for a run that never asks for the partner chain.
+        plan = self.plan('0', 'sweep', 'lr', 'configs/h3_scratch.json')
+        self.assertEqual({t['config']['data_path'] for t in plan['trials']}, {str(unpaired)})
+
     def test_both_modes_honor_config_corpus_and_reject_missing_antigen_before_training(self):
         for args in (('0', 'mlm_antigen'), ('0', 'sweep', 'lr', 'configs/h3_scratch_ag.json')):
             result = self.invoke(*args)
@@ -191,8 +220,10 @@ os.execv(sys.executable, [sys.executable, *args])
         base = self.workspace / 'configs/h3_scratch_ag.json'
         config = json.loads(base.read_text())
         antigen = self.workspace / 'antigen.json'
-        antigen.write_text(json.dumps([{'split': s, 'antigen': {'sequence': 'ACD'}}
-                                      for s in ('train', 'validation', 'test')]))
+        antigen.write_text(json.dumps(
+            [{'split': s, 'antigen': {'sequence': 'ACD'},
+              'heavy': {'full_aa': 'H'}, 'light': {'full_aa': 'L'}}
+             for s in ('train', 'validation', 'test')]))
         config['data_path'] = str(antigen)
         base.write_text(json.dumps(config))
         plan = self.plan('0', 'sweep', 'lr', str(base))
@@ -202,7 +233,9 @@ os.execv(sys.executable, [sys.executable, *args])
         self.assertIn('antigen', result.stderr)
 
     def test_sweep_requires_validation_and_rejects_unsupported_loss_method(self):
-        self.corpus.write_text(json.dumps([{'split': s} for s in ('train', 'test')]))
+        self.corpus.write_text(json.dumps(
+            [{'split': s, 'heavy': {'full_aa': 'H'}, 'light': {'full_aa': 'L'}}
+             for s in ('train', 'test')]))
         result = self.invoke('0', 'sweep', 'lr')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('validation', result.stderr)

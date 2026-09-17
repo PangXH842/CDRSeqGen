@@ -279,6 +279,7 @@ def validate_datasets(trials, mode):
             if not isinstance(entries, list) or not entries:
                 raise ValueError(f"Empty or invalid corpus: {path}")
             splits, antigen = {}, {}
+            chains = {"heavy": {}, "light": {}}
             for row in entries:
                 split = row.get("split")
                 if not isinstance(split, str):
@@ -286,8 +287,14 @@ def validate_datasets(trials, mode):
                 splits[split] = splits.get(split, 0) + 1
                 if row.get("antigen"):
                     antigen[split] = antigen.get(split, 0) + 1
+                # Counted per chain because an unpaired corpus carries only one of them, and the
+                # partner chain a run needs depends on which loop it targets.
+                for chain, seen in chains.items():
+                    if row.get(chain):
+                        seen[split] = seen.get(split, 0) + 1
             del entries
-            datasets[path] = dict(sha256=sha256_file(path), splits=splits, antigen=antigen)
+            datasets[path] = dict(sha256=sha256_file(path), splits=splits, antigen=antigen,
+                                  chains=chains)
         info = datasets[path]
         evaluation = config.get("eval_split")
         needed = {"train", "validation", "test"} if mode == "sweep" else {"train", evaluation}
@@ -298,6 +305,18 @@ def validate_datasets(trials, mode):
                 not info["antigen"].get(split) for split in ("train", evaluation)):
             raise ValueError(f"{trial['source']}: antigen context requested but missing from "
                              f"train/{evaluation} in {path}")
+        # The antigen gate's twin. Without it an unpaired corpus turns include_partner_chain into
+        # a silent no-op: the run trains with no context, is still tagged _LC in its directory
+        # name, and lands in the partner-context column of every table -- invalidating the
+        # comparison rather than failing. `chains` is absent from plans frozen before this check.
+        target = str(config.get("target_region", "h3")).lower()
+        partner = "heavy" if target.startswith("l") else "light"
+        if config.get("include_partner_chain") and any(
+                not info.get("chains", {}).get(partner, {}).get(split)
+                for split in ("train", evaluation)):
+            raise ValueError(f"{trial['source']}: partner-chain context requested for target "
+                             f"{target} but {path} has no {partner} chain in train/{evaluation}. "
+                             "An unpaired corpus can only run without partner context.")
     return datasets
 
 

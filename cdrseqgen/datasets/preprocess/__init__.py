@@ -5,12 +5,14 @@ Runs once per dataset, from the repo root:
     bash cdrseqgen/datasets/preprocess/download_oas_paired.sh   # fetch  -> data/raw/
     python -m cdrseqgen.datasets.preprocess.oas_paired          # build  -> data/processed/
 
+  * __main__.py    -- the pipeline: args -> build_corpus -> build_entries -> build_entry -> write,
+                      with each source's steps branched out where they genuinely differ
   * oas_paired.py  -- OAS paired repertoires (sequence-only, no antigen) + the leakage-safe split
   * sabdab2.py     -- SAbDab2 structures (adds an 'antigen' block; split ships with the data)
-  * common.py      -- what both share: validation, chain assembly, CLI args, funnel, JSON output
+  * common.py      -- the leaf helpers: region checks, chain assembly, funnel, JSON output
   * download_*.sh  -- fetch the raw inputs into data/raw/ (CWD-independent)
 
-Both scripts emit the same entry schema, so downstream code never branches on dataset; only the
+Every source emits the same entry schema, so downstream code never branches on dataset; only the
 extraction step differs (OAS lifts ready-made region columns, SAbDab2 folds up per-residue
 numbering). The runtime half that reads this output is ../dataset.py.
 """

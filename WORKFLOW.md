@@ -36,7 +36,7 @@ location, while the resolved path remains recorded in provenance.
 **OAS**: the single-file example below builds the historical 21,106-pair corpus. The multi-file workflow below builds the current 152,727-pair, four-donor corpus.
 ```bash
 python -m cdrseqgen.datasets.preprocess.oas_paired \
-    --input_file data/raw/1287169_1_Paired_All.csv \
+    --input_file data/raw/oas/1287169_1_Paired_All.csv \
     --output_file data/processed/processed_oas_data.json
 ```
 
@@ -45,7 +45,7 @@ the historical shuffle, so the established test membership is preserved; validat
 from the former training partition:
 ```bash
 python -m cdrseqgen.datasets.preprocess.oas_paired \
-    --input_file data/raw/1287169_1_Paired_All.csv \
+    --input_file data/raw/oas/1287169_1_Paired_All.csv \
     --output_file data/processed/processed_oas_tuning.json \
     --split cluster --test_size 0.1 --validation_size 0.1 --seed 42
 ```

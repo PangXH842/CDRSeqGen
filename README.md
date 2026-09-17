@@ -115,12 +115,13 @@ CDRSeqGen/
 │   │   │                       #   gap is ONE marker carrying no length, and the loop never sits in
 │   │   │                       #   the encoder, so there is no LOOP_LENGTH_RESERVE to trade against
 │   │   │                       #   context: at max_len 128 that is 128 context tokens against ar's 31
-│   │   └── preprocess/         # Offline: raw → processed JSON (run once per dataset)
-│   │       ├── oas_paired.py       # OAS paired repertoires + representative H3 clustering
-│   │       ├── sabdab2.py          # SAbDab2 structures (adds antigen; split ships with the data)
-│   │       ├── common.py           # Shared by both: validation, chain assembly, funnel, IO
-│   │       ├── download_oas_paired.sh  # Fetch OAS paired repertoires → data/raw/
-│   │       └── download_sabdab2.sh     # Fetch SAbDab2 splits → data/raw/ (CWD-independent)
+│   │   └── preprocess/         # Offline raw → processed JSON pipeline (run once per dataset)
+│   │       ├── __main__.py         # Shared CLI, source registry, pipeline, and output writing
+│   │       ├── oas_paired.py       # OAS paired CSVs: filtering, deduplication, H3 clustering
+│   │       ├── sabdab2.py          # SAbDab2 split: IMGT regions, antigen filtering, validation carve-out
+│   │       ├── common.py           # Shared schema, validation, chain assembly, funnel, and metadata IO
+│   │       ├── download_oas_paired.sh  # Download and verify/extract OAS paired CSVs → data/raw/
+│   │       └── download_sabdab2.sh     # Download/extract SAbDab2 split archive → data/raw/
 │   ├── methods/                # Complete generation methods; no cross-method mask assumptions
 │   │   ├── common/             # What every method needs to PRODUCE output. One implementation, so
 │   │   │   │                   #   the methods cannot drift — they already had, with the same field
@@ -267,6 +268,71 @@ This project uses Conda for strict CUDA handling and pip for Hugging Face tools.
    checkpoint reloads, and isolated shell-runner checks. It needs no GPU, downloaded weights, or
    research dataset. See [the test guide](unit_tests/README.md) for guarantees and limitations.
    The test runner sets the working directory and `PYTHONPATH` for consistent discovery.
+
+---
+
+## 🧹 Data Preprocessing Quick Start
+
+Run these commands from the `CDRSeqGen/` repository root after activating `cdrprj`. The
+downloaders are optional when the raw files are already present; they resolve paths from the
+repository root, so they can also be called from another working directory.
+
+### OAS paired repertoires
+
+Download and extract the eight current paired-repertoire CSVs:
+
+```bash
+bash cdrseqgen/datasets/preprocess/download_oas_paired.sh
+```
+
+Build one merged corpus and assign the split once across all donors. The default OAS pipeline
+keeps productive paired chains, removes exact duplicate heavy/light pairs, clusters heavy CDR3s,
+and writes both the processed JSON and its provenance sidecar:
+
+```bash
+python -m cdrseqgen.datasets.preprocess.oas_paired \
+  --input_file data/raw/oas/*_Paired_All.csv \
+  --output_file data/processed/processed_oas_multi.json \
+  --split cluster --test_size 0.1 --validation_size 0.1 --seed 42
+```
+
+For a quick input or environment check, apply `--limit` after source filtering:
+
+```bash
+python -m cdrseqgen.datasets.preprocess.oas_paired \
+  --input_file data/raw/oas/1287169_1_Paired_All.csv \
+  --output_file data/processed/processed_oas_smoke.json \
+  --limit 100 --split none
+```
+
+Use `--split cluster` for model development. `--split none` is only suitable for inspection or
+legacy reproduction because training must then create a random split at load time.
+
+### SAbDab2 antibody-antigen pairs
+
+Download the upstream split archive and extract it under `data/raw/sabdab2/`:
+
+```bash
+bash cdrseqgen/datasets/preprocess/download_sabdab2.sh
+```
+
+Process the paired structures with resolved protein or peptide antigens:
+
+```bash
+python -m cdrseqgen.datasets.preprocess.sabdab2 \
+  --input_file data/raw/sabdab2/splits_final/abag_split.csv \
+  --output_file data/processed/processed_sabdab2_data.json
+```
+
+The SAbDab2 processor preserves the upstream `train`/`test` split and does not create validation
+records unless requested. To carve validation records from `train` without touching `test`, use
+`--validation_size 0.15 --seed 42`; whole antigen/CDR-H3 groups are moved together. Add
+`--allow_missing_antigen` only when intentionally building an antibody-only corpus.
+
+Both processors accept `--help` for all source-specific options and write a `*.metadata.json`
+sidecar containing the input/filter/split settings and a SHA-256 hash of the processed JSON. The
+full funnel, split caveats, multi-donor guidance, and output schema are documented in
+[WORKFLOW.md, Step 1](WORKFLOW.md#step-1-preprocessing-data).
 
 ---
 
@@ -1007,9 +1073,9 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-09-17** -- [RECLAIM] `datasets/preprocess/`
 - **2026-09-17** -- Data storage restructure: dataset code to `cdrseqgen/datasets/`; raw/processed files to root `data/` (old: `datasets/data/`)
 - **2026-09-15** -- **Experiments table added:** timeline for future framework development and experiments for conference-ready results
-- **2026-09-15** -- [RECLAIM] `datasets/preprocess/`
 - **2026-09-15** -- Span layout + context dropout edits
 - **2026-09-14** -- [RECLAIM] Revised reclamation list
 - **2026-09-10** -- Added PLMs for S2S: ESM-2, IgBert, ProtBert
@@ -1169,7 +1235,7 @@ Both methods run on the **same frozen examples**, with the same candidate count 
     - [ ] README
   - [ ] `cdrseqgen/` 
     - [ ] `datasets/`
-      - [x] `preprocess/` (0915)
+      - [x] `preprocess/` (0917)
       - [ ] `dataset_<method>`
     - [ ] `eval/` (`generative`, `metrics`)
     - [ ] `methods/mlm/`
