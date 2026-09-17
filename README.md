@@ -1073,7 +1073,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
 <!-- AI ACCESS ZONE ENDS -->
-- **2026-09-17** -- [RECLAIM] `datasets/preprocess/`
+- **2026-09-17** -- [RECLAIM] `datasets/preprocess/`: Redesigned the data preprocessing pipeline
 - **2026-09-17** -- Data storage restructure: dataset code to `cdrseqgen/datasets/`; raw/processed files to root `data/` (old: `datasets/data/`)
 - **2026-09-15** -- **Experiments table added:** timeline for future framework development and experiments for conference-ready results
 - **2026-09-15** -- Span layout + context dropout edits
