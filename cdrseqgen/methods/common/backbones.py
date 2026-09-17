@@ -1,7 +1,7 @@
 """Shared checkpoint IO and protein tokenizer conventions; models stay method-owned."""
 import os
 
-from cdrseqgen.data.dataset_common import TokenizerAdapter
+from cdrseqgen.datasets.dataset_common import TokenizerAdapter
 
 
 def load_custom_pretrained(path, model_cls, config_cls):

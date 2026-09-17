@@ -3,21 +3,21 @@
 #   - paired chains
 #   - 4 donors, 2 csvs each, 8 total -> ~150000 samples
 #
-# Usage:  bash cdrseqgen/data/preprocess/download_oas_paired.sh
-#   then: python -m cdrseqgen.data.preprocess.oas_paired \
-#             --input_file dataset/data/raw/oas/*_Paired_All.csv \
-#             --output_file dataset/data/processed/processed_oas_multi.json \
+# Usage:  bash cdrseqgen/datasets/preprocess/download_oas_paired.sh
+#   then: python -m cdrseqgen.datasets.preprocess.oas_paired \
+#             --input_file data/raw/oas/*_Paired_All.csv \
+#             --output_file data/processed/processed_oas_multi.json \
 #             --split cluster --test_size 0.1 --validation_size 0.1 --seed 42
 
 # --- Download ---------------------------------------------------------------------------------
-# Set destination directory (script to be run inside the preprocess/ directory)
+# Resolve the destination from this script; it works from any working directory.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)" || exit 1
 if [[ ! -d "$ROOT/cdrseqgen" || ! -f "$ROOT/train.py" ]]; then
     echo "❌ Resolved repo root '$ROOT' does not look like CDRSeqGen (no cdrseqgen/ + train.py)."
     echo "   Refusing to create a data tree there."
     exit 1
 fi
-DEST="$ROOT/dataset/data/raw/oas/" # [to edit]
+DEST="$ROOT/data/raw/oas/"
 mkdir -p "$DEST" || exit 1
 cd "$DEST" || exit 1
 
@@ -69,7 +69,7 @@ fi
 
 echo ""
 echo "✅ Done. $(ls -1 *.csv 2>/dev/null | wc -l) CSV(s), $(du -sh . | cut -f1) total in $DEST"
-echo "   Next: python -m cdrseqgen.data.preprocess.oas_paired \\"
-echo "             --input_file dataset/data/raw/oas/*_Paired_All.csv \\"
-echo "             --output_file dataset/data/processed/processed_oas_multi.json \\"
+echo "   Next: python -m cdrseqgen.datasets.preprocess.oas_paired \\"
+echo "             --input_file data/raw/oas/*_Paired_All.csv \\"
+echo "             --output_file data/processed/processed_oas_multi.json \\"
 echo "             --split cluster --test_size 0.1 --validation_size 0.1 --seed 42"

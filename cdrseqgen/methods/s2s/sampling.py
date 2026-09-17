@@ -29,7 +29,7 @@ rather than silently truncated, because a truncated loop is not a length the mod
 """
 import torch
 
-from cdrseqgen.data.dataset_s2s import S2S_DECODE_STEPS, validate_s2s_decode_steps
+from cdrseqgen.datasets.dataset_s2s import S2S_DECODE_STEPS, validate_s2s_decode_steps
 from cdrseqgen.methods.common import ban_tokens, logits_of, warp_logits
 
 

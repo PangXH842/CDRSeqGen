@@ -67,4 +67,34 @@ class ExperimentSpecTests(unittest.TestCase):
         self.assertNotEqual(plan['trials'][1]['trial_id'],changed['trials'][1]['trial_id'])
         with self.assertRaises(ValueError):build_plan(['0','spec'],{})
 
+    def test_identity_ignores_where_the_corpus_lives(self):
+        """Same bytes at two paths = same experiment. data_path is provenance, not identity."""
+        payload = json.dumps([dict(split='train'), dict(split='validation')])
+        first, second = self.root/'a'/'corpus.json', self.root/'b'/'corpus.json'
+        for path in (first, second):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(payload)
+        seen, plans = [], []
+        with patch('cdrseqgen.experiments.source_identity', return_value={'source_sha256': 'fixed'}):
+            for path in (first, second):
+                self.spec['overrides'].update(data_path=str(path), eval_split='validation')
+                plan, _ = build_plan(['0', 'spec', self.write()], {})
+                seen.append([t['trial_id'] for t in plan['trials']])
+                plans.append(plan)
+        self.assertEqual(seen[0], seen[1], "moving the corpus must not change trial identity")
+        self.assertEqual([t['setting_id'] for t in plans[0]['trials']],
+                         [t['setting_id'] for t in plans[1]['trials']])
+        # Location is still recorded, just not fingerprinted.
+        self.assertEqual({t['config']['data_path'] for t in plans[1]['trials']},
+                         {str(second.resolve())})
+        # A genuinely different corpus must still separate.
+        (self.root/'c').mkdir(exist_ok=True)
+        third = self.root/'c'/'corpus.json'
+        third.write_text(json.dumps([dict(split='train'), dict(split='validation'),
+                                     dict(split='validation')]))
+        with patch('cdrseqgen.experiments.source_identity', return_value={'source_sha256': 'fixed'}):
+            self.spec['overrides'].update(data_path=str(third), eval_split='validation')
+            other, _ = build_plan(['0', 'spec', self.write()], {})
+        self.assertNotEqual(seen[0], [t['trial_id'] for t in other['trials']])
+
 if __name__=='__main__':unittest.main()

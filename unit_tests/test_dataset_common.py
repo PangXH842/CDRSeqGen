@@ -16,8 +16,8 @@ import unittest
 
 import torch
 
-from cdrseqgen.data.dataset_mlm import AntibodyInfillingDataset
-from cdrseqgen.data.dataset_common import (AntibodyFrameworkDataset, AntibodyTokenizer,
+from cdrseqgen.datasets.dataset_mlm import AntibodyInfillingDataset
+from cdrseqgen.datasets.dataset_common import (AntibodyFrameworkDataset, AntibodyTokenizer,
                                        TokenizerAdapter, framework_for_dataset, inject_context)
 
 CHAIN = {"fwr1": "AAAA", "cdr1": "CC", "fwr2": "DDDD", "cdr2": "EE",

@@ -10,9 +10,9 @@ import unittest
 
 import torch
 
-from cdrseqgen.data.dataset_ar import CausalInfillingDataset, causal_collate_fn
-from cdrseqgen.data.dataset_mlm import AntibodyInfillingDataset, collate_fn
-from cdrseqgen.data.dataset_s2s import Seq2SeqInfillingDataset, s2s_collate_fn
+from cdrseqgen.datasets.dataset_ar import CausalInfillingDataset, causal_collate_fn
+from cdrseqgen.datasets.dataset_mlm import AntibodyInfillingDataset, collate_fn
+from cdrseqgen.datasets.dataset_s2s import Seq2SeqInfillingDataset, s2s_collate_fn
 from cdrseqgen.methods.ar.backbones import resolve as resolve_ar
 from cdrseqgen.methods.mlm.backbones import resolve as resolve_mlm
 from cdrseqgen.methods.s2s.backbones import resolve as resolve_s2s

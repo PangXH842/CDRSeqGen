@@ -11,8 +11,8 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Callable
 
-from cdrseqgen.data.dataset_common import TokenizerAdapter
-from cdrseqgen.data.dataset_s2s import Seq2SeqTokenizer, s2s_adapter
+from cdrseqgen.datasets.dataset_common import TokenizerAdapter
+from cdrseqgen.datasets.dataset_s2s import Seq2SeqTokenizer, s2s_adapter
 
 logger = logging.getLogger(__name__)
 

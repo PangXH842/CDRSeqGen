@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import torch
 
-from cdrseqgen.data.dataset_s2s import (S2S_DECODE_STEPS, Seq2SeqInfillingDataset,
+from cdrseqgen.datasets.dataset_s2s import (S2S_DECODE_STEPS, Seq2SeqInfillingDataset,
                                         build_encoder_input, s2s_adapter)
 from cdrseqgen.methods.s2s.sampling import sample_loops
 

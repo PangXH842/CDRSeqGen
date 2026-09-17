@@ -22,7 +22,7 @@ class EvaluationCompatibilityTests(unittest.TestCase):
             target_region="h3",
             include_partner_chain=False,
             include_antigen=False,
-            data_path="dataset/data/processed/processed_oas_tuning.json",
+            data_path="data/processed/processed_oas_tuning.json",
             max_len=128,
             masking_policy="full_span",
         )

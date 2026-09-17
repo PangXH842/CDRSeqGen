@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 import torch
 
-from cdrseqgen.data.dataset_s2s import build_decoder_pair, s2s_adapter
+from cdrseqgen.datasets.dataset_s2s import build_decoder_pair, s2s_adapter
 from cdrseqgen.methods.s2s.models.transformer import (
     Seq2SeqAntibodyConfig, Seq2SeqAntibodyModel, build_model)
 

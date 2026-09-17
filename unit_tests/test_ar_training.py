@@ -12,7 +12,7 @@ import unittest
 
 import numpy as np
 
-from cdrseqgen.data.dataset_common import select_split_indices
+from cdrseqgen.datasets.dataset_common import select_split_indices
 from cdrseqgen.methods.ar.backbones import resolve
 from cdrseqgen.methods.ar.training import causal_compute_metrics, get_datasets
 

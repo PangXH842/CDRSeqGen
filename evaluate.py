@@ -28,7 +28,7 @@ from cdrseqgen.artifacts import (
     processed_metadata_path,
     read_run_config,
 )
-from cdrseqgen.data.dataset_common import evaluation_context_view
+from cdrseqgen.datasets.dataset_common import evaluation_context_view
 from cdrseqgen.methods.registry import decoding_choices, resolve as resolve_method, checkpoint_method
 from cdrseqgen.train.logging import configure_logging
 

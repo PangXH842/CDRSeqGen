@@ -18,8 +18,8 @@ from typing import Tuple
 
 import torch
 
-from cdrseqgen.data.dataset_common import select_split_indices, evaluation_context_view
-from cdrseqgen.data.dataset_mlm import AntibodyInfillingDataset
+from cdrseqgen.datasets.dataset_common import select_split_indices, evaluation_context_view
+from cdrseqgen.datasets.dataset_mlm import AntibodyInfillingDataset
 from cdrseqgen.methods.common.training import run_training_pipeline  # re-export for old callers
 from cdrseqgen import artifacts
 

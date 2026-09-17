@@ -12,7 +12,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
-from cdrseqgen.data.dataset_mlm import assemble_masked_input, inject_context
+from cdrseqgen.datasets.dataset_mlm import assemble_masked_input, inject_context
 from cdrseqgen.methods.mlm.length import LengthPolicy, fixed_length
 from cdrseqgen.methods.mlm.sampling import sample_independent, sample_iterative
 

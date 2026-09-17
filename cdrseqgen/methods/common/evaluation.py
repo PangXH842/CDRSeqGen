@@ -3,7 +3,7 @@ import logging
 import os
 
 from cdrseqgen import artifacts
-from cdrseqgen.data.dataset_common import evaluation_context_view
+from cdrseqgen.datasets.dataset_common import evaluation_context_view
 from cdrseqgen.eval.generative import build_judge
 from cdrseqgen.methods.registry import resolve
 

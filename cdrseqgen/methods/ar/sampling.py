@@ -25,7 +25,7 @@ rather than silently truncated, because a truncated loop is not a length the mod
 """
 import torch
 
-from cdrseqgen.data.dataset_ar import (CAUSAL_DECODE_STEPS, layout_for,
+from cdrseqgen.datasets.dataset_ar import (CAUSAL_DECODE_STEPS, layout_for,
                                        validate_causal_decode_steps, validate_layout)
 from cdrseqgen.methods.common import ban_tokens, logits_of, warp_logits
 

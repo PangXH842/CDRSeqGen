@@ -1,8 +1,8 @@
 """Encoder-decoder view of the antibody data: two-stream span-infilling examples.
 
-The third view, beside :mod:`cdrseqgen.data.dataset_mlm` (masked) and
-:mod:`cdrseqgen.data.dataset_ar` (causal). All three build on the method-neutral
-:mod:`cdrseqgen.data.dataset_common`, which owns framework/target splitting, context injection,
+The third view, beside :mod:`cdrseqgen.datasets.dataset_mlm` (masked) and
+:mod:`cdrseqgen.datasets.dataset_ar` (causal). All three build on the method-neutral
+:mod:`cdrseqgen.datasets.dataset_common`, which owns framework/target splitting, context injection,
 length capping and context dropout.
 
   * Seq2SeqTokenizer          -- the shared 25-token vocab plus <bos>/<eos>
@@ -55,14 +55,14 @@ layout, the framework is not in the supervised stream at all, so "answer-only lo
 rather than something the labels have to encode.
 
 On the vocabulary: ``<bos>``/``<eos>`` are APPENDED at ids 25/26 and the first 25 ids are untouched,
-matching :class:`cdrseqgen.data.dataset_ar.CausalTokenizer` exactly. The construction is duplicated
+matching :class:`cdrseqgen.datasets.dataset_ar.CausalTokenizer` exactly. The construction is duplicated
 rather than imported so the two methods stay independently testable; ``test_dataset_s2s`` asserts
 the two vocabularies agree token-for-token, which is the failure that duplication could cause. If a
 fourth generative method needs it, move it to ``dataset_common`` then.
 """
 import torch
 
-from cdrseqgen.data.dataset_common import (AntibodyFrameworkDataset, AntibodyTokenizer,
+from cdrseqgen.datasets.dataset_common import (AntibodyFrameworkDataset, AntibodyTokenizer,
                                            TokenizerAdapter, inject_context)
 
 

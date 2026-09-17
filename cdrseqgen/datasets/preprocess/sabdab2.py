@@ -1,11 +1,11 @@
 """Data preprocessing script: SAbDab2 paired antibody-antigen sequences.
 
 Data:
-  * Source                  -- abag_split.csv; associated CIF files are not read here
-  * Current processed set   -- 3,984 retained entries from the recorded 15,641-row CSV
+  * Source                  -- abag_split.csv (not including CIFs yet)
+  * Size                    -- 3984 (out of 15641)
   * Modality                -- structure-derived sequences and IMGT numbering; no coordinates
   * Paired-chain context    -- yes
-  * Antigen context         -- resolved protein/peptide sequences
+  * Antigen context         -- yes, protein/peptide only
 
 Key Functions:
   CLI (__main__)
@@ -35,7 +35,7 @@ import json
 import pandas as pd
 from tqdm import tqdm
 
-from cdrseqgen.data.preprocess.common import (
+from cdrseqgen.datasets.preprocess.common import (
     valid_regions,
     build_chain,
     add_io_args,
@@ -177,8 +177,8 @@ def build_entries(csv_path, limit=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Preprocess SAbDab2 paired antibody-antigen data.")
     add_io_args(parser,
-                input_default="dataset/data/raw/sabdab2/splits_final/abag_split.csv",
-                output_default="dataset/data/processed/processed_sabdab2_data.json",
+                input_default="data/raw/sabdab2/splits_final/abag_split.csv",
+                output_default="data/processed/processed_sabdab2_data.json",
                 input_help="Path to SAbDab2's abag_split.csv")
     args = parser.parse_args()
 

@@ -1,7 +1,7 @@
 """Causal view of the antibody data: span-infilling examples for an autoregressive method.
 
-The counterpart of :mod:`cdrseqgen.data.dataset_mlm` (the masked-LM view). Both build on the
-method-neutral :mod:`cdrseqgen.data.dataset_common`, which owns framework/target splitting, context
+The counterpart of :mod:`cdrseqgen.datasets.dataset_mlm` (the masked-LM view). Both build on the
+method-neutral :mod:`cdrseqgen.datasets.dataset_common`, which owns framework/target splitting, context
 injection, length capping and context dropout.
 
   * CausalTokenizer          -- the shared 25-token vocab plus <bos>/<eos>
@@ -48,7 +48,7 @@ from typing import Callable
 
 import torch
 
-from cdrseqgen.data.dataset_common import (AntibodyFrameworkDataset, AntibodyTokenizer,
+from cdrseqgen.datasets.dataset_common import (AntibodyFrameworkDataset, AntibodyTokenizer,
                                        TokenizerAdapter, inject_context)
 
 

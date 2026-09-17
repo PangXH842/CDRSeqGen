@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from cdrseqgen.data.preprocess.common import optional_text, write_processed, write_processed_metadata
-from cdrseqgen.data.preprocess.oas_paired import build_corpus, build_entries, read_oas_metadata
+from cdrseqgen.datasets.preprocess.common import optional_text, write_processed, write_processed_metadata
+from cdrseqgen.datasets.preprocess.oas_paired import build_corpus, build_entries, read_oas_metadata
 
 
 class PreprocessProvenanceTests(unittest.TestCase):
@@ -48,7 +48,7 @@ class PreprocessProvenanceTests(unittest.TestCase):
                 row[f"{region}_aa_{chain}"] = region[0].upper()
 
         source = {"dataset": "OAS", "run": 7, "species": "human", "subject": "Donor-4"}
-        with patch("cdrseqgen.data.preprocess.oas_paired.pd.read_csv", return_value=pd.DataFrame([row])):
+        with patch("cdrseqgen.datasets.preprocess.oas_paired.pd.read_csv", return_value=pd.DataFrame([row])):
             entries = build_entries("unused.csv", source_metadata=source)
 
         self.assertEqual(len(entries), 1)
@@ -81,9 +81,9 @@ class PreprocessProvenanceTests(unittest.TestCase):
 class DownloaderPathTests(unittest.TestCase):
     """The downloaders resolve the repo root from their own location; the depth must be right.
 
-    `../..` from cdrseqgen/data/preprocess/ reaches <repo>/cdrseqgen, not <repo>. That shipped, and
-    silently wrote 154 MB into <repo>/cdrseqgen/dataset/data/raw/ — a path .gitignore's anchored
-    `dataset/data/` pattern does not cover, so the blobs sat staged-able in the working tree.
+    `../..` from cdrseqgen/datasets/preprocess/ reaches <repo>/cdrseqgen, not <repo>. That shipped, and
+    silently wrote 154 MB into <repo>/cdrseqgen/data/raw/ — a path .gitignore's anchored
+    `data/` pattern does not cover, so the blobs sat staged-able in the working tree.
     """
 
     SCRIPTS = ("download_oas_paired.sh", "download_sabdab2.sh")
@@ -92,7 +92,7 @@ class DownloaderPathTests(unittest.TestCase):
         # Match the ROOT= line and read its relative component, rather than substring-testing:
         # "/../../.." contains "/../..", so a naive assertNotIn can never fail.
         pattern = re.compile(r'ROOT="\$\(cd "\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)/(\S+)" && pwd\)"')
-        here = Path("cdrseqgen/data/preprocess").resolve()
+        here = Path("cdrseqgen/datasets/preprocess").resolve()
         for name in self.SCRIPTS:
             with self.subTest(script=name):
                 match = pattern.search((here / name).read_text())
@@ -101,12 +101,12 @@ class DownloaderPathTests(unittest.TestCase):
 
     def test_the_resolved_root_is_the_repo(self):
         # Resolve it the way bash does, and check it is the tree that holds train.py.
-        root = (Path("cdrseqgen/data/preprocess") / ".." / ".." / "..").resolve()
+        root = (Path("cdrseqgen/datasets/preprocess") / ".." / ".." / "..").resolve()
         self.assertTrue((root / "train.py").is_file(), f"{root} is not the repo root")
         self.assertTrue((root / "cdrseqgen").is_dir())
 
     def test_the_scripts_refuse_a_root_that_is_not_the_repo(self):
-        here = Path("cdrseqgen/data/preprocess").resolve()
+        here = Path("cdrseqgen/datasets/preprocess").resolve()
         for name in self.SCRIPTS:
             with self.subTest(script=name):
                 text = (here / name).read_text()
@@ -136,9 +136,9 @@ class MultiDonorCorpusTests(unittest.TestCase):
             subject, run, pairs = files[path]
             return [self._entry(h, l, subject, run) for h, l in pairs]
 
-        with patch("cdrseqgen.data.preprocess.oas_paired.read_oas_metadata",
+        with patch("cdrseqgen.datasets.preprocess.oas_paired.read_oas_metadata",
                    side_effect=lambda path: meta[path]), \
-             patch("cdrseqgen.data.preprocess.oas_paired.build_entries", side_effect=fake_entries):
+             patch("cdrseqgen.datasets.preprocess.oas_paired.build_entries", side_effect=fake_entries):
             return build_corpus(list(files), dedup=dedup)
 
     def test_files_become_one_corpus_that_remembers_each_donor(self):

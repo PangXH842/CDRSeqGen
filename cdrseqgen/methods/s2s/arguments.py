@@ -21,7 +21,7 @@ from typing import Optional, Tuple
 
 from transformers import HfArgumentParser, TrainingArguments
 
-from cdrseqgen.data.dataset_s2s import S2S_DECODE_STEPS, validate_s2s_decode_steps
+from cdrseqgen.datasets.dataset_s2s import S2S_DECODE_STEPS, validate_s2s_decode_steps
 from cdrseqgen.methods.common.arguments import (BaseDataArguments, BaseGenerationArguments,
                                                 BaseModelArguments, initialise_run,
                                                 parse_config_and_cli,

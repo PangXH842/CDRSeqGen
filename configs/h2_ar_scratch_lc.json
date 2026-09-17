@@ -4,7 +4,7 @@
     "hidden_size": 128,
     "num_layers": 4,
     "num_attention_heads": 8,
-    "data_path": "dataset/data/processed/processed_oas_multi.json",
+    "data_path": "data/processed/processed_oas_multi.json",
     "target_region": "h2",
     "eval_split": "validation",
     "max_len": 384,

@@ -25,8 +25,8 @@ import logging
 from dataclasses import dataclass
 from typing import Callable
 
-from cdrseqgen.data.dataset_ar import CausalTokenizer, causal_adapter
-from cdrseqgen.data.dataset_common import TokenizerAdapter
+from cdrseqgen.datasets.dataset_ar import CausalTokenizer, causal_adapter
+from cdrseqgen.datasets.dataset_common import TokenizerAdapter
 
 logger = logging.getLogger(__name__)
 

@@ -3,7 +3,7 @@
     "target_region": "h2",
     "include_partner_chain": true,
     "include_antigen": true,
-    "data_path": "dataset/data/processed/processed_sabdab2_data.json",
+    "data_path": "data/processed/processed_sabdab2_data.json",
     "eval_split": "test",
     "max_len": 512,
     "output_dir": "./results",

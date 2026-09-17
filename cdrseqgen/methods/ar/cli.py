@@ -1,5 +1,5 @@
 """Causal-specific CLI validation and case generation; native truth is scoring-only."""
-from cdrseqgen.data.dataset_ar import CAUSAL_DECODE_STEPS, validate_causal_decode_steps
+from cdrseqgen.datasets.dataset_ar import CAUSAL_DECODE_STEPS, validate_causal_decode_steps
 
 
 def _validate(args):

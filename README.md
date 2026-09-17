@@ -1,8 +1,8 @@
 <!-- Note to AI: Edits allowed OUTSIDE of MANUAL PROTECTION ZONES and INSIDE of AI ACCESS ZONES, and DO NOT COMMIT ON MY BEHALF -->
 # CDRSeqGen: Modular Antibody Infilling Framework
 
-**Date Updated:** 2026-09-15
-**Status:** First S2S pretrained encoder matrix complete; tuning and controlled comparisons pending
+**Date Updated:** 2026-09-17
+**Status:** AR/S2S context-dropout and ESM-2 LR screens complete; matched controls and confirmation pending
 
 ## Project Overview
 CDRSeqGen is a computational immunology framework designed to predict antibody loop sequences given the surrounding framework context. 
@@ -63,8 +63,8 @@ Current implemented features include:
 | [1 Model choice pays only in some regimes](#1-model-choice-doesnt-matter-is-only-true-in-two-of-three-regimes) | [6 The split controls H3 and nothing else](#6-the-clustered-split-controls-h3-and-nothing-else--so-the-099s-are-retrieval) | [11 Matched IgLM comparison, with paired CIs](#11-matched-length-free-comparison-iglm-leads-on-plausibility-and-length-and-the-recovery-gap-does-not-resolve) |
 | [2 H3 is the only hard loop](#2-cdr-h3-is-the-only-hard-loop--but-the-other-five-are-easier-than-they-look) | [7 Recovery and design quality disagree](#7-recovery-and-design-quality-disagree--high-aar-can-mean-a-perfect-copier) | [12 Model confidence is useless for selection](#12-the-models-own-confidence-is-nearly-useless-for-selection--an-independent-judges-is-not) |
 | [3 Anchor inflation — the metric misleads](#3-the-standard-metric-misleads-anchor-inflation) | [8 Context-regime lock-in, and `context_dropout`](#8-a-model-is-locked-to-the-context-regime-it-was-trained-in--and-context_dropout-unlocks-it) | [13 Loss re-weighting changes nothing](#13-re-weighting-the-loss-across-loop-positions-changes-nothing--the-anchors-are-not-wasted-capacity) |
-| [4 Sequence context buys nothing](#4-sequence-context--partner-chain-and-antigen--gives-no-measurable-benefit) | [9 One hyperparameter inflated four findings](#9-one-un-audited-hyperparameter-inflated-four-findings-at-once) | |
-| [5 The homology leak (immaterial for H3)](#5-the-homology-leak-was-real-but-immaterial-for-h3) | [10 Length-free exposes the length problem](#10-removing-native-h3-length-exposes-a-separate-unsolved-problem) | |
+| [4 Historical MLM context comparisons](#4-sequence-context--partner-chain-and-antigen--gives-no-measurable-benefit) | [9 One hyperparameter inflated four findings](#9-one-un-audited-hyperparameter-inflated-four-findings-at-once) | [14 AR/S2S context-dropout trade-off](#14-context-dropout-improves-missing-partner-robustness-with-a-small-context-present-cost) |
+| [5 The homology leak (immaterial for H3)](#5-the-homology-leak-was-real-but-immaterial-for-h3) | [10 Length-free exposes the length problem](#10-removing-native-h3-length-exposes-a-separate-unsolved-problem) | [15 ESM-2 learning-rate screen](#15-esm-2-learning-rate-tuning-improves-teacher-forced-recovery-more-clearly-than-generation) |
 
 **[🧠 Architectural Feature Details](#-architectural-feature-details)**
 &nbsp;&nbsp;[1 Task-agnostic masking](#1-task-agnostic-masking-the-lego-principle) ·
@@ -102,7 +102,7 @@ CDRSeqGen/
 ├── cdrseqgen/                  # Library package — grouped by concern (entrypoints stay at root)
 │   ├── experiments.py          # Suite/sweep/spec planner and executor; called by scripts/run.sh
 │   ├── artifacts.py            # Shared names for persisted run artifacts and legacy aliases
-│   ├── data/                   # ALL data code (the data itself lives in dataset/data/)
+│   ├── datasets/               # Dataset/preprocessing code; data files live in data/
 │   │   ├── dataset_common.py   # Method-NEUTRAL: tokenizers, framework/target split, context
 │   │   │                       #   injection + capping, and select_split_indices (the shared
 │   │   │                       #   eval_split guard — never duplicate it per method)
@@ -119,8 +119,8 @@ CDRSeqGen/
 │   │       ├── oas_paired.py       # OAS paired repertoires + representative H3 clustering
 │   │       ├── sabdab2.py          # SAbDab2 structures (adds antigen; split ships with the data)
 │   │       ├── common.py           # Shared by both: validation, chain assembly, funnel, IO
-│   │       ├── download_oas_paired.sh  # Fetch OAS paired repertoires → dataset/data/raw/
-│   │       └── download_sabdab2.sh     # Fetch SAbDab2 splits → dataset/data/raw/ (CWD-independent)
+│   │       ├── download_oas_paired.sh  # Fetch OAS paired repertoires → data/raw/
+│   │       └── download_sabdab2.sh     # Fetch SAbDab2 splits → data/raw/ (CWD-independent)
 │   ├── methods/                # Complete generation methods; no cross-method mask assumptions
 │   │   ├── common/             # What every method needs to PRODUCE output. One implementation, so
 │   │   │   │                   #   the methods cannot drift — they already had, with the same field
@@ -131,7 +131,7 @@ CDRSeqGen/
 │   │   │   │                   #   same thing on both sides of an AR-vs-MLM table
 │   │   │   ├── callbacks.py    # build_callbacks: metric logging ALWAYS, early stopping on request
 │   │   │   └── training.py     # shared train/eval lifecycle + standard finished-run artifacts
-│   │   ├── ar/                 # Autoregressive (2026-09-01). Data lives in data/dataset_ar.py;
+│   │   ├── ar/                 # Autoregressive (2026-09-01). Data lives in datasets/dataset_ar.py;
 │   │   │   ├── backbones.py    #   this package owns model + training.
 │   │   │   │                   # Causal registry — resolve(model_type) -> CausalBackbone.
 │   │   │   │                   #   hf_decoder ADDS the layout's sentinels to a pretrained LM and
@@ -149,7 +149,7 @@ CDRSeqGen/
 │   │   │   └── models/
 │   │   │       └── transformer.py  # Causal decoder, ROTARY positions (§8: absolute positions lock
 │   │   │                       #   a checkpoint to its context regime; causal prompts vary in length)
-│   │   ├── s2s/                # Encoder-decoder (2026-09-07). Data lives in data/dataset_s2s.py.
+│   │   ├── s2s/                # Encoder-decoder (2026-09-07). Data lives in datasets/dataset_s2s.py.
 │   │   │   │                   #   The missing cell of the 2x2: bidirectional conditioning like
 │   │   │   │                   #   mlm, <eos>-chosen length like ar. Contract-identical to ar
 │   │   │   │                   #   throughout, so an s2s/ar/mlm table is one implementation.
@@ -208,7 +208,7 @@ CDRSeqGen/
 │   ├── scorer.py               # Shared validation, metrics, accounting, and judge scoring
 │   ├── plot_comparison.py      # Matched recovery, length, position, and diversity dashboard
 │   └── README.md               # End-to-end benchmark commands and protocol
-├── dataset/data/               # THE DATA — gitignored, ~4.4GB (raw + processed OAS/SAbDab2).
+├── data/                       # THE DATA — gitignored, ~6.7GB (raw + processed OAS/SAbDab2).
 │                               #   Deliberately outside the package; configs' data_path points here.
 ├── results/                    # Ignored in git. Three tiers, by cost to regenerate:
 │   ├── runs/                   #   hours of GPU — <timestamp>[_name]/<run>/, latest -> newest
@@ -339,10 +339,7 @@ remain possible explanations too. A comparison with matched data/evaluation prot
 tuning budgets would assess the complete systems more fairly. Pretrained-versus-random initialization
 of the same encoder architecture is the more direct control for the contribution of pretraining.
 
-**September 15 status:** the three-arm diagnostic is complete; all arms retained conditioning
-through epoch 3. Saved-checkpoint generation and the new [AR/S2S context-dropout screen](configs/experiments/20260915_context_dropout.md)
-are prepared for the user to launch. The screen uses 12 training trials and two evaluation regimes
-per checkpoint. Its protocol specifies validation-only selection and fixed judge context.
+**September 17 status:** all 12 context-dropout trials and all four ESM-2 LR trials are complete. The [September 15–17 review](results/reviews/0915-0917-review.md) verifies their saved models, matched generation populations and scoring coverage. Dropout improves robustness to a missing partner at a small context-present edit cost (§14); `1e-4` improves ESM-2 teacher-forced recovery and judge perplexity without a consistent edit-similarity gain over `3e-5` (§15). Generation from the three earlier IgBert diagnostic checkpoints remains pending.
 
 **Next steps:**
 
@@ -353,11 +350,12 @@ per checkpoint. Its protocol specifies validation-only selection and fixed judge
    pretrained encoder retain input variation. Training/validation inputs fit within 234 tokens
    (cap 384), ruling out truncation for this corpus. The initiating event remains unresolved;
    the epoch-2 loss/anchor deterioration is the leading interval to investigate. Next compare the
-   original LR, a lower LR, and a frozen encoder while recording early conditioning diagnostics.
-   Preserve the original LR schedule when reproducing the first two epochs. Once stable, test
-   context dropout 0 versus 0.5 with explicit evaluation in both context regimes.
-2. Screen **ESM-2 without partner context** over LR and a longer budget; it has the lowest judge
-   perplexity among these PLM runs. The command below runs three LRs × two seeds, up to 20 epochs,
+   completed original-LR, lower-LR and frozen-encoder diagnostic checkpoints generatively.
+   All three retained conditioning through epoch 3; replication is still needed to estimate
+   collapse incidence. The separate AR/S2S context-dropout screen is now complete (§14).
+2. Add the **matched no-partner training controls** before varying their optimizer. The
+   partner-present ESM-2 LR screen is complete (§15). The older command below is an optional
+   no-partner LR follow-up, not the completed batch: three LRs × two seeds, up to 20 epochs,
    with generative evaluation enabled. Checkpoint selection remains teacher-forced core recovery;
    sweep ranking uses judge perplexity. Inspect recovery, length, and coverage alongside that ranking.
 3. Compare promising settings with **random initialization of the same encoder architecture** and
@@ -557,7 +555,7 @@ So on the loop that actually matters — H3 — partner-chain context has **no m
 
 #### 5. The homology leak was real but immaterial *for H3*
 
-OAS's original random split leaked clonal near-duplicates (76 of 2,111 test entries, 3.6%, share a CDR3 cluster with train). The clustered-split fix removed it (→0%), and re-running confirmed the H3 core moved by **≤0.004**. (Now the default; see [`preprocess/oas_paired.py`](cdrseqgen/data/preprocess/oas_paired.py).) The important qualifier is *for H3* — the split clusters on heavy CDR3 only, so it controls nothing for the other five loops (§6).
+OAS's original random split leaked clonal near-duplicates (76 of 2,111 test entries, 3.6%, share a CDR3 cluster with train). The clustered-split fix removed it (→0%), and re-running confirmed the H3 core moved by **≤0.004**. (Now the default; see [`preprocess/oas_paired.py`](cdrseqgen/datasets/preprocess/oas_paired.py).) The important qualifier is *for H3* — the split clusters on heavy CDR3 only, so it controls nothing for the other five loops (§6).
 
 #### 6. The clustered split controls H3 and nothing else — so the ~0.99s are retrieval
 
@@ -869,12 +867,38 @@ marginals are near-independent (Step 4); the model's confidence barely tracks it
 (§12); and now re-weighting tokens within the objective moves neither recovery nor plausibility. The
 problem is the objective *class*, not the weighting inside it.
 
-> **Bottom line:** fixed-native sequence-only CDR-H3 infilling saturates at ~0.32 core / ~0.46
-> whole-span regardless of model, context, dataset, decoder, **or loss weighting**; length inference
-> is not solved by the first gap-sentinel head, and against a published baseline that picks its own
-> length the current method loses on recovery, length, edit distance, and judged plausibility alike;
-> and the non-H3 loops are not yet measured on a split that tests generalisation. Together these
-> motivate the eventual shift to a **structure objective** (see Roadmap).
+> **Scope of the historical findings:** the ~0.32 core / ~0.46 whole-span plateau describes the tested fixed-native MLM settings. It is not an objective-independent ceiling. The AR/S2S teacher-forced and length-free generation results below use different conditioning and must be reported separately. Non-H3 generalization still requires target-loop-specific splits.
+
+#### 14. Context dropout improves missing-partner robustness, with a small context-present cost
+
+The [12-run context screen](results/runs/20260915_131629_103719_context_dropout/runs.tsv) completed and was reviewed on **2026-09-17**: scratch AR, scratch S2S and ESM-2 S2S × dropout 0/0.5 × seeds 42/43. Each checkpoint generated 20 candidates for the same 150 OAS4 validation frameworks, with and without generator partner context; the IgBert judge always received partner context. Checkpoints were selected by teacher-forced core recovery with partner context present. Two-seed means:
+
+| Model | Train dropout | Edit, partner present ↑ | Edit, partner absent ↑ | Judge PPL, present ↓ | Judge PPL, absent ↓ |
+|---|---|---|---|---|---|
+| AR scratch | 0.0 | 0.3910 | 0.3815 | 3.261 | 3.890 |
+| AR scratch | 0.5 | 0.3900 | 0.3893 | 3.180 | 3.242 |
+| S2S scratch | 0.0 | 0.3905 | 0.3829 | 3.208 | 3.405 |
+| S2S scratch | 0.5 | 0.3889 | 0.3878 | 3.269 | 3.278 |
+| S2S ESM-2 | 0.0 | 0.3932 | 0.3689 | 3.526 | 4.368 |
+| S2S ESM-2 | 0.5 | 0.3899 | 0.3872 | 3.531 | 3.558 |
+
+Dropout improves partner-absent edit similarity in **both seeds for all three models**: mean gains **+0.0078 / +0.0050 / +0.0183** for AR / scratch S2S / ESM-2 S2S. Partner-present edit costs are **−0.0010 / −0.0016 / −0.0032**, also consistent in direction across seeds. Partner-absent judge perplexity improves in every pair. This is a robustness trade-off; it does not show that dropout improves every metric or that training without partner context would be worse. Those matched no-partner training controls remain pending.
+
+**Coverage and limits:** 71,999/72,000 candidates were valid. The sole exception was a complete-empty draw from ESM-2/dropout 0/seed 43 without partner context. All 150 frameworks contributed valid candidates in every regime, and judge coverage was complete over valid candidates. Edit similarity excludes that empty draw; generated core recovery is conditional on matching length and has different contributing populations. Two seeds are screening evidence, without a significance or equivalence claim. The existing automatic `batch_tables.md` omits three ESM-2 trials through family-key collisions; use the complete per-seed tables in the [September 15–17 review](results/reviews/0915-0917-review.md).
+
+#### 15. ESM-2 learning-rate tuning improves teacher-forced recovery more clearly than generation
+
+The [four-run LR screen](results/runs/20260915_214327_432282_sweep_lr/summary.tsv) completed at `1e-5` and `1e-4`, seeds 42/43, up to 20 epochs. These are **partner-trained, dropout-0** models evaluated with partner context present; partner-absent evaluation was not part of this sweep. The `3e-5` reference below comes from the context screen. All use the same 150 × 20 generation protocol; means across two seeds:
+
+| ESM-2 LR | Teacher-forced core ↑ | Generated edit ↑ | Generated core@L ↑ | Judge PPL ↓ | Length match | Length MAE ↓ |
+|---|---|---|---|---|---|---|
+| 1e-05 | 0.3880 | 0.3917 | 0.2137 | 3.941 | 9.07% | 3.834 |
+| 3e-05 | 0.3980 | 0.3932 | 0.2260 | 3.526 | 8.53% | 3.813 |
+| 1e-04 | 0.4032 | 0.3928 | 0.2104 | 3.345 | 8.62% | 3.762 |
+
+Within the new sweep, **`1e-4` beats `1e-5` in both seeds** on teacher-forced core, edit similarity and judge perplexity. Against the `3e-5` reference, `1e-4` improves mean teacher-forced core by **0.0052** and lowers judge perplexity by **0.180**, but edit similarity is slightly lower on average (**−0.0003**) with opposite seed directions. Generated core@L also falls, but its population differs (107/106 contributing frameworks at `1e-4`, versus 116/109 at `3e-5`). **Keep `1e-4` as a follow-up candidate, not an overall generation winner; no default config was promoted.** Its interaction with dropout 0.5 remains untested.
+
+All **12,000/12,000** LR-sweep candidates were valid with full judge coverage. The final teacher-forced evaluations cover 15,271/15,273 validation examples for core accuracy. Native answer prefixes make these ~0.40 teacher-forced scores different from historical MLM masked recovery; they are not evidence of a direct improvement over its ~0.32 result. All 16 runs across the two batches record dirty-tree provenance, and the batch source hashes differ. Preserve those records and confirm selected comparisons under a fixed clean revision before final paper claims. See the [September 15–17 review](results/reviews/0915-0917-review.md) for config differences, per-seed results and input hashes.
 
 ---
 
@@ -907,7 +931,7 @@ Antigen sequences (up to ~2,300 residues for large multi-chain complexes) made t
 ### 6. Extensibility Principles
 The recurring rule: **a new capability is added in one place, and the rest of the pipeline stays oblivious.** Five seams:
 
-- **New generation method** → a package beside [`methods/mlm/`](cdrseqgen/methods/mlm/), subclassing `AntibodyFrameworkDataset` from [`data/dataset_common.py`](cdrseqgen/data/dataset_common.py), plus an `entrypoint.py` that [`train.py`](train.py) dispatches to on the config's `"method"` key. **Exercised 2026-09-01** by [`methods/ar/`](cdrseqgen/methods/ar/), which is a third the size of the masked package — the difference is the length-policy layer, the gap-sentinel head, the second eval track and the loss registry, none of which a causal model can need.
+- **New generation method** → a package beside [`methods/mlm/`](cdrseqgen/methods/mlm/), subclassing `AntibodyFrameworkDataset` from [`datasets/dataset_common.py`](cdrseqgen/datasets/dataset_common.py), plus an `entrypoint.py` that [`train.py`](train.py) dispatches to on the config's `"method"` key. **Exercised 2026-09-01** by [`methods/ar/`](cdrseqgen/methods/ar/), which is a third the size of the masked package — the difference is the length-policy layer, the gap-sentinel head, the second eval track and the loss registry, none of which a causal model can need.
 
   **Exercised again 2026-09-07** by [`methods/s2s/`](cdrseqgen/methods/s2s/), which is the real test: the second method could still have been accommodated by generalising toward it, while the third had to fit a boundary drawn without it in mind. It did — a registry entry, the five-function CLI protocol, and a strategy for the shared evaluation loop — and the parts that did *not* fit were informative. `SpanLayout` does not generalise, because it builds one concatenated stream and an encoder-decoder needs two; that is a new data view, not a parameterisation of the old one. And three *enumerations* had to be found by running the method rather than by the type system: the dashboard family map, the `--decoding` choice list duplicated into two argparse calls, and `sweep.sh`'s architecture flag. Each was a list that had to be edited in a second place, which is the shape of seam this section exists to avoid; `--decoding` and the method classification now derive from `methods/registry.py`, and a test asserts every registered method has a dashboard family.
 
@@ -983,14 +1007,15 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-09-17** -- Data storage restructure: dataset code to `cdrseqgen/datasets/`; raw/processed files to root `data/` (old: `datasets/data/`)
 - **2026-09-15** -- **Experiments table added:** timeline for future framework development and experiments for conference-ready results
-- **2026-09-15** -- [RECLAIM] `data/preprocess/`
+- **2026-09-15** -- [RECLAIM] `datasets/preprocess/`
 - **2026-09-15** -- Span layout + context dropout edits
 - **2026-09-14** -- [RECLAIM] Revised reclamation list
 - **2026-09-10** -- Added PLMs for S2S: ESM-2, IgBert, ProtBert
 - **2026-09-10** -- `cdrseqgen/experiments.py` [new]: unified suite/sweep planner + executor for `run.sh`/`sweep.sh` (to be moved to `scripts/`?)
 - **2026-09-07** -- **SEQ2SEQ UPDATE** (`methods/s2s/`)
-- **2026-09-04** -- Enabled different span layouts: `SpanLayout` in [`data/dataset_ar.py`]
+- **2026-09-04** -- Enabled different span layouts: `SpanLayout` in [`datasets/dataset_ar.py`]
 - **2026-09-04** -- Added BLOSUM62 in `eval/metrics.py`
 - **2026-09-04** -- AR context fix: `max_len` 256 -> 384 (to make space for partner chain since answer reserve is long (96 toks))
 - **2026-09-04** -- First OAS4 results (18 runs, mlm+ar)
@@ -1023,8 +1048,8 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **2026-07-29** -- Split `train.py` into `cdrseqgen/train/{arguments,logging,pipeline,record_results}.py`
 - **2026-07-29** -- `train.py`: fixed `train.log`, records per epoch (used to only have "Starting Training.../Starting Evaluation...") (pending verification)
 - **2026-07-27** -- Fixed print/logging issues in `models.py`, `generation.py`
-- **2026-07-27** -- `data/preprocess/common.py`[new]: common scaffolding for csv -> json data preprocessing scripts
-- **2026-07-27** -- moved and renamed preprocessing scripts to `data/preprocess/`, removed separate dataset README file
+- **2026-07-27** -- `datasets/preprocess/common.py`[new]: common scaffolding for csv -> json data preprocessing scripts
+- **2026-07-27** -- moved and renamed preprocessing scripts to `datasets/preprocess/`, removed separate dataset README file
 - **2026-07-24** -- Generate `run_config.json` for each training run
 - **2026-07-24** -- `sampling.py`: handled greedy algo for both independent and iterative decoders
 
@@ -1033,7 +1058,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ## ⏭️ Roadmap
 
 <!-- AI ACCESS ZONE BEGINS -->
-> **Objective-first:** the target is **CDR-H3 design**. **Phase 1** = a leakage-controlled *sequence benchmark* (models plateau near 0.32 core recovery under the tested settings; see Findings), positioned against a published sequence-infilling baseline under one matched evaluation protocol. **Phase 2** = *structure-conditioned* design (RMSD-to-native; exact target to lock with advisor). Everything below is a tool toward that objective.
+> **Objective-first:** the target is **CDR-H3 design**. **Phase 1** = a leakage-controlled *sequence benchmark* (historical MLM settings plateau near 0.32 masked core recovery; AR/S2S teacher-forced and generated recovery are separate measures; see Findings), positioned against a published sequence-infilling baseline under one matched evaluation protocol. **Phase 2** = *structure-conditioned* design (RMSD-to-native; exact target to lock with advisor). Everything below is a tool toward that objective.
 
 ### Medium-term milestone — conference-ready CDR-H3 infilling study
 
@@ -1041,7 +1066,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 
 **Scope:** sequence-only H3 infilling; length-free generation is the primary track and native-length redesign a separate diagnostic. Structure-aware models and other loops are follow-ups. The [Active milestone](#active-milestone--matched-cdrseqgen-vs-iglm-benchmark) below is this study's external-baseline component, not a parallel effort.
 
-**The negative results are the likely spine, not a byproduct.** Sequence context buys nothing measurable (§4); loss re-weighting changes nothing (§13); iterative decoding buys nothing over independent at ~15× the compute (Open problems); H3 length is near-unpredictable, with every learned method below a non-neural V/J lookup (§10); and the model's own confidence is nearly useless for selection where an independent judge is not (§12). Decide early whether the contribution is that controlled set of negatives or something else — the evidence each needs differs sharply.
+**The negative results are the likely spine, not a byproduct.** Historical MLM context comparisons show little benefit (§4), while AR/S2S dropout improves missing-partner robustness with a context-present cost (§14); loss re-weighting changes nothing (§13); iterative decoding buys nothing over independent at ~15× the compute (Open problems); H3 length is near-unpredictable, with every learned method below a non-neural V/J lookup (§10); and the model's own confidence is nearly useless for selection where an independent judge is not (§12). Decide early whether the contribution is that controlled set of negatives or something else — the evidence each needs differs sharply.
 
 - [ ] **Agree the contribution and target venue with the advisor.** Controlled empirical study, evaluation benchmark, or new method. State what it adds beyond existing infilling work, then derive the evidence list from that claim rather than from what has already been run
 - [ ] **Freeze the evaluation protocol before any final experiment**, and gate everything below on it: inputs available to each method, length policy, example selection, candidate/attempt budgets, decoding settings, checkpoint-selection metric, primary endpoint and supporting metrics. Relabel every existing result as exploratory under the old protocol
@@ -1058,16 +1083,16 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 
 ### Experiment coverage across methods
 
-Status snapshot: **2026-09-15**. **☑** experiment completed; **◐** partial or historical evidence; **↻** in progress; **☐** pending; **—** requires a pretrained AR adapter first. Completion means exploratory results exist, not that the paper's final confirmation is finished. Pending cells are candidates, not a requirement to fill the entire matrix; prioritize matched context comparisons, the controls needed to interpret them, and confirmation across seeds. The detailed checklists below specify the follow-up work.
+Status snapshot: **2026-09-17**. **☑** experiment completed; **◐** partial or historical evidence; **↻** in progress; **☐** pending; **—** requires a pretrained AR adapter first. Completion means exploratory results exist, not that the paper's final confirmation is finished. Pending cells are candidates, not a requirement to fill the entire matrix; prioritize matched context comparisons, the controls needed to interpret them, and confirmation across seeds. The detailed checklists below specify the follow-up work.
 
 | Experiment category | MLM | AR | S2S |
 |---|---|---|---|
 | **Scratch baseline** | ☑ | ☑ | ☑ |
 | **Pretrained models** | ☑ ESM-2, IgBert, ProtBert | ☐ Pretrained causal adapter and experiments | ☑ ESM-2, IgBert, ProtBert **encoders** |
 | **Scratch learning-rate tuning** | ☑ Broader hyperparameter screen | ☑ LR screen | ☑ LR screen; settings not yet promoted |
-| **PLM learning-rate tuning** | ☐ Matched follow-up as needed | — | ☐ ESM-2 four-run screen prepared; launch not verified |
+| **PLM learning-rate tuning** | ☐ Matched follow-up as needed | — | ☑ ESM-2 four-run partner-present screen reviewed (§15); confirmation pending |
 | **Train with versus without partner context** | ◐ Existing comparisons; match final protocol | ◐ Historical runs; **2 matched no-partner runs pending** | ◐ Existing comparisons; **4 matched no-partner runs pending** |
-| **Context dropout 0 versus 0.5; evaluate both regimes** | ☑ Historical experiments; protocol differs | ☑ Current screen: 4/4 complete; analysis pending | ☑ Scratch: 4/4 complete; analysis pending; ↻ ESM-2: 2/4 complete |
+| **Context dropout 0 versus 0.5; evaluate both regimes** | ☑ Historical experiments; protocol differs | ☑ 4/4 complete and reviewed (§14) | ☑ Scratch 4/4 and ESM-2 4/4 complete and reviewed (§14) |
 | **Same architecture: pretrained versus random initialization** | ☐ | — | ☐ ESM-2 control; code available |
 | **Frozen versus trainable pretrained weights** | ☐ | — | ◐ IgBert diagnostic trained; generation pending. ☐ ESM-2; code available |
 | **Conditioning/collapse diagnostics** | ◐ Context sensitivity studied | ◐ Context-ablation results available | ◐ IgBert probes complete; generation and replication pending |
@@ -1123,12 +1148,13 @@ Both methods run on the **same frozen examples**, with the same candidate count 
 
 - [x] **Complete the three-arm IgBert diagnostic** (`20260914_140305_226060_igbert_diagnostic`). All arms finished three epochs, with 49 finite probe records and three epoch checkpoints each. The original-LR replay did not reproduce the earlier collapse within this window. Epoch-3 validation loss / core recovery: original 1.6092 / 0.3836; lower LR 1.6954 / 0.3566; frozen 1.6185 / 0.3814. All retained conditioning. This establishes neither failure incidence nor a preventive effect of freezing/lower LR. See the [completed diagnostic report](results/diagnostics/20260915_igbert_summary/REPORT.md).
 - [ ] **Evaluate the three saved diagnostic checkpoints generatively.** Same validation examples and 150 × 20 generation protocol, with fixed partner context for generator and judge; no retraining. [Commands](configs/experiments/20260915_context_dropout.md#evaluate-the-completed-igbert-diagnostic-checkpoints-first).
-- [ ] **Run the AR/S2S context-dropout screen.** [Spec](configs/experiments/20260915_context_dropout.json): scratch AR, scratch S2S and ESM-2 S2S × dropout 0/0.5 × seeds 42/43. Each checkpoint is evaluated with/without partner context while judge context stays fixed. Validation dropout is disabled. [Prospective screen protocol](configs/experiments/20260915_context_dropout.md); launched as `20260915_131629_103719_context_dropout`. Review both context regimes and contributing populations when complete.
+- [x] **Run and review the AR/S2S context-dropout screen.** All 12 trials completed, with both evaluation regimes and fixed judge context. Dropout 0.5 improves missing-partner edit similarity in both seeds for every model, at a small partner-present cost (§14; [September 15–17 review](results/reviews/0915-0917-review.md)). Matched no-partner training controls and additional seeds remain pending.
+- [ ] **Preserve trial identity in batch tables.** Family-keyed discovery collapses ESM-2 seeds/dropout settings: the completed context batch has 12 runs, but its automatic table shows 9. Use the full trial-level review until the renderer is fixed.
 - [ ] **Add six models trained without partner context — next training batch.** Scratch AR, scratch S2S and ESM-2 S2S × seeds 42/43, with `include_partner_chain: false` and `context_dropout: 0`. Match the current screen within each model: OAS4 H3 validation split, optimizer, batch size, 20-epoch maximum, early stopping and checkpoint-selection metric. Evaluate the same 150 × 20 examples/candidates without generator partner context and with fixed partner context for the judge. Compare against partner-trained dropout 0 and 0.5 models; removing the partner only at inference does not replace this training control. Express the follow-up through the existing JSON-spec runner.
 - [ ] **Confirm selected contrasts with seeds 44–46.** Select follow-ups using validation results, then extend both sides of each contrast, including both dropout conditions when testing a dropout benefit. Report individual seeds and paired differences; keep the test split untouched until settings and endpoints are frozen. For IgBert stability follow-ups, also report collapse incidence: one failure and one clean replay establish neither its rate nor run-to-run variance.
 - [ ] **Separate ESM-2 pretraining from capacity and adaptation.** After reviewing the context screen, compare trainable pretrained, trainable randomly initialized, and frozen pretrained encoders of the same ESM-2 architecture, initially at seeds 42/43. Hold the decoder, corpus, context policy and evaluation protocol fixed; reuse current runs only where settings match. Use `encoder_init`/`freeze_encoder` in a JSON spec. Allow comparable validation tuning effort, since random initialization may require a different learning rate. Report generation quality, validity and contributing populations alongside teacher-forced recovery.
-- [ ] **Screen ESM-2 learning rates on a longer budget**, once conditioning is stable, using the selected context policy and shared validation protocol. Its low judge perplexity in the initial PLM matrix motivates follow-up, but judge perplexity alone must not select the final system.
-- [ ] **Compare tuned scratch and PLM systems under a matched protocol.** Match corpus, split, evaluation and comparable tuning effort; state epoch and compute budgets. The current judge-perplexity gap (PLMs 3.441–4.132 versus scratch 3.215/3.250) describes the tested systems; differing capacities and architectures still confound attribution to pretraining. Retain the same-architecture pretrained-versus-random control
+- [x] **Screen ESM-2 learning rates on a longer budget.** Four trials at `1e-5`/`1e-4`, seeds 42/43, up to 20 epochs, completed and reviewed against the `3e-5` context-screen reference (§15; [September 15–17 review](results/reviews/0915-0917-review.md)). All use dropout 0 and partner-present generation. `1e-4` is a candidate for confirmation, not a promoted default; its dropout interaction and partner-absent behavior remain unmeasured.
+- [ ] **Compare tuned scratch and PLM systems under a matched protocol.** Match corpus, split, evaluation and comparable tuning effort; state epoch and compute budgets. The initial matrix's judge-perplexity gap (PLMs 3.441–4.132 versus scratch 3.215/3.250) is historical; the new partner-present ESM-2 `1e-4` mean is 3.345 (§15), and differing capacities and architectures still confound attribution to pretraining. Retain the same-architecture pretrained-versus-random control
 - [ ] Calibrate conditioning criteria for the exact 16-example encoder-memory probe and fix them before a confirmation run. This batch began without a numerical pass/fail criterion, so thresholds developed from its own traces are exploratory; the earlier 256-example raw-framework-swap measurements are illustrative references, not calibrated callback thresholds
 - [ ] **A full pretrained encoder-decoder backbone**: ProtT5 remains a future adapter. The released checkpoint used BART-like residue masking, **not** original T5 span denoising; validate its real pretraining/input/output contract before designing missing-span extraction ([model card](https://huggingface.co/Rostlab/prot_t5_xl_uniref50))
 <!-- AI ACCESS ZONE ENDS -->
@@ -1142,7 +1168,7 @@ Both methods run on the **same frozen examples**, with the same candidate count 
     - [ ] `plot_comparison`
     - [ ] README
   - [ ] `cdrseqgen/` 
-    - [ ] `data/`
+    - [ ] `datasets/`
       - [x] `preprocess/` (0915)
       - [ ] `dataset_<method>`
     - [ ] `eval/` (`generative`, `metrics`)

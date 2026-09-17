@@ -9,6 +9,6 @@ marginals are near-independent (Step 4), the model's own confidence barely track
   * models/transformer.py -- from-scratch causal decoder, model_type "scratch"
   * backbones.py          -- causal backbone registry, resolve(model_type) -> CausalBackbone
 
-The data view lives in :mod:`cdrseqgen.data.dataset_ar`, beside the masked one, because
-``cdrseqgen/data/`` holds all data code.
+The data view lives in :mod:`cdrseqgen.datasets.dataset_ar`, beside the masked one, because
+``cdrseqgen/datasets/`` holds all data code.
 """

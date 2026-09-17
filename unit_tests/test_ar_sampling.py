@@ -7,7 +7,7 @@ import unittest
 
 import torch
 
-from cdrseqgen.data.dataset_ar import (
+from cdrseqgen.datasets.dataset_ar import (
     LOOP_LENGTH_RESERVE,
     CausalTokenizer,
     causal_adapter,

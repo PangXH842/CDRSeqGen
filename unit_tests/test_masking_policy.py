@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import torch
 
-from cdrseqgen.data.dataset_mlm import (
+from cdrseqgen.datasets.dataset_mlm import (
     AntibodyInfillingDataset,
     AntibodyTokenizer,
     TokenizerAdapter,

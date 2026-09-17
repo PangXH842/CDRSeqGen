@@ -12,9 +12,9 @@ import unittest
 
 import torch
 
-from cdrseqgen.data.dataset_common import AntibodyTokenizer
-from cdrseqgen.data.dataset_ar import CausalTokenizer, build_causal_prompt, causal_adapter
-from cdrseqgen.data.dataset_s2s import (
+from cdrseqgen.datasets.dataset_common import AntibodyTokenizer
+from cdrseqgen.datasets.dataset_ar import CausalTokenizer, build_causal_prompt, causal_adapter
+from cdrseqgen.datasets.dataset_s2s import (
     ENCODER_LAYOUT_TOKENS,
     MAX_LOOP_RESIDUES,
     S2S_DECODE_STEPS,

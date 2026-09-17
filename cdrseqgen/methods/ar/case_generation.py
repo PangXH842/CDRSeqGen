@@ -1,5 +1,5 @@
 """Qualitative causal generation using the same prompt, sampler, and self-scorer as evaluation."""
-from cdrseqgen.data.dataset_ar import build_causal_prompt
+from cdrseqgen.datasets.dataset_ar import build_causal_prompt
 from cdrseqgen.eval.metrics import amino_acid_recovery, calculate
 from cdrseqgen.methods.ar.evaluation import causal_perplexities
 from cdrseqgen.methods.ar.sampling import sample_loops

@@ -6,7 +6,7 @@
   * collate_fn               -- pad a list of items into a batch (+ loss metadata/attention mask)
 
 The method-NEUTRAL half — tokenizers, framework/target splitting, context injection and capping —
-lives in :mod:`cdrseqgen.data.dataset_common` and is re-exported here so existing imports keep working.
+lives in :mod:`cdrseqgen.datasets.dataset_common` and is re-exported here so existing imports keep working.
 Everything in this module is specific to masking: an autoregressive or encoder-decoder method
 subclasses ``AntibodyFrameworkDataset`` directly and lays out its own inputs.
 
@@ -28,8 +28,8 @@ import copy
 import torch
 from torch.utils.data import DataLoader
 
-# Re-exported so the ~16 existing `from cdrseqgen.data.dataset_mlm import ...` sites keep working.
-from cdrseqgen.data.dataset_common import (  # noqa: F401
+# Re-exported so the ~16 existing `from cdrseqgen.datasets.dataset_mlm import ...` sites keep working.
+from cdrseqgen.datasets.dataset_common import (  # noqa: F401
     AntibodyFrameworkDataset,
     AntibodyTokenizer,
     TokenizerAdapter,
@@ -69,7 +69,7 @@ class AntibodyInfillingDataset(AntibodyFrameworkDataset):
     """One processed entry -> a masked-infilling example for the chosen CDR loop.
 
     The framework/target split, context injection and length capping come from
-    :class:`~cdrseqgen.data.dataset_common.AntibodyFrameworkDataset`. This subclass adds only what is
+    :class:`~cdrseqgen.datasets.dataset_common.AntibodyFrameworkDataset`. This subclass adds only what is
     specific to masked training: which loop offsets are hidden, and the label tensor that scores
     them.
 
@@ -218,7 +218,7 @@ if __name__ == "__main__":
     # Test the dataset. The dataset expects a TokenizerAdapter, not a raw tokenizer.
     import functools
     adapter = TokenizerAdapter.from_custom(AntibodyTokenizer())
-    dataset = AntibodyInfillingDataset("dataset/data/processed/processed_oas_data.json", adapter)
+    dataset = AntibodyInfillingDataset("data/processed/processed_oas_data.json", adapter)
     collate = functools.partial(collate_fn, pad_token_id=adapter.pad_id)
     dataloader = DataLoader(dataset, batch_size=4, collate_fn=collate)
 

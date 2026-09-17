@@ -9,7 +9,7 @@ import torch
 from transformers import (BertConfig, BertForMaskedLM, BertTokenizer, EsmConfig,
                           EsmForMaskedLM, EsmTokenizer, TrainingArguments)
 
-from cdrseqgen.data.dataset_s2s import (Seq2SeqInfillingDataset, build_encoder_input,
+from cdrseqgen.datasets.dataset_s2s import (Seq2SeqInfillingDataset, build_encoder_input,
                                        s2s_adapter, s2s_collate_fn)
 from cdrseqgen.methods.s2s.backbones import resolve
 from cdrseqgen.methods.s2s.evaluation import s2s_perplexities

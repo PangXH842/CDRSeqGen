@@ -1,8 +1,9 @@
-dataset/data/
-# Belt and braces: the OAS/SAbDab downloaders resolve the repo root from their own location, and a
-# wrong-depth `..` once wrote 154 MB into <repo>/cdrseqgen/dataset/, which the anchored pattern
-# above does not match. This catches a stray data tree anywhere in the repo.
-**/dataset/data/
+# Current data files and the local compatibility link used by historical run configs.
+/data/
+/dataset/data
+# Catch misplaced raw/processed downloads without ignoring dataset source code or fixtures.
+**/data/raw/
+**/data/processed/
 *.token
 /results/
 old/

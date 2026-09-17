@@ -346,8 +346,10 @@ def build_plan(arguments, env):
     for trial in trials:
         c = trial["config"]
         dataset = datasets[c["data_path"]]["sha256"]
-        trial["trial_id"] = fingerprint(dict(config=c, dataset=dataset, runtime=runtime))
-        setting = {k: v for k, v in c.items() if k not in {"seed", "data_seed"}}
+        # The corpus hash pins content; its resolved location remains provenance, not identity.
+        identity = {k: v for k, v in c.items() if k != "data_path"}
+        trial["trial_id"] = fingerprint(dict(config=identity, dataset=dataset, runtime=runtime))
+        setting = {k: v for k, v in identity.items() if k not in {"seed", "data_seed"}}
         trial["setting_id"] = fingerprint(dict(config=setting, dataset=dataset, runtime=runtime))
     # Devices/output are execution choices, not part of scientific identity.
     plan = dict(schema_version=1, mode=mode, name=name, rank_metric=rank,
@@ -367,7 +369,8 @@ def completed_artifacts(run_dir, config):
         with (root / RUN_CONFIG_FILENAME).open() as handle:
             saved = json.load(handle)
         for key, value in config.items():
-            if value is None or key == "output_dir":
+            # Called under a matching trial_id, which already pins the corpus content hash.
+            if value is None or key in {"output_dir", "data_path"}:
                 continue
             actual = saved.get(key)
             # Transformers 5 converts the deprecated warmup_ratio into warmup_steps.

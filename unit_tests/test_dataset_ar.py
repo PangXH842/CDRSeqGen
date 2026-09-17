@@ -14,8 +14,8 @@ import unittest
 
 import torch
 
-from cdrseqgen.data.dataset_common import AntibodyFrameworkDataset, AntibodyTokenizer
-from cdrseqgen.data.dataset_ar import (
+from cdrseqgen.datasets.dataset_common import AntibodyFrameworkDataset, AntibodyTokenizer
+from cdrseqgen.datasets.dataset_ar import (
     LAYOUT_SPECIAL_TOKENS,
     CAUSAL_DECODE_STEPS,
     LOOP_LENGTH_RESERVE,
@@ -140,7 +140,7 @@ class CapTests(unittest.TestCase):
 
     def test_a_loop_longer_than_the_reserve_is_refused(self):
         # Otherwise the assembled example could overflow max_len without anyone noticing.
-        from cdrseqgen.data.dataset_ar import LOOP_LENGTH_RESERVE
+        from cdrseqgen.datasets.dataset_ar import LOOP_LENGTH_RESERVE
         framework = {"pt1": "AAAA", "pt2": "HHHH", "target": "G" * (LOOP_LENGTH_RESERVE + 1),
                      "target_length": LOOP_LENGTH_RESERVE + 1, "partner_chain": None,
                      "antigen": None, "max_len": 256}
@@ -165,7 +165,7 @@ class CapTests(unittest.TestCase):
         stays in the fast suite, which promises to need no processed dataset.
         """
         import glob
-        sidecars = sorted(glob.glob("dataset/data/processed/*.metadata.json"))
+        sidecars = sorted(glob.glob("data/processed/*.metadata.json"))
         checked = 0
         for path in sidecars:
             with open(path) as handle:

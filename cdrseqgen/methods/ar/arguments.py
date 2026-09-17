@@ -16,7 +16,7 @@ from typing import Tuple
 
 from transformers import HfArgumentParser, TrainingArguments
 
-from cdrseqgen.data.dataset_ar import CAUSAL_DECODE_STEPS, validate_causal_decode_steps
+from cdrseqgen.datasets.dataset_ar import CAUSAL_DECODE_STEPS, validate_causal_decode_steps
 from cdrseqgen.methods.common.arguments import (BaseDataArguments, BaseGenerationArguments,
                                                 BaseModelArguments, initialise_run,
                                                 parse_config_and_cli,

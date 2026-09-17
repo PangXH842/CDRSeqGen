@@ -4,7 +4,7 @@
     "include_partner_chain": false,
     "hidden_size": 128,
     "num_layers": 4,
-    "data_path": "dataset/data/processed/processed_oas_multi.json",
+    "data_path": "data/processed/processed_oas_multi.json",
     "eval_split": "validation",
     "max_len": 128,
     "output_dir": "./results",

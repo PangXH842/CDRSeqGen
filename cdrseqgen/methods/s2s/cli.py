@@ -3,7 +3,7 @@
 Contract-identical to ``methods/ar/cli.py``: both methods choose their own length, so both reject
 every length knob rather than silently ignoring it.
 """
-from cdrseqgen.data.dataset_s2s import S2S_DECODE_STEPS, validate_s2s_decode_steps
+from cdrseqgen.datasets.dataset_s2s import S2S_DECODE_STEPS, validate_s2s_decode_steps
 
 
 def _validate(args):

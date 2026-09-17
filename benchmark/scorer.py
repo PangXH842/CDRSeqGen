@@ -229,7 +229,7 @@ class Judge:
     def __init__(self, model_name: str, model_path: str | None, device: str, max_len: int):
         import torch
 
-        from cdrseqgen.data.dataset_mlm import assemble_masked_input, inject_context
+        from cdrseqgen.datasets.dataset_mlm import assemble_masked_input, inject_context
         from cdrseqgen.methods.mlm.backbones import resolve
         from cdrseqgen.methods.mlm.sampling import pseudo_log_likelihood
 

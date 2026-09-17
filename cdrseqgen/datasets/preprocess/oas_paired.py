@@ -45,7 +45,7 @@ from collections import defaultdict
 import pandas as pd
 from tqdm import tqdm
 
-from cdrseqgen.data.preprocess.common import (
+from cdrseqgen.datasets.preprocess.common import (
     REGIONS,
     valid_regions,
     build_chain,
@@ -365,8 +365,8 @@ def build_corpus(csv_paths, limit=None, dedup=True):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Preprocess OAS paired antibody data.")
     add_io_args(parser,
-                input_default="dataset/data/raw/1287169_1_Paired_All.csv",
-                output_default="dataset/data/processed/processed_oas_data.json",
+                input_default="data/raw/1287169_1_Paired_All.csv",
+                output_default="data/processed/processed_oas_data.json",
                 input_help="One or more OAS paired CSVs. Several files become ONE corpus: they are "
                            "concatenated first and the split is assigned once over the merged set.",
                 multiple=True)

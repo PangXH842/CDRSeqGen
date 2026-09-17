@@ -29,8 +29,8 @@ import numpy as np
 import torch
 from transformers import Trainer
 
-from cdrseqgen.data.dataset_ar import CausalInfillingDataset, causal_collate_fn
-from cdrseqgen.data.dataset_common import select_split_indices, evaluation_context_view
+from cdrseqgen.datasets.dataset_ar import CausalInfillingDataset, causal_collate_fn
+from cdrseqgen.datasets.dataset_common import select_split_indices, evaluation_context_view
 from cdrseqgen.eval.metrics import core_anchor_indices
 from cdrseqgen.eval import ANCHOR_TRIM
 

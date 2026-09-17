@@ -21,7 +21,7 @@ import torch
 from torch import nn
 
 from cdrseqgen.artifacts import LENGTH_CONFIG_FILENAME, LENGTH_HEAD_FILENAME
-from cdrseqgen.data.dataset_mlm import assemble_masked_input, framework_for_dataset, inject_context
+from cdrseqgen.datasets.dataset_mlm import assemble_masked_input, framework_for_dataset, inject_context
 from cdrseqgen.methods.mlm.length import LengthConstraints, LengthPolicy
 
 logger = logging.getLogger(__name__)

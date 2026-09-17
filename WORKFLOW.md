@@ -21,20 +21,32 @@ unchanged.*
 ## Step 1: Preprocessing Data
 Convert datasets into a custom "Bio-Object" JSON format, extracting the regions and preserving `ANARCI` numbering.
 
-**OAS**: currently only including 21106 paired sequences from 1287169_1_Paired_All.csv, pending future scale-ups
+**Data layout (2026-09-17):** Python dataset/preprocessing modules live in `cdrseqgen/datasets/`;
+raw downloads and processed JSON/metadata live in root `data/raw/` and `data/processed/`.
+The existing data was moved without reprocessing. This checkout retains the gitignored symlink
+`dataset/data -> ../data`, so historical configs and absolute paths still resolve. Saved run
+configs, manifests and result provenance retain their original paths. New commands/configs use
+`data/`; preprocessing is invoked as `python -m cdrseqgen.datasets.preprocess.<source>`.
+On another checkout with historical runs, recreate the compatibility path with
+`mkdir -p dataset` followed by `ln -s ../data dataset/data` if that path does not already exist.
+A directory migration does not make old experiment plans resumable under changed source code;
+start a new batch after this migration. Trial identity now uses corpus content rather than its
+location, while the resolved path remains recorded in provenance.
+
+**OAS**: the single-file example below builds the historical 21,106-pair corpus. The multi-file workflow below builds the current 152,727-pair, four-donor corpus.
 ```bash
-python -m cdrseqgen.data.preprocess.oas_paired \
-    --input_file dataset/data/raw/1287169_1_Paired_All.csv \
-    --output_file dataset/data/processed/processed_oas_data.json
+python -m cdrseqgen.datasets.preprocess.oas_paired \
+    --input_file data/raw/1287169_1_Paired_All.csv \
+    --output_file data/processed/processed_oas_data.json
 ```
 
 For hyperparameter tuning, create a separate three-way file. Test clusters are allocated first using
 the historical shuffle, so the established test membership is preserved; validation is then taken
 from the former training partition:
 ```bash
-python -m cdrseqgen.data.preprocess.oas_paired \
-    --input_file dataset/data/raw/1287169_1_Paired_All.csv \
-    --output_file dataset/data/processed/processed_oas_tuning.json \
+python -m cdrseqgen.datasets.preprocess.oas_paired \
+    --input_file data/raw/1287169_1_Paired_All.csv \
+    --output_file data/processed/processed_oas_tuning.json \
     --split cluster --test_size 0.1 --validation_size 0.1 --seed 42
 ```
 
@@ -65,9 +77,9 @@ cheap.
 **Several donors, one corpus.** `--input_file` takes any number of CSVs. They are read with their
 own metadata rows, concatenated, and *then* split once:
 ```bash
-python -m cdrseqgen.data.preprocess.oas_paired \
-    --input_file dataset/data/raw/oas/*_Paired_All.csv \
-    --output_file dataset/data/processed/processed_oas_multi.json \
+python -m cdrseqgen.datasets.preprocess.oas_paired \
+    --input_file data/raw/oas/*_Paired_All.csv \
+    --output_file data/processed/processed_oas_multi.json \
     --split cluster --test_size 0.1 --validation_size 0.1 --seed 42
 ```
 **The split must be assigned once over the merged corpus, which is why merging happens here rather
@@ -88,9 +100,9 @@ its leakage properties; `--dedup none` reproduces pre-2026-09-03 behaviour. Clus
 
 **SAbDab2**: currently including 3984 structures - paired with resolved antigen, remaining >10k structures without antigen pending future inclusion
 ```bash
-python -m cdrseqgen.data.preprocess.sabdab2 \
-    --input_file dataset/data/raw/sabdab2/splits_final/abag_split.csv \
-    --output_file dataset/data/processed/processed_sabdab2_data.json
+python -m cdrseqgen.datasets.preprocess.sabdab2 \
+    --input_file data/raw/sabdab2/splits_final/abag_split.csv \
+    --output_file data/processed/processed_sabdab2_data.json
 ```
 
 Processed records preserve provenance needed by external baselines and future multi-source datasets:

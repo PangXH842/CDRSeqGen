@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 from transformers import HfArgumentParser, TrainingArguments
 
-from cdrseqgen.data.dataset_ar import CAUSAL_DECODE_STEPS, LOOP_LENGTH_RESERVE
+from cdrseqgen.datasets.dataset_ar import CAUSAL_DECODE_STEPS, LOOP_LENGTH_RESERVE
 from cdrseqgen.methods.ar.arguments import (DataArguments as ARDataArguments,
                                             GenerationArguments as ARGenerationArguments,
                                             ModelArguments as ARModelArguments,
@@ -187,7 +187,7 @@ class SharedTrainingLifecycleTests(unittest.TestCase):
 
 class Seq2SeqConfigTests(unittest.TestCase):
     def test_decode_cap_covers_the_decoder_budget(self):
-        from cdrseqgen.data.dataset_s2s import MAX_LOOP_RESIDUES, S2S_DECODE_STEPS
+        from cdrseqgen.datasets.dataset_s2s import MAX_LOOP_RESIDUES, S2S_DECODE_STEPS
         from cdrseqgen.methods.s2s.arguments import (DataArguments, GenerationArguments,
                                                      ModelArguments, validate_args)
         generation = GenerationArguments()
@@ -234,9 +234,9 @@ class CausalConfigTests(unittest.TestCase):
     def test_a_second_oas_corpus_gets_its_own_dataset_tag(self):
         """Two donor sets have two test splits, so they must not share a run-name tag."""
         from cdrseqgen.train.logging import dataset_tag
-        self.assertEqual(dataset_tag("dataset/data/processed/processed_oas_tuning.json"), "OAS")
-        self.assertEqual(dataset_tag("dataset/data/processed/processed_oas_multi.json"), "OAS4")
-        self.assertEqual(dataset_tag("dataset/data/processed/processed_sabdab2_data.json"), "SD2")
+        self.assertEqual(dataset_tag("data/processed/processed_oas_tuning.json"), "OAS")
+        self.assertEqual(dataset_tag("data/processed/processed_oas_multi.json"), "OAS4")
+        self.assertEqual(dataset_tag("data/processed/processed_sabdab2_data.json"), "SD2")
 
 
 if __name__ == "__main__":

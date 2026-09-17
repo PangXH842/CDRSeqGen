@@ -22,8 +22,8 @@ import math
 
 import torch
 
-from cdrseqgen.data.dataset_common import framework_for_dataset
-from cdrseqgen.data.dataset_s2s import (S2S_DECODE_STEPS, build_decoder_pair, build_encoder_input)
+from cdrseqgen.datasets.dataset_common import framework_for_dataset
+from cdrseqgen.datasets.dataset_s2s import (S2S_DECODE_STEPS, build_decoder_pair, build_encoder_input)
 from cdrseqgen.eval import ANCHOR_TRIM
 from cdrseqgen.eval.generative import (Draw, SUMMARY_KEYS, aggregate, build_masked_judge_prompt,
                                        log_report, run_eval_loop, select_indices,

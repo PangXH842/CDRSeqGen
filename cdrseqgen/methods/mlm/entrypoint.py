@@ -8,7 +8,7 @@ import functools
 
 from transformers import set_seed
 
-from cdrseqgen.data.dataset_mlm import collate_fn
+from cdrseqgen.datasets.dataset_mlm import collate_fn
 from cdrseqgen.methods.mlm.arguments import setup_args
 from cdrseqgen.methods.mlm.backbones import resolve
 from cdrseqgen.methods.mlm.losses import MLMLossTrainer, loss_config_from_args

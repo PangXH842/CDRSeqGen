@@ -2,7 +2,7 @@
     "model_type": "facebook/esm2_t12_35M_UR50D",
     "target_region": "l1",
     "include_partner_chain": false,
-    "data_path": "dataset/data/processed/processed_oas_multi.json",
+    "data_path": "data/processed/processed_oas_multi.json",
     "eval_split": "validation",
     "max_len": 128,
     "output_dir": "./results",

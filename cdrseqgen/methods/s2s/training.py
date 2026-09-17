@@ -26,8 +26,8 @@ import numpy as np
 import torch
 from transformers import Trainer
 
-from cdrseqgen.data.dataset_common import select_split_indices, evaluation_context_view
-from cdrseqgen.data.dataset_s2s import Seq2SeqInfillingDataset, s2s_collate_fn
+from cdrseqgen.datasets.dataset_common import select_split_indices, evaluation_context_view
+from cdrseqgen.datasets.dataset_s2s import Seq2SeqInfillingDataset, s2s_collate_fn
 from cdrseqgen.eval import ANCHOR_TRIM
 from cdrseqgen.eval.metrics import core_anchor_indices
 

@@ -1,5 +1,5 @@
 """Qualitative seq2seq generation using the same encoder input, sampler, and self-scorer as evaluation."""
-from cdrseqgen.data.dataset_s2s import build_encoder_input
+from cdrseqgen.datasets.dataset_s2s import build_encoder_input
 from cdrseqgen.eval.metrics import amino_acid_recovery, calculate
 from cdrseqgen.methods.s2s.evaluation import s2s_perplexities
 from cdrseqgen.methods.s2s.sampling import sample_loops

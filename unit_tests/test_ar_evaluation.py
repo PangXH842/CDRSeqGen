@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 import torch
 
-from cdrseqgen.data.dataset_ar import CausalInfillingDataset, causal_adapter
+from cdrseqgen.datasets.dataset_ar import CausalInfillingDataset, causal_adapter
 from cdrseqgen.eval.generative import build_masked_judge_prompt
 from cdrseqgen.methods.ar.evaluation import (CausalStrategy,
                                              run_causal_generative_eval)

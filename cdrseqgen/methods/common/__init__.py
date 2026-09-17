@@ -7,7 +7,7 @@
   * training.py   -- Trainer lifecycle and the standard finished-run artifacts
 
 The membership test: **things a method needs to PRODUCE output**. Turning records into model inputs
-belongs in ``data/dataset_common.py``; measuring outputs belongs in ``cdrseqgen/eval/``.
+belongs in ``datasets/dataset_common.py``; measuring outputs belongs in ``cdrseqgen/eval/``.
 
 Everything here started life duplicated and was consolidated after a second method existed to check
 it against — which is how ``build_callbacks`` was found to have silently lost ``LogMetricsCallback``

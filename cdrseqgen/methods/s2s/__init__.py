@@ -15,8 +15,8 @@ framework read the masked side had, which makes it the missing cell of a 2x2:
   * models/transformer.py -- from-scratch encoder-decoder, model_type "scratch"
   * backbones.py          -- seq2seq backbone registry, resolve(model_type) -> Seq2SeqBackbone
 
-The data view lives in :mod:`cdrseqgen.data.dataset_s2s`, beside the masked and causal ones, because
-``cdrseqgen/data/`` holds all data code.
+The data view lives in :mod:`cdrseqgen.datasets.dataset_s2s`, beside the masked and causal ones, because
+``cdrseqgen/datasets/`` holds all data code.
 
 Pretrained encoders now provide a second axis: ESM2 and protein BERTs feed the same residue decoder
 through a projection, with native encoder tokenizers and optional freezing/random initialization.

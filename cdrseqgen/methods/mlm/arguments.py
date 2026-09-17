@@ -25,7 +25,7 @@ from typing import Tuple
 
 from transformers import HfArgumentParser, TrainingArguments
 
-from cdrseqgen.data.dataset_mlm import normalize_masking_policy
+from cdrseqgen.datasets.dataset_mlm import normalize_masking_policy
 from cdrseqgen.methods.mlm.length import resolve_generation_length_policy
 from cdrseqgen.methods.common.arguments import (BaseDataArguments,
                                                 BaseGenerationArguments,

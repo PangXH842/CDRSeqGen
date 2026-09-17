@@ -13,7 +13,7 @@ import unittest
 
 import torch
 
-from cdrseqgen.data.dataset_ar import CausalTokenizer
+from cdrseqgen.datasets.dataset_ar import CausalTokenizer
 from cdrseqgen.methods.ar import backbones
 from cdrseqgen.methods.ar.backbones import (_prepare_hf_tokenizer, REQUIRED_SENTINELS,
                                            missing_sentinels, resolve)

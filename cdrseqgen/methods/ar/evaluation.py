@@ -25,8 +25,8 @@ import math
 import torch
 from cdrseqgen.eval.metrics import blosum_provenance
 
-from cdrseqgen.data.dataset_ar import CAUSAL_DECODE_STEPS, build_causal_prompt, layout_for
-from cdrseqgen.data.dataset_common import framework_for_dataset
+from cdrseqgen.datasets.dataset_ar import CAUSAL_DECODE_STEPS, build_causal_prompt, layout_for
+from cdrseqgen.datasets.dataset_common import framework_for_dataset
 from cdrseqgen.eval import ANCHOR_TRIM
 from cdrseqgen.eval.generative import (Draw, SUMMARY_KEYS, aggregate, build_masked_judge_prompt,
                                        log_report, run_eval_loop, select_indices,

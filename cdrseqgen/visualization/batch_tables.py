@@ -73,9 +73,9 @@ _DS_ALTERNATION = "|".join(sorted(
 RUN_RE = re.compile(
     rf"^(?P<loop>[hl][123])_(?P<ds>{_DS_ALTERNATION})(?P<ctx>(?:_LC|_HC|_AG)*)_(?P<model>.+)$")
 LOOPS = ["h1", "h2", "h3", "l1", "l2", "l3"]
-DEFAULT_DATA = {"OAS": "dataset/data/processed/processed_oas_data.json",
-                "OAS4": "dataset/data/processed/processed_oas_multi.json",
-                "SD2": "dataset/data/processed/processed_sabdab2_data.json"}
+DEFAULT_DATA = {"OAS": "data/processed/processed_oas_data.json",
+                "OAS4": "data/processed/processed_oas_multi.json",
+                "SD2": "data/processed/processed_sabdab2_data.json"}
 
 
 def dataset_alias(runs):

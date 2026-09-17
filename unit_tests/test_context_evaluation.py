@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import torch
 from transformers import TrainingArguments
-from cdrseqgen.data.dataset_common import evaluation_context_view, framework_for_dataset
+from cdrseqgen.datasets.dataset_common import evaluation_context_view, framework_for_dataset
 from cdrseqgen.methods.registry import resolve
 from cdrseqgen.methods.common.evaluation import post_training_generation
 from cdrseqgen.methods.common.arguments import BaseGenerationArguments

@@ -10,7 +10,7 @@ import os
 import tempfile
 import unittest
 
-from cdrseqgen.data.dataset_ar import (
+from cdrseqgen.datasets.dataset_ar import (
     CDRSEQGEN_CAUSAL,
     LOOP_LENGTH_RESERVE,
     CausalInfillingDataset,

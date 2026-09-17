@@ -32,8 +32,8 @@ from dataclasses import dataclass, field
 import torch
 
 from cdrseqgen.artifacts import atomic_write_json
-from cdrseqgen.data.dataset_common import inject_context
-from cdrseqgen.data.dataset_mlm import assemble_masked_input
+from cdrseqgen.datasets.dataset_common import inject_context
+from cdrseqgen.datasets.dataset_mlm import assemble_masked_input
 from cdrseqgen.eval.metrics import (LENGTH_BUCKETS, amino_acid_recovery, calculate,
                                     blosum_aligned_ratio, blosum_identity_ratio,
                                     blosum_provenance, confidence_metrics,
@@ -394,7 +394,7 @@ def build_judge(model_type, weights_path=None, *, data_path, max_len, target_reg
     """
     # Local imports: a heavy registry and the masked dataset are only needed when a judge is asked
     # for, and importing them at module load would drag transformers into every plotting script.
-    from cdrseqgen.data.dataset_mlm import AntibodyInfillingDataset
+    from cdrseqgen.datasets.dataset_mlm import AntibodyInfillingDataset
     from cdrseqgen.methods.mlm.backbones import resolve
 
     judge_backbone = resolve(model_type)

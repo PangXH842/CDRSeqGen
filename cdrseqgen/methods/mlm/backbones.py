@@ -39,7 +39,7 @@ import logging
 from dataclasses import dataclass
 from typing import Callable
 
-from cdrseqgen.data.dataset_mlm import AntibodyTokenizer, TokenizerAdapter
+from cdrseqgen.datasets.dataset_mlm import AntibodyTokenizer, TokenizerAdapter
 
 logger = logging.getLogger(__name__)
 

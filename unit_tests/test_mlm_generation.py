@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from cdrseqgen.data.dataset_mlm import AntibodyTokenizer, TokenizerAdapter
+from cdrseqgen.datasets.dataset_mlm import AntibodyTokenizer, TokenizerAdapter
 from cdrseqgen.methods.mlm.generation import (
     prepare_fixed_length_prompt,
     sample_masked_span,

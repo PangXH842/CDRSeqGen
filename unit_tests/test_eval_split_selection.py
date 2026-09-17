@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from cdrseqgen.data.dataset_mlm import AntibodyTokenizer, TokenizerAdapter
+from cdrseqgen.datasets.dataset_mlm import AntibodyTokenizer, TokenizerAdapter
 from cdrseqgen.methods.mlm.training import get_datasets
 
 

@@ -12,7 +12,7 @@ how many residues to fill.
 
 import logging
 
-from cdrseqgen.data.dataset_mlm import framework_for_dataset
+from cdrseqgen.datasets.dataset_mlm import framework_for_dataset
 from cdrseqgen.methods.mlm.evaluation import Draw
 from cdrseqgen.methods.mlm.generation import (
     prepare_fixed_length_prompt,
