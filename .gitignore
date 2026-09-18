@@ -10,3 +10,4 @@ old/
 */old/
 __pycache__/
 *.pyc
+/temp/
