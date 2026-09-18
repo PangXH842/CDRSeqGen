@@ -1,5 +1,6 @@
 """Pure sequence-level generative metrics for sampled CDR loops.
 
+Functions: 
   * amino_acid_recovery     -- calculate sequence recovery between `pred` and `native` seqs,
                                 for each individual sample
   * mean_pairwise_diversity -- calculate mean Hamming distance between each pair of samples

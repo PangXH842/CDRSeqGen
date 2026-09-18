@@ -44,33 +44,30 @@ logger = logging.getLogger(__name__)
 
 
 SUMMARY_KEYS = [
+    # Perplexity
     ("judge_perplexity_mean", "judge-ppl"),
     ("judge_coverage", "judge-cov"),
     ("self_perplexity_mean", "self-ppl"),
+    # Diversity
     ("diversity_hamming", "diversity"),
     ("per_position_entropy_bits", "entropy(b)"),
     ("unique_fraction", "unique"),
+    # AAR
     ("aar_mean", "recovery"),
     ("aar_length_matched_mean", "recovery@L"),
-    # Split the length-matched recovery: anchors are largely V/J-determined and easy, the core is
-    # the part a design method has to actually get right. Reported separately so a gain in one
-    # cannot hide a loss in the other.
     ("core_recovery_mean", "core@L"),
     ("anchor_recovery_mean", "anchor@L"),
-    # BLOSUM62: a conservative substitution scores near 1.0, a radical one far below, where
-    # exact-match recovery scores both zero. `blosum-aln` is over EVERY attempt (global alignment,
-    # so a wrong-length draw still scores); the @L rows share recovery@L's length-matched
-    # population. It is a generic evolutionary matrix, not a binding or structural measure.
+    # BLOSUM62
     ("blosum62_ratio_mean", "blosum@L"),
     ("blosum62_core_ratio_mean", "blosum-core@L"),
     ("blosum62_anchor_ratio_mean", "blosum-anch@L"),
     ("blosum62_aligned_ratio_mean", "blosum-aln"),
+    # Novelty
     ("novelty_mean", "novelty"),
     ("length_match_rate", "length-match"),
     ("length_absolute_error_mean", "length-MAE"),
     ("edit_similarity_mean", "edit-sim"),
-    # Does the model's own confidence rank its candidates? rho ~ 0 means confidence is useless
-    # for selection, and top1 vs baseline is the recovery a designer would actually get.
+    # Spearman correlation
     ("self_conf_spearman", "self-rho"),
     ("self_conf_top1_recovery", "self-top1"),
     ("judge_conf_spearman", "judge-rho"),
