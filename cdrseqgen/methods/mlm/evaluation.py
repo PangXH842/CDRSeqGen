@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 import torch
 
 from cdrseqgen.artifacts import atomic_write_json
-from cdrseqgen.datasets.dataset_mlm import AntibodyInfillingDataset
+from cdrseqgen.datasets.dataset_mlm import MaskedInfillingDataset
 from cdrseqgen.eval.metrics import (
     amino_acid_recovery,
     blosum_provenance,

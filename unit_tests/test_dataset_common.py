@@ -16,9 +16,10 @@ import unittest
 
 import torch
 
-from cdrseqgen.datasets.dataset_mlm import AntibodyInfillingDataset
+from cdrseqgen.datasets.dataset_mlm import MaskedInfillingDataset
 from cdrseqgen.datasets.dataset_common import (AntibodyFrameworkDataset, AntibodyTokenizer,
-                                       TokenizerAdapter, framework_for_dataset, inject_context)
+                                       TokenizerAdapter, framework_for_dataset, inject_context,
+                                            select_split_indices)
 
 CHAIN = {"fwr1": "AAAA", "cdr1": "CC", "fwr2": "DDDD", "cdr2": "EE",
          "fwr3": "FFFF", "cdr3": "GGG", "fwr4": "HHHH"}
@@ -83,14 +84,14 @@ class NeutralLayerTests(unittest.TestCase):
 class SharedWithTheMaskedViewTests(unittest.TestCase):
     def test_the_masked_dataset_is_a_subclass_of_the_neutral_one(self):
         # Not a copy: a fix to splitting or context dropout must reach every method.
-        self.assertTrue(issubclass(AntibodyInfillingDataset, AntibodyFrameworkDataset))
+        self.assertTrue(issubclass(MaskedInfillingDataset, AntibodyFrameworkDataset))
 
     def test_both_views_resolve_identical_framework_parts(self):
         path = _dataset_file()
         kw = dict(target_region="h3", include_partner_chain=True, context_dropout=0.5,
                   context_dropout_seed=3)
         neutral = AntibodyFrameworkDataset(path, _causal_adapter(), **kw)
-        masked = AntibodyInfillingDataset(path, TokenizerAdapter.from_custom(AntibodyTokenizer()), **kw)
+        masked = MaskedInfillingDataset(path, TokenizerAdapter.from_custom(AntibodyTokenizer()), **kw)
         for i in range(4):
             self.assertEqual(neutral.framework_parts(i), masked.framework_parts(i))
         os.unlink(path)
@@ -107,7 +108,7 @@ class SharedWithTheMaskedViewTests(unittest.TestCase):
         kw = dict(target_region="h3", include_partner_chain=True, context_dropout=0.5,
                   context_dropout_seed=11)
         a = AntibodyFrameworkDataset(path, _causal_adapter(), **kw)
-        b = AntibodyInfillingDataset(path, TokenizerAdapter.from_custom(AntibodyTokenizer()), **kw)
+        b = MaskedInfillingDataset(path, TokenizerAdapter.from_custom(AntibodyTokenizer()), **kw)
         kept_a = [a.framework_parts(i)["partner_chain"] is not None for i in range(20)]
         kept_b = [b.framework_parts(i)["partner_chain"] is not None for i in range(20)]
         self.assertEqual(kept_a, kept_b)
@@ -147,6 +148,91 @@ class HFAdapterTests(unittest.TestCase):
         self.assertIs(adapter.backend_tokenizer, tokenizer)
         self.assertTrue(callable(adapter.save_pretrained))
 
+
+
+class DatasetContractTests(unittest.TestCase):
+    def select(self, records, eval_split=""):
+        return select_split_indices(records, eval_split, data_path="probe.json", seed=42)
+
+    def test_missing_and_null_splits_use_the_same_seeded_random_partition(self):
+        missing = [{} for _ in range(20)]
+        expected = self.select(missing)
+        for records in ([{"split": None} for _ in missing],
+                        [{"split": None} if i % 2 else {} for i in range(20)]):
+            self.assertEqual(self.select(records), expected)
+            with self.assertRaisesRegex(ValueError, "named split"):
+                self.select(records, "validation")
+        train, evaluation, label = expected
+        self.assertEqual((len(train), len(evaluation)), (18, 2))
+        self.assertFalse(set(train) & set(evaluation))
+        self.assertEqual(label, "random split")
+
+    def test_partially_labelled_corpora_never_repartition_the_holdout(self):
+        for unlabelled in ({}, {"split": None}):
+            for selected in ("", "test"):
+                with self.subTest(unlabelled=unlabelled, selected=selected):
+                    with self.assertRaisesRegex(ValueError, "partially labelled"):
+                        self.select([{"split": "test"}] + [unlabelled] * 9, selected)
+
+    def test_named_splits_keep_membership_and_explicit_test_selection(self):
+        records = [{"split": name} for name in ("train", "test", "validation", "train")]
+        self.assertEqual(self.select(records, "validation"), ([0, 3], [2], "validation"))
+        self.assertEqual(self.select(records, "test"), ([0, 3], [1], "test"))
+        with self.assertRaisesRegex(ValueError, "eval_split is unset"):
+            self.select(records)
+
+    def test_invalid_split_types_are_rejected_before_sorting(self):
+        for label in ("", " ", 0, False, [], {}):
+            with self.subTest(label=label), self.assertRaisesRegex(ValueError, "Invalid split label"):
+                self.select([{"split": "train"}, {"split": label}])
+
+    def test_all_supported_targets_and_legacy_aliases_select_the_right_chain_and_loop(self):
+        path = _dataset_file()
+        self.addCleanup(os.unlink, path)
+        for chain, prefixes in (("heavy", ("h", "cdr")), ("light", ("l", "lcdr"))):
+            for number in (1, 2, 3):
+                for prefix in prefixes:
+                    name = f"{prefix}{number}"
+                    with self.subTest(target=name):
+                        self.assertEqual(AntibodyFrameworkDataset._resolve_target(name.upper()),
+                                         (chain, f"cdr{number}"))
+                        ds = AntibodyFrameworkDataset(path, _causal_adapter(), target_region=name)
+                        self.assertEqual(ds.framework_parts(0)["target"], CHAIN[f"cdr{number}"])
+
+    def test_invalid_targets_fail_at_construction_in_all_methods(self):
+        from cdrseqgen.datasets.dataset_ar import CausalInfillingDataset
+        from cdrseqgen.datasets.dataset_s2s import Seq2SeqInfillingDataset
+        for dataset_class in (AntibodyFrameworkDataset, MaskedInfillingDataset,
+                              CausalInfillingDataset, Seq2SeqInfillingDataset):
+            for target in ("h4", "typo3", "", None, 3):
+                with self.subTest(method=dataset_class.__name__, target=target):
+                    with self.assertRaisesRegex(ValueError, "Unsupported target_region"):
+                        dataset_class("does-not-exist.json", _causal_adapter(), target_region=target)
+        with self.assertRaisesRegex(ValueError, "Unsupported CDR region"):
+            AntibodyFrameworkDataset._split_regions(CHAIN, "cdr4")
+
+    def test_mlm_length_budget_includes_wrappers_and_preserves_the_full_target(self):
+        path = _dataset_file()
+        self.addCleanup(os.unlink, path)
+        for wrapped in (False, True):
+            tokenizer = TokenizerAdapter.from_custom(AntibodyTokenizer())
+            tokenizer.uses_special_tokens = wrapped
+            tokenizer.cls_id, tokenizer.end_id = 2, 3
+            minimum = len(CHAIN["cdr3"]) + (2 if wrapped else 0)
+            for cap in (minimum - 1, minimum, minimum + 2):
+                with self.subTest(wrapped=wrapped, max_len=cap):
+                    ds = MaskedInfillingDataset(path, tokenizer, max_len=cap,
+                                                include_partner_chain=True, include_antigen=True)
+                    if cap < minimum:
+                        with self.assertRaisesRegex(ValueError, "cannot hold.*target"):
+                            ds[0]
+                    else:
+                        item = ds[0]
+                        self.assertLessEqual(len(item["input_ids"]), cap)
+                        labelled = item["labels"][item["labels"] != -100].tolist()
+                        self.assertEqual(labelled, tokenizer.encode(CHAIN["cdr3"]))
+                        if wrapped:
+                            self.assertEqual(item["input_ids"][[0, -1]].tolist(), [2, 3])
 
 
 if __name__ == "__main__":

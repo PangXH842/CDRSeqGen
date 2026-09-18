@@ -1,23 +1,25 @@
 """Method-neutral antibody data: tokenizers, framework/target splitting, and context injection.
 
-Everything here is shared by every generation method, because none of it knows how a loop will be
-produced. It answers only: which residues are the target, which are the surrounding framework, what
-paired-chain or antigen context comes with them, and how that context is capped to `max_len`.
+Entities:
+  * AntibodyTokenizer         -- the scratch model's amino-acid + five special tokens
+  * TokenizerAdapter          -- uniform interface for custom and Hugging Face tokenizers
+  * inject_context            -- add partner-chain / antigen context for training
+  * AntibodyFrameworkDataset  -- dataset template for CDR sequence infilling methods
+    * _keep_context           -- per-example context dropout, deterministic from (seed, kind, idx)
+    * _resolve_target         -- map a target_region string to (chain, cdr-key)
+    * _split_regions          -- split a chain dict into (pt1, target, pt2) around the requested cdr
+    * framework_parts         -- return raw framework/target/context strings for inference-side prompt builders
+  * select_split_indices      -- the shared eval_split guard; never duplicate it per method
+  * evaluation_context_view   -- same records, training context dropout disabled
+  * framework_for_dataset     -- raw framework strings through a nested Subset index
+  * pad_batch / length_mask / validate_decode_steps
+                              -- batch and decode-budget helpers the three method views share
 
-  * AntibodyTokenizer        -- custom 25-token vocab (20 amino acids + 5 special)
-  * TokenizerAdapter         -- uniform tokenizer interface (custom, HF)
-  * inject_context           -- add partner-chain / antigen context, then cap to max_len
-  * AntibodyFrameworkDataset -- processed JSON -> (pt1, target, pt2, context) per entry
-  * framework_for_dataset    -- one entry's framework parts, by index
-
-Split out of ``dataset_mlm.py`` on 2026-08-31 so a non-masked method can reuse it. The masked-LM view --
-masking policies, ``assemble_masked_input``, ``AntibodyInfillingDataset`` and its collator -- stays
-in ``dataset_mlm.py`` and builds on ``AntibodyFrameworkDataset``. An autoregressive or encoder-decoder
-method subclasses the same base and lays its own inputs out, rather than inheriting a mask token it
-has no use for.
-
-Note ``mask_id`` on the adapter is optional for exactly that reason: a causal tokenizer need not
-have a mask token, and requiring one was the concrete thing coupling this layer to masked LMs.
+Notes:
+  * The TARGET chain must be present; the PARTNER chain may be null. An unpaired corpus
+    serves only the loops of the chain it carries, and says so rather than raising KeyError.
+  * Context dropout is a pure function of (seed, kind, idx) — see `_keep_context` for why
+    a hash rather than an RNG, and for the regime lock-in it exists to prevent.
 """
 import copy
 import hashlib
@@ -28,6 +30,15 @@ import torch
 from torch.utils.data import Dataset
 
 logger = logging.getLogger(__name__)
+
+TARGET_REGIONS = {
+    "h1": ("heavy", "cdr1"), "cdr1": ("heavy", "cdr1"),
+    "h2": ("heavy", "cdr2"), "cdr2": ("heavy", "cdr2"),
+    "h3": ("heavy", "cdr3"), "cdr3": ("heavy", "cdr3"),
+    "l1": ("light", "cdr1"), "lcdr1": ("light", "cdr1"),
+    "l2": ("light", "cdr2"), "lcdr2": ("light", "cdr2"),
+    "l3": ("light", "cdr3"), "lcdr3": ("light", "cdr3"),
+}
 
 
 class AntibodyTokenizer:
@@ -62,8 +73,7 @@ class TokenizerAdapter:
         self.decode = decode
         self.vocab_size = vocab_size
         self.pad_id = pad_id
-        # None for a causal tokenizer with no mask token; masked methods require it.
-        self.mask_id = mask_id
+        self.mask_id = mask_id          # optional mask token (None if unused, eg. causal)
         self.cls_id = cls_id            # leading wrap token (None if unused)
         self.end_id = end_id            # trailing wrap token (None if unused)
         self.chain_sep_id = chain_sep_id
@@ -185,6 +195,7 @@ class AntibodyFrameworkDataset(Dataset):
     def __init__(self, json_path, tokenizer, max_len=256, target_region="h3",
                  include_partner_chain=False, include_antigen=False,
                  context_dropout=0.0, context_dropout_seed=0):
+        self._resolve_target(target_region)  # Reject bad targets before loading the corpus.
         with open(json_path, 'r') as f:
             self.data = json.load(f)
         self.tokenizer = tokenizer
@@ -198,18 +209,13 @@ class AntibodyFrameworkDataset(Dataset):
     def _keep_context(self, idx, kind):
         """Whether THIS example keeps its `kind` ("partner" / "antigen") context, under context_dropout.
 
-        Deterministic in idx, so an example's context regime is stable across epochs and runs.
-
-        The point is to train ONE checkpoint that survives both regimes. Without it a model is
-        locked to the regime it was trained in, in both directions: measured on H1/scratch, the
-        with-context model drops 0.984 -> 0.261 when context is withheld, and the without-context
-        model drops 0.997 -> 0.159 when context is supplied — for an absolute-position backbone a
-        prepended partner chain shifts every learned position.
-
-        Each context kind is drawn INDEPENDENTLY (the kind salts the hash), so a SAbDab2 run sees all
-        four combinations — none / partner / antigen / both — rather than only "everything or
-        nothing". That is what lets one checkpoint stand in for both the `_ag` and `_ag_lconly`
-        configs instead of just being robust to total context loss.
+        Uses blake2b instead of random(): __getitem__ runs in arbitrary order across shuffled epochs 
+        and DataLoader workers, so the decision must be a pure function of (seed, kind, idx) rather
+        than of when the example happened to be drawn.
+        
+        Returns True if (a) context_dropout is 0.0, or (b) blake2b hash value >= context_dropout. 
+        Returns False if blake2b hash value < context_dropout, which means the context is dropped 
+        for this example. 
         """
         if self.context_dropout <= 0.0:
             return True
@@ -223,9 +229,11 @@ class AntibodyFrameworkDataset(Dataset):
     @staticmethod
     def _resolve_target(target_region):
         """Map a target_region string to (chain, cdr-key), e.g. "h3" -> ("heavy", "cdr3")"""
-        tr = target_region.lower()
-        chain = "light" if tr.startswith("l") else "heavy"   # covers l1/l2/l3 and lcdr1/2/3
-        return chain, "cdr" + tr[-1]                          # last char is the CDR number
+        if isinstance(target_region, str) and target_region.lower() in TARGET_REGIONS:
+            return TARGET_REGIONS[target_region.lower()]
+        raise ValueError(
+            f"Unsupported target_region={target_region!r}; choose h1/h2/h3 or l1/l2/l3 "
+            "(legacy aliases: cdr1/cdr2/cdr3 or lcdr1/lcdr2/lcdr3).")
 
     @staticmethod
     def _split_regions(chain, region):
@@ -234,15 +242,21 @@ class AntibodyFrameworkDataset(Dataset):
             return chain['fwr1'], chain['cdr1'], chain['fwr2'] + chain['cdr2'] + chain['fwr3'] + chain['cdr3'] + chain['fwr4']
         elif region == "cdr2":
             return chain['fwr1'] + chain['cdr1'] + chain['fwr2'], chain['cdr2'], chain['fwr3'] + chain['cdr3'] + chain['fwr4']
-        else:  # cdr3
+        elif region == "cdr3":
             return chain['fwr1'] + chain['cdr1'] + chain['fwr2'] + chain['cdr2'] + chain['fwr3'], chain['cdr3'], chain['fwr4']
+        raise ValueError(f"Unsupported CDR region: {region!r}")
 
     def framework_parts(self, idx):
         """Return raw framework/target/context strings for inference-side prompt builders."""
         item = self.data[idx]
         target_chain_key, region = self._resolve_target(self.target_region)
         partner_key = "heavy" if target_chain_key == "light" else "light"
-        pt1, target, pt2 = self._split_regions(item[target_chain_key], region)
+        chain = item.get(target_chain_key)
+        if chain is None:
+            raise ValueError(
+                f"entry {idx} has no {target_chain_key} chain, so it cannot supply target "
+                f"{self.target_region!r}. An unpaired corpus only serves the chain it contains.")
+        pt1, target, pt2 = self._split_regions(chain, region)
         partner = item.get(partner_key) or {}
         antigen = item.get("antigen") or {}
         return {
@@ -258,6 +272,28 @@ class AntibodyFrameworkDataset(Dataset):
         }
 
 
+def pad_batch(batch, key, value):
+    """Right-pad one field across a batch to its longest example."""
+    return torch.nn.utils.rnn.pad_sequence(
+        [item[key] for item in batch], batch_first=True, padding_value=value)
+
+
+def length_mask(padded, batch, key):
+    """1 for real positions, 0 for padding, taken from each example's own length."""
+    mask = torch.zeros_like(padded)
+    for row, item in enumerate(batch):
+        mask[row, :len(item[key])] = 1
+    return mask
+
+
+def validate_decode_steps(max_new_tokens, cap, budget):
+    """Return max_new_tokens when it fits the method's fixed answer budget, else raise."""
+    if (isinstance(max_new_tokens, bool) or not isinstance(max_new_tokens, int)
+            or not 1 <= max_new_tokens <= cap):
+        raise ValueError(f"max_new_tokens must be an integer in [1, {cap}]: {budget}")
+    return max_new_tokens
+
+
 def framework_for_dataset(dataset, index):
     """Resolve a possibly nested ``Subset`` index to its dataset's raw framework strings."""
     while isinstance(dataset, torch.utils.data.Subset):
@@ -269,11 +305,7 @@ def framework_for_dataset(dataset, index):
 
 
 def evaluation_context_view(dataset, *, include_partner_chain=None):
-    """Share records/tokenizer while disabling stochastic training context dropout.
-
-    Preserve Subset ordering, including nested subsets, so context comparisons use identical
-    examples. Never mutate a training dataset or the view used by the other evaluation arm.
-    """
+    """Share records/tokenizer while disabling stochastic training context dropout."""
     if isinstance(dataset, torch.utils.data.Subset):
         return torch.utils.data.Subset(
             evaluation_context_view(dataset.dataset, include_partner_chain=include_partner_chain),
@@ -290,15 +322,23 @@ def evaluation_context_view(dataset, *, include_partner_chain=None):
 def select_split_indices(records, eval_split, *, data_path, seed, test_size=0.1):
     """(train_idx, eval_idx, eval_label) for a processed dataset's named splits.
 
-    Shared by every method rather than reimplemented per method, and deliberately so: this is the
-    guard added on 2026-08-18 after an unset ``eval_split`` had been selecting checkpoints on the
-    **test** partition in every batch through 08-17, which is still the largest caveat in the
-    README. A second copy that drifted would recontaminate one method's results silently, and the
-    logic has no method-specific content — it reads only each record's ``split`` field.
+    Missing/null labels mean unsplit only when every record is unlabelled. Reject
+    partially labelled corpora rather than repartitioning a declared holdout.
     """
     selected = (eval_split or "").strip()
-    if records and all("split" in entry for entry in records):
-        available = sorted({entry["split"] for entry in records})
+    labels = [entry.get("split") for entry in records]
+    for index, label in enumerate(labels):
+        if label is not None and (not isinstance(label, str) or not label.strip()):
+            raise ValueError(f"Invalid split label {label!r} at entry {index} in {data_path}; "
+                             "expected a nonempty string or null.")
+    labelled = sum(label is not None for label in labels)
+    if 0 < labelled < len(records):
+        raise ValueError(
+            f"{data_path} is partially labelled: {labelled} of {len(records)} entries have "
+            "named splits. Supply labels for every entry; refusing to randomly repartition "
+            "an existing holdout.")
+    if labelled:
+        available = sorted(set(labels))
         train_idx = [i for i, entry in enumerate(records) if entry["split"] == "train"]
         if selected:
             if selected == "train" or selected not in available:

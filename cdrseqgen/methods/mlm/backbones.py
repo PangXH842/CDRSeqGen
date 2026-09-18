@@ -13,7 +13,7 @@ Current backbones:
 Each backbone declares two conventions that the encoding depends on, so they are explicit rather
 than guessed from the tokenizer:
   * position_type -- "absolute" | "relative". Where antigen context is injected (see
-    AntibodyInfillingDataset). Absolute-position models (scratch, BERT-style) need it appended
+    MaskedInfillingDataset). Absolute-position models (scratch, BERT-style) need it appended
     after the target; relative/rotary models (ESM-2) can take it prepended.
   * uses_special_tokens -- whether inputs are wrapped as [cls] ... [end].
 

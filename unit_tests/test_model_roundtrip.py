@@ -11,7 +11,7 @@ import unittest
 import torch
 
 from cdrseqgen.datasets.dataset_ar import CausalInfillingDataset, causal_collate_fn
-from cdrseqgen.datasets.dataset_mlm import AntibodyInfillingDataset, collate_fn
+from cdrseqgen.datasets.dataset_mlm import MaskedInfillingDataset, mlm_collate_fn
 from cdrseqgen.datasets.dataset_s2s import Seq2SeqInfillingDataset, s2s_collate_fn
 from cdrseqgen.methods.ar.backbones import resolve as resolve_ar
 from cdrseqgen.methods.mlm.backbones import resolve as resolve_mlm
@@ -72,7 +72,7 @@ class CheckpointRoundTripTests(unittest.TestCase):
                 torch.testing.assert_close(restored.state_dict()[name], value, rtol=0, atol=0)
 
     def test_masked_model_updates_and_reloads(self):
-        self.check_roundtrip(resolve_mlm, AntibodyInfillingDataset, collate_fn)
+        self.check_roundtrip(resolve_mlm, MaskedInfillingDataset, mlm_collate_fn)
 
     def test_causal_model_updates_and_reloads(self):
         self.check_roundtrip(resolve_ar, CausalInfillingDataset, causal_collate_fn)

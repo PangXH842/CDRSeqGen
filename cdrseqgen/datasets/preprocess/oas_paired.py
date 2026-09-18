@@ -12,14 +12,17 @@ Notes:
     representative at the chosen identity threshold; this is not an all-pairs homology audit
     and does not prevent similarity leakage for other target loops.
 """
+import ast
 import csv
+
+import pandas as pd
 import json
 import random
 from collections import defaultdict
 
 from tqdm import tqdm
 
-from cdrseqgen.datasets.preprocess.common import REGIONS
+from cdrseqgen.datasets.preprocess.common import REGIONS, RejectedEntry
 
 
 def read_oas_metadata(csv_path):
@@ -182,6 +185,112 @@ def add_split_field(processed_data, mode, test_size, seed, cluster_identity, val
 def build_regions(row, suffix):
     """Return seven region values from an OAS row for suffix='heavy' or 'light'."""
     return {r: row[f"{r}_aa_{suffix}"] for r in REGIONS}
+
+
+def filter_rows(path, **_options):
+    """Read one CSV and keep the rows this source considers usable, with its funnel stages."""
+    # The first row is metadata, not a header.
+    df = pd.read_csv(path, skiprows=1, low_memory=False)
+    stages = [(len(df), "raw")]
+
+    # Productive pairs only -- no stop codons or frameshifts.
+    df = df[(df['productive_heavy'] == 'T') & (df['productive_light'] == 'T')]
+    stages.append((len(df), "productive"))
+    return df, stages, ("malformed-numbering", "missing/empty regions")
+
+
+def read_metadata(path):
+    """Per-file provenance hook: OAS ships a metadata row, so each CSV announces itself."""
+    metadata = read_oas_metadata(path)
+    print(f"\n=== {path} (run {metadata['run']}, subject {metadata.get('subject')}) ===")
+    return metadata
+
+
+def dedup_key(entry, options):
+    """Deduplication hook: the biological identity, or None to keep every row.
+
+    Not sequence_id -- ids are assigned per run and say nothing about whether two rows are
+    the same antibody. Several donors' files become one corpus, so clones recur across them.
+    """
+    if options.dedup != "exact":
+        return None
+    return tuple((entry.get(chain) or {}).get("full_aa") for chain in ("heavy", "light"))
+
+
+def finalize(entries, *, per_file, options, duplicates, funnel):
+    """Assign the split across the merged corpus and return its provenance metadata."""
+    donors = sorted({str(m.get("subject")) for m in per_file})
+    species = sorted({m["species"] for m in per_file})
+    # Calculate longest loop, used for the causal model's max answer length
+    longest = {}
+    for chain in ("heavy", "light"):
+        for region in ("cdr1", "cdr2", "cdr3"):
+            longest[f"{chain[0]}{region[-1]}"] = max(
+                (len(e[chain][region]) for e in entries if e.get(chain)), default=0)
+
+    print(f"\nCorpus: {len(entries)} entries from {len(per_file)} file(s), "
+          f"{len(donors)} donor(s): {', '.join(donors)}")
+    if duplicates:
+        print(f"        dropped {duplicates} duplicate heavy+light pair(s) "
+              f"(--dedup none keeps them)")
+    if len(species) > 1:
+        print(f"        WARNING: mixed species in one corpus: {', '.join(species)}")
+    print("        longest loop: " + "  ".join(f"{k} {v}" for k, v in sorted(longest.items())))
+
+    add_split_field(entries, options.split, options.test_size, options.seed,
+                    options.cluster_identity, validation_size=options.validation_size)
+    return {
+        "dataset": "OAS paired",
+        "sources": per_file,
+        "donors": donors,
+        "longest_loop": longest,
+        "records": len(entries),
+        "preprocessing": {
+            "productive_pairs_only": True,
+            "numbering_scheme": "IMGT",
+            "split": options.split,
+            "test_fraction": options.test_size,
+            "validation_fraction": options.validation_size,
+            "cluster_identity": (options.cluster_identity if options.split == "cluster" else None),
+            "seed": options.seed,
+            "limit": options.limit,
+            "dedup": options.dedup,
+            "duplicates_dropped": duplicates,
+        },
+    }
+
+
+def row_parts(row, source_metadata):
+    """This source's per-row values for the shared entry assembly (see __main__.build_entry)."""
+    # ANARCI numbering is a stringified dict in OAS. Narrow except: only swallow parse
+    # failures (incl. NaN passed to literal_eval), NOT e.g. a KeyError from a renamed column.
+    try:
+        heavy_numbering = ast.literal_eval(row['ANARCI_numbering_heavy'])
+        light_numbering = ast.literal_eval(row['ANARCI_numbering_light'])
+    except (ValueError, SyntaxError, TypeError) as exc:
+        raise RejectedEntry("malformed-numbering") from exc
+
+    return {
+        "sequence_id": row['sequence_id_heavy'],
+        "chain_ids": {"heavy": row['sequence_id_heavy'], "light": row['sequence_id_light']},
+        "heavy_regions": build_regions(row, "heavy"),
+        "light_regions": build_regions(row, "light"),
+        "heavy_aa": row['sequence_alignment_aa_heavy'],
+        "light_aa": row['sequence_alignment_aa_light'],
+        "heavy_numbering": heavy_numbering,
+        "light_numbering": light_numbering,
+        "species": source_metadata["species"],
+        "isotype": row['Isotype_heavy'],
+        "split": None,                       # assigned once after merging, in add_split_field
+        "source": {
+            "dataset": source_metadata["dataset"],
+            "run": source_metadata["run"],
+            # The donor, not the sequencing run: one subject spans many runs, so a
+            # donor-held-out split can only be built if this travels with the entry.
+            "subject": source_metadata.get("subject"),
+            "b_type": source_metadata.get("b_type"),
+        },
+    }
 
 
 def add_source_arguments(parser):

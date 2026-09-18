@@ -21,14 +21,81 @@ Findings §11 is not merely "autoregressive", it is "autoregressive **and** pret
 antibody span infilling". A fine-tuned ProtGPT2 is a weaker claim than a matched one, and the
 pretraining gain should be expected to fall short of the +0.12-0.24 that §1 measured for ESM-2.
 """
+import json
 import logging
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Callable
 
-from cdrseqgen.datasets.dataset_ar import CausalTokenizer, causal_adapter
+from cdrseqgen.datasets.dataset_ar import (CausalTokenizer, causal_adapter, CDRSEQGEN_CAUSAL,
+                                         layout_for, validate_layout, span_layout_metadata)
+from cdrseqgen.artifacts import atomic_write_json, find_run_config
 from cdrseqgen.datasets.dataset_common import TokenizerAdapter
 
 logger = logging.getLogger(__name__)
+
+LAYOUT_FILENAME = "span_layout.json"
+
+
+def validate_checkpoint_layout(path, tokenizer):
+    """All recorded contracts must agree with the live tokenizer/layout; absent legacy is explicit."""
+    expected = span_layout_metadata(tokenizer)
+    root = Path(path)
+    recorded = []
+    sidecar = root / LAYOUT_FILENAME
+    if sidecar.is_file():
+        with sidecar.open() as handle:
+            recorded.append((sidecar, json.load(handle)))
+    for source in (root / 'config.json', find_run_config(root)):
+        if source is not None and Path(source).is_file():
+            with Path(source).open() as handle:
+                payload = json.load(handle)
+            if 'span_layout' in payload:
+                recorded.append((source, payload['span_layout']))
+    for source, actual in recorded:
+        if actual != expected or any(type(actual[key]) is not type(value)
+                                     for key, value in expected.items()):
+            raise ValueError(f"Span layout mismatch in {source}: recorded {actual!r}, "
+                             f"requested {expected!r}. Layout reinterpretation is not supported.")
+    if not recorded:
+        # Historical checkpoints used this precise v1 format. Keep this fixed even if the
+        # current default changes: missing provenance must never opt an old model into v2.
+        legacy = {"id": "cdrseqgen_causal", "version": 1, "n_layout_tokens": 3,
+                  "terminator_id": tokenizer.eos_id}
+        if expected != legacy:
+            raise ValueError("Checkpoint has no span layout metadata; only the legacy default is supported")
+        logger.warning("Legacy checkpoint %s has no span layout metadata; assuming %s version %s",
+                       path, expected['id'], expected['version'])
+    return expected
+
+
+def persist_layout_with_tokenizer(tokenizer):
+    """Save the contract alongside native vocabularies, including each Trainer checkpoint."""
+    save_native = getattr(tokenizer, 'save_pretrained', None)
+
+    def save(path):
+        metadata = span_layout_metadata(tokenizer)
+        Path(path).mkdir(parents=True, exist_ok=True)
+        if callable(save_native):
+            save_native(path)
+        atomic_write_json(Path(path) / LAYOUT_FILENAME, metadata)
+
+    tokenizer.save_pretrained = save
+    return tokenizer
+
+
+def record_training_layout(model, tokenizer, output_dir):
+    """Embed the contract in model config and run provenance before training/save callbacks."""
+    metadata = span_layout_metadata(tokenizer)
+    model.config.span_layout = metadata
+    source = find_run_config(output_dir)
+    if source is None:
+        raise ValueError("Training layout requires an initialized run_config.json")
+    with Path(source).open() as handle:
+        run_config = json.load(handle)
+    run_config['span_layout'] = metadata
+    atomic_write_json(source, run_config)
+
 
 # The sentinels the causal layout needs beyond a plain LM vocabulary.
 REQUIRED_SENTINELS = ("<mask>", "<sep>", "<eos>")
@@ -48,7 +115,11 @@ class CausalBackbone:
     def build_tokenizer(self, model_type, checkpoint_path=None) -> TokenizerAdapter:
         from cdrseqgen.methods.common.backbones import tokenizer_source
         source = tokenizer_source(model_type, checkpoint_path)
-        return self.load_tokenizer(source, self.position_type, self.uses_special_tokens)
+        tokenizer = self.load_tokenizer(source, self.position_type, self.uses_special_tokens)
+        validate_layout(layout_for(tokenizer), tokenizer)
+        if checkpoint_path:
+            validate_checkpoint_layout(checkpoint_path, tokenizer)
+        return persist_layout_with_tokenizer(tokenizer)
 
 
 REGISTRY = []
@@ -92,6 +163,7 @@ def _build_scratch(mt, vocab_size=None, hidden_size=128, num_layers=4, num_atten
 
 
 def _load_scratch_pretrained(path):
+    validate_checkpoint_layout(path, causal_adapter(position_type="relative"))
     t = _scratch()
     return _load_custom_pretrained(path, t.CausalAntibodyModel, t.CausalAntibodyConfig)
 
@@ -153,6 +225,7 @@ def _hf_tokenizer(mt, pos, wrap):
     adapter.mask_id = tok.convert_tokens_to_ids("<mask>")
     adapter.chain_sep_id = tok.convert_tokens_to_ids("<sep>")
     adapter.eos_id = tok.eos_token_id
+    adapter.span_layout = validate_layout(CDRSEQGEN_CAUSAL, adapter)
     return adapter
 
 
@@ -167,6 +240,12 @@ def _load_hf_causal(name_or_path):
         model.resize_token_embeddings(len(tok))
     model.config.eos_token_id = tok.eos_token_id
     model.config.pad_token_id = tok.pad_token_id
+    if Path(name_or_path).is_dir():
+        adapter = TokenizerAdapter.from_hf(tok, position_type="absolute", uses_special_tokens=True)
+        adapter.mask_id = tok.convert_tokens_to_ids("<mask>")
+        adapter.chain_sep_id = tok.convert_tokens_to_ids("<sep>")
+        adapter.eos_id = tok.eos_token_id
+        validate_checkpoint_layout(name_or_path, adapter)
     return model
 
 

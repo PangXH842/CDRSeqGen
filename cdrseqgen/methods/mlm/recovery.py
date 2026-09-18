@@ -40,7 +40,7 @@ def _core_anchor_masks(masked_positions: np.ndarray, trim: int = ANCHOR_TRIM):
     """Split each row's contiguous target span into core (middle) and anchor (trimmed ends) masks.
 
     The target loop is a single contiguous block of non-(-100) positions per row (see
-    AntibodyInfillingDataset: [cls]+pt1+mask+pt2+[end]). Rows whose loop is too short to have a
+    MaskedInfillingDataset: [cls]+pt1+mask+pt2+[end]). Rows whose loop is too short to have a
     core after trimming `trim` from each end contribute only anchor tokens.
     """
     core = np.zeros_like(masked_positions)

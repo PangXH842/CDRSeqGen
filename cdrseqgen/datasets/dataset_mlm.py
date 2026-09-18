@@ -1,41 +1,43 @@
 """Masked-LM view of the antibody data: framework parts -> one masked-infilling example.
 
-  * normalize_masking_policy -- canonical training corruption name
-  * assemble_masked_input    -- the [cls] pt1 [mask x L] pt2 [end] layout
-  * AntibodyInfillingDataset -- one entry -> (input_ids, labels, target_offsets) with one CDR masked
-  * collate_fn               -- pad a list of items into a batch (+ loss metadata/attention mask)
+MaskedInfillingDataset:
+  * __init__                -- constructor; adds masking_policy + mixed_full_span_probability
+                               to the base dataset's arguments
+  * masking_view            -- same records, another corruption policy (evaluation reuses the
+                               loaded corpus instead of reading it again)
+  * _masked_target_offsets  -- which target offsets this example hides and supervises
+  * __getitem__             -- mask the loop, inject context, cap length, build labels
 
-The method-NEUTRAL half — tokenizers, framework/target splitting, context injection and capping —
-lives in :mod:`cdrseqgen.datasets.dataset_common` and is re-exported here so existing imports keep working.
-Everything in this module is specific to masking: an autoregressive or encoder-decoder method
-subclasses ``AntibodyFrameworkDataset`` directly and lays out its own inputs.
-
-Input schema:
-    heavy / light            -- {fwr1..fwr4, cdr1..cdr3, full_aa, imgt_numbering}
-    antigen (SAbDab2 only)   -- {full_aa, chains, type}
-    split (optional)         -- "train"/"validation"/"test", honored by get_datasets() in train.py
+Utility functions:
+  * normalize_masking_policy    -- canonical policy name, or a useful error
+  * assemble_masked_input       -- [cls] pt1 [mask x n] pt2 [end]
+  * mlm_collate_fn              -- pad a batch and derive its attention mask
 
 Notes:
-  * Input layout: [cls] pt1 [mask x L] pt2 [end]; the wrap tokens are dropped for the scratch
-    tokenizer (uses_special_tokens).
-  * Loss is scored only on hidden loop residues. Full-span mode hides the entire CDR; mixed mode
-    reveals a training-only subset and labels those visible positions -100.
-  * Training and fixed-native evaluation use the native loop length as the mask count; bounded and
-    inferred generation build their own prompts from framework_parts()
+  * Two policies (MASKING_POLICIES): `full_span` hides the whole loop, matching how fixed-length
+    generation is evaluated. `mixed` hides a uniformly random count instead, leaving at least one
+    residue revealed and one masked, so training sees the partially filled states the iterative
+    decoder actually passes through.
+  * The mask count is drawn per __getitem__ call, so an example's corruption differs between
+    epochs. That is deliberate and unlike context dropout, which is fixed per example — compare
+    `_keep_context` in dataset_common.
+  * This view supplies the loop's length by construction: it inserts exactly `len(target)` mask
+    tokens, so the model is told how long the answer is. Length-free generation is a separate
+    protocol (the length head, or AR/S2S `<eos>`), and recovery numbers from the two are not
+    comparable.
 """
 import copy
 
 import torch
 from torch.utils.data import DataLoader
 
-# Re-exported so the ~16 existing `from cdrseqgen.datasets.dataset_mlm import ...` sites keep working.
-from cdrseqgen.datasets.dataset_common import (  # noqa: F401
+from cdrseqgen.datasets.dataset_common import (
     AntibodyFrameworkDataset,
     AntibodyTokenizer,
     TokenizerAdapter,
     framework_for_dataset,
     inject_context,
-)
+    pad_batch, length_mask)
 
 MASKING_POLICIES = ("full_span", "mixed")
 
@@ -65,7 +67,7 @@ def assemble_masked_input(tokenizer, pt1_ids, pt2_ids, n_masked):
     return pt1_ids + mask_ids + pt2_ids, len(pt1_ids)
 
 
-class AntibodyInfillingDataset(AntibodyFrameworkDataset):
+class MaskedInfillingDataset(AntibodyFrameworkDataset):
     """One processed entry -> a masked-infilling example for the chosen CDR loop.
 
     The framework/target split, context injection and length capping come from
@@ -102,8 +104,6 @@ class AntibodyInfillingDataset(AntibodyFrameworkDataset):
             view.mixed_full_span_probability = mixed_full_span_probability
         return view
 
-
-
     def _masked_target_offsets(self, target_len):
         """Choose target offsets hidden and supervised in this training example."""
         if (
@@ -117,11 +117,6 @@ class AntibodyInfillingDataset(AntibodyFrameworkDataset):
         # the count uniformly exposes the iterative decoder's full range of partially filled states.
         masked_count = int(torch.randint(1, target_len, (1,)).item())
         return sorted(torch.randperm(target_len)[:masked_count].tolist())
-
-
-
-
-
 
     def __getitem__(self, idx):
         """Assemble one example: mask the target loop, inject context, cap length, build labels.
@@ -140,6 +135,13 @@ class AntibodyInfillingDataset(AntibodyFrameworkDataset):
         pt1_ids = t.encode(pt1_seq)
         pt2_ids = t.encode(pt2_seq)
         target_ids = t.encode(target_seq)
+
+        minimum = len(target_ids) + (2 if t.uses_special_tokens else 0)
+        if self.max_len < minimum:
+            raise ValueError(
+                f"max_len={self.max_len} cannot hold the {len(target_ids)}-token target "
+                f"and its wrappers; raise max_len to >= {minimum}. "
+                "Only context may be truncated, not the supervised target.")
 
         # --- CONTEXT INJECTION + LENGTH CAPPING --- (shared with generate.py; see inject_context)
         pt1_ids, pt2_ids = inject_context(
@@ -180,51 +182,20 @@ class AntibodyInfillingDataset(AntibodyFrameworkDataset):
 
 
 
-def collate_fn(batch, pad_token_id=0):
-    """
-    Takes a list of items and pads them to the same length so they fit in a Tensor.
+def mlm_collate_fn(batch, pad_token_id=0):
+    """Pad a batch to its longest example.
 
     [NOTE] pad_token_id defaults to 0, which is correct for AntibodyTokenizer's <pad> id, but
     NOT for ESM-2's tokenizer (whose <pad> id is 1, while 0 is <cls>) — callers using an
     ESM-2 tokenizer must pass its real pad_token_id explicitly (see train.py/generate.py).
+    That id reaches the padding value only; the attention mask comes from each example's
+    length, so a pad id that collides with a residue cannot mask out real tokens.
     """
-    input_ids = [item["input_ids"] for item in batch]
-    labels = [item["labels"] for item in batch]
-    target_offsets = [item["target_offsets"] for item in batch]
-
-    # Pad sequences to the longest one in this specific batch
-    input_ids_padded = torch.nn.utils.rnn.pad_sequence(
-        input_ids, batch_first=True, padding_value=pad_token_id
-    )
-    labels_padded = torch.nn.utils.rnn.pad_sequence(
-        labels, batch_first=True, padding_value=-100 # -100 is ignored by Loss
-    )
-    target_offsets_padded = torch.nn.utils.rnn.pad_sequence(
-        target_offsets, batch_first=True, padding_value=-1
-    )
-
-    # Create attention mask (1 for real tokens, 0 for padding)
-    attention_mask = (input_ids_padded != pad_token_id).long()
-
+    input_ids = pad_batch(batch, "input_ids", pad_token_id)
     return {
-        "input_ids": input_ids_padded,
-        "labels": labels_padded,
-        "attention_mask": attention_mask,
-        "target_offsets": target_offsets_padded,
+        "input_ids": input_ids,
+        "labels": pad_batch(batch, "labels", -100),      # -100 is ignored by the loss
+        "attention_mask": length_mask(input_ids, batch, "input_ids"),
+        "target_offsets": pad_batch(batch, "target_offsets", -1),
         "target_lengths": torch.tensor([item["target_len"] for item in batch], dtype=torch.long),
     }
-
-if __name__ == "__main__":
-    # Test the dataset. The dataset expects a TokenizerAdapter, not a raw tokenizer.
-    import functools
-    adapter = TokenizerAdapter.from_custom(AntibodyTokenizer())
-    dataset = AntibodyInfillingDataset("data/processed/processed_oas_data.json", adapter)
-    collate = functools.partial(collate_fn, pad_token_id=adapter.pad_id)
-    dataloader = DataLoader(dataset, batch_size=4, collate_fn=collate)
-
-    # Peek at one batch
-    for batch in dataloader:
-        print("Input Shape:", batch["input_ids"].shape)
-        print("First Input IDs:", batch["input_ids"][0])
-        print("First Labels:", batch["labels"][0])
-        break

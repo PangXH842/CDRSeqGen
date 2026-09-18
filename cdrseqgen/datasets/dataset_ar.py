@@ -1,55 +1,62 @@
-"""Causal view of the antibody data: span-infilling examples for an autoregressive method.
+"""Autoregressive view: framework/context -> prompt, then target + terminator.
 
-The counterpart of :mod:`cdrseqgen.datasets.dataset_mlm` (the masked-LM view). Both build on the
-method-neutral :mod:`cdrseqgen.datasets.dataset_common`, which owns framework/target splitting, context
-injection, length capping and context dropout.
+Default layout (pt1 and pt2 include any retained partner/antigen context):
 
-  * CausalTokenizer          -- the shared 25-token vocab plus <bos>/<eos>
-  * causal_adapter           -- TokenizerAdapter exposing eos_id
-  * build_causal_prompt      -- framework parts -> the prompt a causal model conditions on
-  * CausalInfillingDataset   -- one processed entry -> (input_ids, labels) for causal training
-  * causal_collate_fn        -- pad a batch, right-aligned, with an answer mask
+    input_ids:  pt1  <mask>  pt2  <sep>  target  <eos>
+    labels:     -100 across prompt     target  <eos>
+                |------ prompt ------| |-- answer --|
 
-Why an autoregressive method at all: three Phase-1 findings converge on the masked-LM *objective
-class* rather than anything tunable inside it — iterative and independent decoding are within noise
-because the learned marginals are near-independent (Step 4), the model's own confidence barely
-tracks its correctness (§12), and re-weighting the loss across loop positions moves nothing (§13).
-The one axis where IgLM — autoregressive — beats CDRSeqGen decisively is judged plausibility (§11).
+CausalInfillingDataset:             [*] from AntibodyFrameworkDataset template
+  * __init__                      -- load records and validate the adapter's layout
+  * __getitem__
+    * [*] framework_parts         -- raw framework/target/context strings for this entry
+    * build_causal_prompt         -- inject/cap context, then apply the layout
+    * build_layout_answer         -- target tokens followed by one terminator
 
-The layout is:
+CausalTokenizer:
+  * the shared 25-token vocab with <bos>/<eos> appended at 25/26, so ids 0-24 keep
+    their meaning and every existing MLM checkpoint's embedding table still matches
 
-    pt1  <mask>  pt2  <sep>  target  <eos>
-    └─────── prompt ───────┘ └──── answer ────┘
+SpanLayout:
+  * the frozen token-arrangement contract — id/version, n_layout_tokens, and three
+    builder callbacks. See the class for the full signature.
 
-**The reordering is the whole point, and the naive layout is wrong.** Writing the sequence in its
-natural order — ``pt1 target pt2`` — means the model has not read ``pt2`` at the moment it generates
-the loop, so it cannot condition on the right flank at all. That flank is not decoration: FR4 carries
-the J-gene motif that terminates CDR-H3, and Findings §11 measured what happens without it — when
-IgLM was forced past its natural stopping point only 2% of loops ended in the J-gene motif against
-20% when it chose freely. Putting the corrupted sequence first and the answer last is how IgLM does
-it (`benchmark/adapters/iglm.py` prompts with ``mask_span(parent_sequence, start, end)``), and it is
-the standard span-infilling trick.
+Utility functions:
+  * causal_adapter                  -- TokenizerAdapter exposing bos_id/eos_id, with the
+                                       default layout attached and validated
+  * CDRSEQGEN_CAUSAL                -- the shipped layout: pt1 <mask> pt2 <sep> | target <eos>
+  * validate_layout                 -- check metadata and representative examples
+  * span_layout_metadata            -- contract recorded with checkpoints
+  * causal_collate_fn               -- right-pad tensors and build attention masks
+  * validate_causal_decode_steps    -- bound sampling by the fixed answer budget
 
-Two consequences worth stating:
-
-  * **Length comes free.** The answer ends at ``<eos>``, so the model chooses its own loop length.
-    The gap-sentinel classifier of Findings §10 — which sits *below* the "always predict 15" baseline
-    — exists only because a masked LM cannot do this. There is nothing to port.
-  * **Loss covers the answer only.** The prompt is given, so supervising it would train the model to
-    reproduce framework residues it was handed, inflating any token-level number. ``labels`` is -100
-    across the prompt and carries the loop plus its ``<eos>``.
-
-On the vocabulary: ``<bos>``/``<eos>`` are APPENDED at ids 25/26 and the first 25 ids are untouched.
-Every existing MLM checkpoint has a 25-row embedding table keyed to those ids; renumbering would
-silently mismatch all of them. The shared vocab stays a prefix of the causal one.
+Notes:
+  * Training and generation share build_causal_prompt. It never reads the native
+    target or target length: both paths reserve the same 96 answer-token positions.
+  * The layout counts its prompt markers plus the answer terminator. The default
+    spends three positions: <mask>, <sep>, <eos>; it does not insert <bos>.
+  * Context may be truncated; the training answer must fit intact. Increasing the
+    reserve can remove context, so budget max_len for the desired context as well.
+  * Layout builders receive capped flank copies and public options, not the raw
+    framework. Only target-token + terminator answers are currently supported;
+    other output formats would also need changes to the sampler's extraction.
 """
+import re
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Callable
+from types import MappingProxyType
 
 import torch
 
-from cdrseqgen.datasets.dataset_common import (AntibodyFrameworkDataset, AntibodyTokenizer,
-                                       TokenizerAdapter, inject_context)
+from cdrseqgen.datasets.dataset_common import (
+    AntibodyFrameworkDataset,
+    AntibodyTokenizer,
+    TokenizerAdapter,
+    inject_context,
+    length_mask,
+    pad_batch,
+    validate_decode_steps,
+)
 
 
 BOS = "<bos>"
@@ -71,43 +78,36 @@ class CausalTokenizer(AntibodyTokenizer):
         self.eos_id = self.tok_to_id[EOS]
 
 
-# --- Span layouts -------------------------------------------------------------------------------
-# WHAT a span-infilling example looks like, separated from HOW the framework is split, capped and
-# scored. Those mechanics are identical for any infiller: take both flanks, mark the gap, hand the
-# model the flanks, have it emit the loop and stop. Only the token arrangement differs between one
-# pretrained infiller and the next.
-#
-# This exists so a pretrained model can keep the format it was pretrained on. Forcing every backbone
-# through one arrangement is what makes a pretrained causal LM a bad fit: it has an EOS and nothing
-# else, so `hf_decoder` has to add the sentinels and resize the embedding matrix, and those rows
-# start random (see methods/ar/backbones.py). A model trained on its own span format does not need
-# that surgery -- if the layout can travel with the backbone.
-#
-# **The layout rides on the tokenizer adapter, and is never a call argument.** The adapter is built
-# once by the backbone and handed to both the dataset and the sampler, so the two cannot disagree.
-# That is deliberate: the 2026-09-02 prompt-divergence bug was caused by exactly this construction
-# site taking a keyword that differed between training and generation, and re-introducing a
-# per-call layout would reopen it.
+# The backbone attaches one layout to its adapter, shared by dataset and sampler.
 @dataclass(frozen=True)
 class SpanLayout:
-    """One span-infilling token arrangement.
+    """Immutable token-layout contract shared by training and generation.
 
-    `n_layout_tokens` is how many non-residue positions an assembled example spends, and it feeds
-    the length budget in `build_causal_prompt` -- get it wrong and the cap silently trims context.
+    id/version identify checkpoint semantics; bump version when the format changes.
+    n_layout_tokens counts prompt overhead PLUS one answer terminator. For example,
+    the default has two prompt markers and one terminator, so this count is three.
+
+    build_prompt takes (adapter, capped_left_ids, capped_right_ids, public_options),
+    where public_options currently contains only max_len. build_answer must return
+    the supplied target IDs in order, followed by terminator_id(adapter). These
+    callbacks arrange tokens; they do not tokenize, truncate context or make labels.
     """
 
     id: str
     n_layout_tokens: int
-    build_prompt: Callable          # (adapter, pt1_ids, pt2_ids, framework) -> list[int]
-    build_answer: Callable          # (adapter, target_ids) -> list[int]
-    terminator_id: Callable         # (adapter) -> int, the id that ends generation
+    build_prompt: Callable[[TokenizerAdapter, list[int], list[int], Mapping[str, int]], list[int]]
+    build_answer: Callable[[TokenizerAdapter, list[int]], list[int]]
+    terminator_id: Callable[[TokenizerAdapter], int]
+    version: int = 1
 
 
-def _cdrseqgen_prompt(t, pt1_ids, pt2_ids, framework):
+def _cdrseqgen_prompt(t, pt1_ids, pt2_ids, options):
+    """Put both flanks before the answer boundary; no BOS or outer wrappers."""
     return pt1_ids + [t.mask_id] + pt2_ids + [t.chain_sep_id]
 
 
 def _cdrseqgen_answer(t, target_ids):
+    """Append EOS without shifting or changing the target tokens."""
     return list(target_ids) + [t.eos_id]
 
 
@@ -122,43 +122,115 @@ CDRSEQGEN_CAUSAL = SpanLayout(
 )
 
 
-def validate_layout(layout, tokenizer):
-    """Reject a layout the causal sampler cannot decode, loudly and at setup.
-
-    `sample_loops` reads generated tokens as residues until the terminator, so the answer a layout
-    builds must be exactly that shape. A layout that emits anything else -- a leading sentinel, an
-    extra wrapper -- trains the model to produce it, and the sampler then stops at the first
-    non-residue and returns an EMPTY loop that is counted as a completed draw. That is a silent
-    zero, not a crash, which is why this check exists rather than a comment.
-    """
-    probe = [tokenizer.encode("A")[0]] * 3
-    answer = list(layout.build_answer(tokenizer, probe))
+def _validate_layout_header(layout, tokenizer):
+    """Validate layout identity, counts and terminator; return the terminator ID."""
+    if not isinstance(layout, SpanLayout):
+        raise ValueError("span layout must be a SpanLayout")
+    if not isinstance(layout.id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", layout.id):
+        raise ValueError("span layout needs a stable nonempty id")
+    for name in ("version", "n_layout_tokens"):
+        value = getattr(layout, name)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ValueError(f"span layout {name} must be a positive integer")
     terminator = layout.terminator_id(tokenizer)
-    if answer[:len(probe)] != probe or answer[len(probe):] != [terminator]:
+    if (isinstance(terminator, bool) or not isinstance(terminator, int)
+            or not 0 <= terminator < tokenizer.vocab_size
+            or terminator not in tokenizer.special_ids
+            or terminator in tokenizer.encode("ACDEFGHIKLMNPQRSTVWY")):
+        raise ValueError("span layout terminator must be an in-vocabulary non-residue special token")
+    return terminator
+
+
+def _checked_tokens(tokens, tokenizer, label):
+    """Materialize builder output and reject non-integer or out-of-vocabulary IDs."""
+    tokens = list(tokens)
+    if any(isinstance(x, bool) or not isinstance(x, int) or not 0 <= x < tokenizer.vocab_size
+           for x in tokens):
+        raise ValueError(f"span layout {label} contains invalid token ids")
+    return tokens
+
+
+def build_layout_answer(layout, tokenizer, target_ids):
+    """Return target IDs followed by one terminator, or reject the layout's answer.
+
+    Called for both setup probes and real training targets. Copy target_ids before
+    invoking the callback so mutation cannot hide reordered or altered targets.
+    Layout metadata/terminator validity is checked separately by validate_layout.
+    """
+    target = list(target_ids)
+    answer = _checked_tokens(layout.build_answer(tokenizer, list(target)), tokenizer, "answer")
+    if answer != target + [layout.terminator_id(tokenizer)]:
         raise ValueError(
             f"span layout {layout.id!r} builds an answer the causal sampler cannot read back: "
-            f"expected the target residues followed by exactly one terminator, got {answer!r} for "
-            f"a 3-residue target. A layout that wraps or prefixes the answer needs its own "
-            f"extraction step in methods/ar/sampling.py before it can be used.")
+            "expected target residues followed by exactly one terminator. Wrapped/reordered "
+            "answers need their own extraction step before they can be used.")
+    return answer
+
+
+def _build_layout_prompt(layout, tokenizer, pt1_ids, pt2_ids, max_len):
+    """Build from capped flanks and verify token IDs, nonemptiness and overhead.
+
+    One layout token belongs to the answer terminator, so the prompt must contain
+    len(left) + len(right) + n_layout_tokens - 1 tokens. An empty prompt cannot
+    supply the position whose logits predict the first answer token.
+    """
+    # Context is already injected and capped. Native target/length and uncapped strings are
+    # deliberately absent; public options are immutable. Builders cannot mutate our flanks.
+    expected = len(pt1_ids) + len(pt2_ids) + layout.n_layout_tokens - 1
+    prompt = _checked_tokens(layout.build_prompt(
+        tokenizer, list(pt1_ids), list(pt2_ids), MappingProxyType({"max_len": max_len})),
+        tokenizer, "prompt")
+    if not prompt:
+        raise ValueError(f"span layout {layout.id!r} must provide at least one prompt token "
+                         "after capping so the causal sampler can predict the first answer token")
+    if len(prompt) != expected:
+        raise ValueError(f"span layout {layout.id!r}: declared n_layout_tokens="
+                         f"{layout.n_layout_tokens}, but actual prompt overhead is "
+                         f"{len(prompt) - len(pt1_ids) - len(pt2_ids)} (plus one answer terminator)")
+    return prompt
+
+
+def validate_layout(layout, tokenizer):
+    """Check the layout at setup and return it, raising on unsupported contracts.
+
+    Probe empty and varied targets/flanks to catch wrappers, reordering and wrong
+    overhead. These probes are not exhaustive: prompt and answer helpers also
+    check every real example when the dataset or sampler constructs it.
+    """
+    _validate_layout_header(layout, tokenizer)
+    for residues in ("", "A", "ACD", "ACDEFGHIKLMNPQRSTVWY"):
+        build_layout_answer(layout, tokenizer, tokenizer.encode(residues))
+    for left, right in (("", ""), ("AC", "D"), ("", "EFG")):
+        _build_layout_prompt(layout, tokenizer, tokenizer.encode(left), tokenizer.encode(right), 384)
     return layout
+
+
+def span_layout_metadata(tokenizer):
+    """Return the validated ID, version, overhead and terminator for checkpoint checks."""
+    layout = validate_layout(layout_for(tokenizer), tokenizer)
+    return {"id": layout.id, "version": layout.version,
+            "n_layout_tokens": layout.n_layout_tokens,
+            "terminator_id": layout.terminator_id(tokenizer)}
 
 
 def layout_for(tokenizer):
     """The layout a tokenizer adapter carries, defaulting to CDRSeqGen's own.
 
     An adapter built before layouts existed, or by a backbone that does not set one, behaves
-    exactly as it did -- so this cannot change any existing run's prompts.
+    exactly as it did. Only missing/None selects the default; invalid attached
+    values must reach validation rather than silently selecting another layout.
     """
-    return getattr(tokenizer, "span_layout", None) or CDRSEQGEN_CAUSAL
+    layout = getattr(tokenizer, "span_layout", None)
+    return CDRSEQGEN_CAUSAL if layout is None else layout
 
 
 def causal_adapter(tokenizer=None, position_type="absolute"):
-    """A TokenizerAdapter for causal use: no mask_id required, <eos> as the answer terminator.
+    """Adapt a CausalTokenizer and attach the validated default span layout.
 
-    `mask_id` is still supplied — the span-infilling layout marks the gap with <mask> in the prompt,
-    which is what lets the model see BOTH flanks before it generates. It is the *adapter's*
-    requirement that was relaxed when `dataset_common.py` was split out, not the layout's use of a
-    sentinel.
+    Expose BOS/EOS in addition to the shared tokenizer interface. The default
+    prompt uses mask_id and chain_sep_id but no outer CLS/EOS wrappers; BOS is
+    available in the vocabulary without being inserted. The generic adapter may
+    omit a mask token, but this particular layout requires one.
     """
     tok = tokenizer or CausalTokenizer()
     adapter = TokenizerAdapter(
@@ -182,93 +254,56 @@ def causal_adapter(tokenizer=None, position_type="absolute"):
     return adapter
 
 
-# prompt <mask> + prompt <sep> + answer <eos>
-# Retained for the arithmetic in CAUSAL_DECODE_STEPS and for importers; the authoritative
-# value now lives on the layout, and a layout with a different count overrides it per-call.
-LAYOUT_SPECIAL_TOKENS = 3
+# Kept for callers that need the default overhead; custom layouts own their count.
+LAYOUT_SPECIAL_TOKENS = CDRSEQGEN_CAUSAL.n_layout_tokens
 
-# How much room the prompt leaves for the answer when capping context to max_len.
-#
-# FIXED, and used identically by training and generation. It was previously the native loop length
-# at training and `max_new_tokens` at generation, which made the prompt a function of a
-# generation-time parameter: with max_len=128 the same framework produced an 87-token prompt at
-# sampling against 110 at training, so the model met a framework 23 tokens shorter than anything it
-# had trained on and never reached a state where <eos> was likely (P(eos) ~ 1e-4 free-running
-# against 0.91 teacher-forced). A constant makes the prompt a deterministic function of
-# (framework, max_len) alone, which is the only way generation can reproduce the training prompt
-# without knowing the length it is trying to predict.
-#
-# Sized from data with headroom, NOT fitted to the corpus of the day -- twice now that has been the
-# bug. It was 40 under a comment claiming "40 covers every CDR loop in both datasets (H3 tops out
-# around 34)", which was false: 40 was the *exact* maximum H3 in the single-donor OAS corpus, and
-# SAbDab2 holds a 63-residue H3. OAS4 then arrived with a 49. Longest loop across every processed
-# corpus on record is 63, so 96 is ~1.5x the worst case rather than a fit to it, and the sidecars
-# now record `longest_loop` so a test can check this instead of a person remembering to.
-#
-# The reserve competes with OPTIONAL context for the same max_len budget, and it wins: partner and
-# antigen sequences are prepended, so capping trims them first. Raising 40 -> 96 therefore cut the
-# light chain the `_lc` runs are meant to supply from ~96% retained to ~45%, silently -- the runs
-# completed and measured "base + a fragment of the partner". The AR configs now declare max_len 384
-# (96 native framework + 109 partner + 96 reserve + 3 layout ~= 304), which restores it in full.
-# Any new AR config with optional context must budget for both, not just the answer.
-#
-# Raising it moves no prompt: the reserve only bites when framework + reserve + 3 layout tokens
-# exceeds max_len, and at max_len 256 a ~123-token heavy chain leaves ~130 to spare. It does raise
-# the decode budget (CAUSAL_DECODE_STEPS), which has never been binding -- generated loops top out
-# around 20 and valid_generation_rate sits at ~1.0.
+# Fixed across training and generation, independent of native length or decode settings.
+# 96 leaves headroom over the recorded 63-residue maximum. With the default layout,
+# max_len must be at least 96 + 3 = 99; every retained context token needs more room.
 LOOP_LENGTH_RESERVE = 96
-# Decoding has to leave one additional step for the terminator. A 40-residue loop is complete
-# only after the 41st prediction emits <eos>.
-CAUSAL_DECODE_STEPS = LOOP_LENGTH_RESERVE + 1
+CAUSAL_DECODE_STEPS = LOOP_LENGTH_RESERVE + 1  # final step may emit the terminator
 
 
 def validate_causal_decode_steps(max_new_tokens):
     """Return a decode cap that fits the prompt's fixed answer budget."""
-    if (isinstance(max_new_tokens, bool) or not isinstance(max_new_tokens, int)
-            or not 1 <= max_new_tokens <= CAUSAL_DECODE_STEPS):
-        raise ValueError(
-            f"max_new_tokens must be an integer in [1, {CAUSAL_DECODE_STEPS}]: prompts reserve "
-            f"{LOOP_LENGTH_RESERVE} residues plus one <eos> step")
-    return max_new_tokens
+    return validate_decode_steps(max_new_tokens, CAUSAL_DECODE_STEPS,
+                                 f"prompts reserve {LOOP_LENGTH_RESERVE} residues plus one <eos> step")
 
 
 def build_causal_prompt(tokenizer, framework):
-    """Return (prompt_ids, meta) for one framework: ``pt1 <mask> pt2 <sep>``.
+    """Return (prompt_ids, metadata) for training or generation.
 
-    The answer reserve is deliberately not an argument. It must stay independent of both native
-    length and generation settings so training and inference build byte-identical prompts; making
-    it overridable would leave the prompt-divergence bug one keyword away from returning.
+    framework supplies pt1, pt2, partner_chain, antigen and max_len. It may contain
+    target/target_length, but neither is read here or passed to the layout builder.
+    inject_context caps the flanks after reserving the fixed answer and layout
+    overhead. Its existing tokenizer-wrapper allowance is also retained.
+
+    Metadata reports retained flank token counts (including injected context) and
+    the answer reserve. Raise if the budget cannot hold the layout and reserve,
+    or if the layout emits invalid tokens, wrong overhead or an empty prompt.
     """
     t = tokenizer
     layout = layout_for(t)
-    pt1_ids = t.encode(framework["pt1"])
-    pt2_ids = t.encode(framework["pt2"])
+    _validate_layout_header(layout, t)
+    max_len = framework["max_len"]
+    reserved = LOOP_LENGTH_RESERVE + layout.n_layout_tokens
+    if max_len < reserved:
+        raise ValueError(
+            f"max_len={max_len} cannot hold the {LOOP_LENGTH_RESERVE}-token answer reserve "
+            f"plus {layout.n_layout_tokens} layout tokens for {layout.id!r}; "
+            f"raise max_len to >= {reserved}.")
 
-    # Reserve the answer AND the three layout tokens, so a capped prompt still leaves room to finish.
     pt1_ids, pt2_ids = inject_context(
-        t, pt1_ids, pt2_ids, LOOP_LENGTH_RESERVE + layout.n_layout_tokens,
+        t, t.encode(framework["pt1"]), t.encode(framework["pt2"]), reserved,
         partner_seq=framework["partner_chain"], antigen_seq=framework["antigen"],
-        max_len=framework["max_len"],
+        max_len=max_len,
     )
-    prompt = layout.build_prompt(t, pt1_ids, pt2_ids, framework)
-
-    # The flanks are truncatable; the answer is not. Once context is capped to nothing the prompt is
-    # just <mask><sep>, and a max_len below reserve+3 can only be honoured by cutting the loop the
-    # model is supposed to learn. Silently returning an over-length example would surface much later
-    # as a position-embedding overflow, so fail here, where the cause is named.
-    minimum = LOOP_LENGTH_RESERVE + layout.n_layout_tokens
-    if framework["max_len"] < minimum:
+    prompt = _build_layout_prompt(layout, t, pt1_ids, pt2_ids, max_len)
+    required = len(prompt) + CAUSAL_DECODE_STEPS
+    if required > max_len:
         raise ValueError(
-            f"max_len={framework['max_len']} cannot hold a {LOOP_LENGTH_RESERVE}-residue loop: "
-            "the answer plus "
-            f"its <mask>/<sep>/<eos> needs at least {minimum} positions, and truncating it would "
-            f"corrupt the training target. Raise max_len to >= {minimum}."
-        )
-    if framework["target_length"] > LOOP_LENGTH_RESERVE:
-        raise ValueError(
-            f"loop of {framework['target_length']} residues exceeds the "
-            f"{LOOP_LENGTH_RESERVE}-position reserve, "
-            f"so the assembled example could overflow max_len. Raise LOOP_LENGTH_RESERVE.")
+            f"span layout {layout.id!r}: prompt plus answer reserve and terminator "
+            f"needs {required} positions, over max_len={max_len}.")
     return prompt, {
         "pt1_len": len(pt1_ids), "pt2_len": len(pt2_ids),
         "reserve": LOOP_LENGTH_RESERVE,
@@ -276,19 +311,44 @@ def build_causal_prompt(tokenizer, framework):
 
 
 class CausalInfillingDataset(AntibodyFrameworkDataset):
-    """One processed entry -> a causal span-infilling example, supervised on the answer only."""
+    """Processed records -> causal examples, using the base dataset's arguments.
+
+    Inherit target selection and context dropout from AntibodyFrameworkDataset.
+    Validate the adapter's layout at construction; tokenize/cap each example when
+    indexed. Only the target and its terminator receive labels other than -100.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        validate_layout(layout_for(self.tokenizer), self.tokenizer)
 
     def __getitem__(self, idx):
+        """Return input_ids/labels tensors and integer prompt/target/flank lengths.
+
+        Labels are unshifted; the causal model handles the one-position loss shift.
+        target_len excludes the terminator. pt1_len counts the capped left context,
+        including any injected context; a custom layout may place it differently.
+        """
         framework = self.framework_parts(idx)
         t = self.tokenizer
-        prompt, meta = build_causal_prompt(t, framework)
         target_ids = t.encode(framework["target"])
-        answer = layout_for(t).build_answer(t, target_ids)
+        if len(target_ids) > LOOP_LENGTH_RESERVE:
+            raise ValueError(
+                f"loop of {len(target_ids)} residues exceeds the {LOOP_LENGTH_RESERVE}-position "
+                "reserve, so the assembled example could overflow max_len. "
+                "Raise LOOP_LENGTH_RESERVE.")
+        prompt, meta = build_causal_prompt(t, framework)
+        answer = build_layout_answer(layout_for(t), t, target_ids)
 
         input_ids = prompt + answer
+        if len(input_ids) > self.max_len:
+            raise ValueError(
+                f"assembled causal example is {len(input_ids)} tokens, over "
+                f"max_len={self.max_len}: a {len(prompt)}-token prompt plus a "
+                f"{len(answer)}-token answer. The flanks are capped before this point, so "
+                "raise max_len.")
         labels = [-100] * len(prompt) + answer      # the prompt is given, not predicted
 
-        assert len(input_ids) == len(labels)
         return {
             "input_ids": torch.tensor(input_ids, dtype=torch.long),
             "labels": torch.tensor(labels, dtype=torch.long),
@@ -299,23 +359,16 @@ class CausalInfillingDataset(AntibodyFrameworkDataset):
 
 
 def causal_collate_fn(batch, pad_token_id=0):
-    """Pad a batch to its longest example.
+    """Right-pad training examples; return only input_ids, labels, attention_mask.
 
-    Padding is on the RIGHT, which is correct for teacher-forced training because every supervised
-    position is already labelled and the pad positions are -100. Batched *generation* wants
-    left-padding instead, so a sampler should pad its own prompts rather than reuse this.
+    Token padding uses pad_token_id; label padding uses -100 to exclude it from
+    loss. Attention comes from actual lengths, even if a real token equals the
+    padding ID. Per-example metadata is omitted from the model inputs. Generation
+    constructs its own prompt batches rather than using this training collator.
     """
-    input_ids = [item["input_ids"] for item in batch]
-    labels = [item["labels"] for item in batch]
-    input_ids_padded = torch.nn.utils.rnn.pad_sequence(
-        input_ids, batch_first=True, padding_value=pad_token_id)
-    labels_padded = torch.nn.utils.rnn.pad_sequence(
-        labels, batch_first=True, padding_value=-100)
-    attention_mask = torch.zeros_like(input_ids_padded)
-    for row, item in enumerate(input_ids):
-        attention_mask[row, :len(item)] = 1     # explicit: a real pad id may also be a real residue
+    input_ids = pad_batch(batch, "input_ids", pad_token_id)
     return {
-        "input_ids": input_ids_padded,
-        "labels": labels_padded,
-        "attention_mask": attention_mask,
+        "input_ids": input_ids,
+        "labels": pad_batch(batch, "labels", -100),
+        "attention_mask": length_mask(input_ids, batch, "input_ids"),
     }

@@ -8,7 +8,7 @@ import functools
 
 from transformers import set_seed
 
-from cdrseqgen.datasets.dataset_mlm import collate_fn
+from cdrseqgen.datasets.dataset_mlm import mlm_collate_fn
 from cdrseqgen.methods.mlm.arguments import setup_args
 from cdrseqgen.methods.mlm.backbones import resolve
 from cdrseqgen.methods.mlm.losses import MLMLossTrainer, loss_config_from_args
@@ -63,7 +63,7 @@ def main():
         loss_config=loss_config,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        data_collator=functools.partial(collate_fn, pad_token_id=tokenizer.pad_id),
+        data_collator=functools.partial(mlm_collate_fn, pad_token_id=tokenizer.pad_id),
         compute_metrics=functools.partial(compute_metrics, trim=loss_config.anchor_trim),
         callbacks=build_callbacks(model_args, training_args, logger),
     )

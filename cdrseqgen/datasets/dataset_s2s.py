@@ -1,69 +1,45 @@
 """Encoder-decoder view of the antibody data: two-stream span-infilling examples.
 
-The third view, beside :mod:`cdrseqgen.datasets.dataset_mlm` (masked) and
-:mod:`cdrseqgen.datasets.dataset_ar` (causal). All three build on the method-neutral
-:mod:`cdrseqgen.datasets.dataset_common`, which owns framework/target splitting, context injection,
-length capping and context dropout.
-
-  * Seq2SeqTokenizer          -- the shared 25-token vocab plus <bos>/<eos>
-  * s2s_adapter               -- TokenizerAdapter exposing bos_id/eos_id
-  * build_encoder_input       -- framework parts -> the sequence the ENCODER reads
-  * build_decoder_pair        -- target -> (decoder_input_ids, labels), teacher-forced
-  * Seq2SeqInfillingDataset   -- one processed entry -> a two-stream example
-  * s2s_collate_fn            -- pad both streams independently
-
-Why a third method: the matched masked-vs-causal comparison (2026-09-04) ties on everything
-native-referenced and separates only on judged plausibility, where causal leads 3.15 to 7.55. The
-most economical explanation is the loop factorisation rather than the framework conditioning — a
-masked LM's independent decoder samples every loop position from one pass, each ignorant of the
-others, while a causal model conditions each residue on its predecessors. Encoder-decoder keeps
-that factorisation and restores the one thing the masked side had: a bidirectional read of the
-framework. It is the missing cell of the 2x2, not a new idea.
-
-The layout is:
+Default layout:
 
     encoder:  pt1  <mask>  pt2                     (read once, bidirectionally)
     decoder:  <bos>  target                        (input, teacher-forced)
     labels:          target  <eos>                 (shifted one position left)
 
-**Two streams, not one sequence, and that is the whole structural difference from `ar`.** The causal
-method writes ``pt1 <mask> pt2 <sep> target <eos>`` into a single sequence under one causal mask, so
-(a) ``pt1`` is encoded without ever attending to ``pt2``, and (b) the answer must be budgeted for
-inside ``max_len`` before it exists. Splitting the streams removes both:
+Seq2SeqInfillingDataset:
+  * __getitem__     -- encoder stream + teacher-forced decoder pair, with the loop
+                       checked against the decoder's residue budget
+  * (remaining methods inherited from AntibodyFrameworkDataset)
 
-  * **The framework is read bidirectionally.** FR1 and FR4 inform each other before a single residue
-    is emitted, instead of only FR4 being informed by FR1. Note this is a difference in how the
-    framework is *encoded*, not in what the decoder can see: the causal method already puts both
-    flanks in the prompt, so `ar` conditions on FR4 too. Anyone reading this expecting "ar cannot
-    see the right flank" has the wrong picture.
+Seq2SeqTokenizer:
+  * the shared 25-token vocab with <bos>/<eos> appended at 25/26, so ids 0-24 keep
+    their meaning and existing checkpoints' embedding tables still match
 
-  * **``LOOP_LENGTH_RESERVE`` does not exist here, and that is a real fix rather than a tidy-up.**
-    The causal prompt must hold back 96 positions of ``max_len`` for a loop it has not generated,
-    and that reserve competes with optional context for the same budget: raising it 40 -> 96 cut the
-    light chain the ``_lc`` runs exist to supply from ~96% retained to ~45%, silently, and forced
-    the AR configs to ``max_len 384``. Here the encoder spends exactly ONE token on the gap marker
-    and the decoder has an independent budget, so context gets the whole cap. An `s2s` config at
-    ``max_len 256`` therefore holds strictly more context than an `ar` config at 256, which is worth
-    remembering before putting the two in one table.
+Utility functions:
+  * s2s_adapter                 -- TokenizerAdapter exposing bos_id/eos_id
+  * build_encoder_input         -- framework parts -> the sequence the ENCODER reads
+  * build_decoder_pair          -- target -> (decoder_input_ids, labels), teacher-forced
+  * s2s_collate_fn              -- pad both streams independently
+  * validate_s2s_decode_steps   -- bound sampling by the decoder's residue budget
 
-Length comes free, exactly as in `ar`: the decoder stops at ``<eos>``. Findings §10's gap-sentinel
-classifier has no counterpart, and §9 already put the achievable ceiling at 11.07% / 3.01 MAE via a
-non-neural V/J lookup, so length here is reported, not optimised.
-
-Loss covers the decoder stream only. There is no ``-100`` prefix to mask out — unlike the causal
-layout, the framework is not in the supervised stream at all, so "answer-only loss" is structural
-rather than something the labels have to encode.
-
-On the vocabulary: ``<bos>``/``<eos>`` are APPENDED at ids 25/26 and the first 25 ids are untouched,
-matching :class:`cdrseqgen.datasets.dataset_ar.CausalTokenizer` exactly. The construction is duplicated
-rather than imported so the two methods stay independently testable; ``test_dataset_s2s`` asserts
-the two vocabularies agree token-for-token, which is the failure that duplication could cause. If a
-fourth generative method needs it, move it to ``dataset_common`` then.
+Notes:
+  * No LOOP_LENGTH_RESERVE here: the encoder spends one token on the gap marker and the
+    decoder has its own budget, so context gets the whole cap. An s2s config at max_len 256
+    holds strictly more context than an ar config at 256 — worth remembering before putting
+    the two in one table.
+  * Loss covers the decoder stream only, structurally: the framework is never in the
+    supervised stream, so there is no -100 prefix for the labels to encode.
+  * The vocab construction is duplicated from dataset_ar rather than imported, to keep the
+    two methods independently testable. `test_dataset_s2s` asserts they agree token-for-token
+    — that is the failure duplication could cause. Move it to dataset_common if a fourth
+    method needs it.
 """
+
 import torch
 
 from cdrseqgen.datasets.dataset_common import (AntibodyFrameworkDataset, AntibodyTokenizer,
-                                           TokenizerAdapter, inject_context)
+                                           TokenizerAdapter, inject_context,
+                                            pad_batch, length_mask, validate_decode_steps)
 
 
 BOS = "<bos>"
@@ -85,25 +61,9 @@ class Seq2SeqTokenizer(AntibodyTokenizer):
         self.eos_id = self.tok_to_id[EOS]
 
 
-# The encoder spends exactly one non-residue position: the gap marker. Compare the causal layout's
-# three (<mask>, <sep>, <eos>) — the separator is unnecessary when the answer is not in this stream,
-# and the terminator belongs to the decoder.
 ENCODER_LAYOUT_TOKENS = 1
-
-# Longest loop the decoder may produce, and the cap on generated residues.
-#
-# Sized from data with headroom, NOT fitted to the corpus of the day — the causal side's equivalent
-# constant was twice set to the exact maximum of the corpus in hand and twice broken by the next one
-# (40 was the exact OAS max; SAbDab2 holds a 63-residue H3; OAS4 then arrived with a 49). Longest
-# loop across every processed corpus on record is 63, so 96 is ~1.5x the worst case.
-#
-# Unlike LOOP_LENGTH_RESERVE this competes with NOTHING. It bounds the decoder stream only, so
-# raising it costs decode steps and never trims a residue of framework or partner-chain context.
 MAX_LOOP_RESIDUES = 96
-# Decoding needs one further step for the terminator: a 40-residue loop is complete only once the
-# 41st prediction emits <eos>.
 S2S_DECODE_STEPS = MAX_LOOP_RESIDUES + 1
-
 
 def s2s_adapter(tokenizer=None, position_type="relative"):
     """A TokenizerAdapter for encoder-decoder use, exposing <bos>/<eos>.
@@ -134,12 +94,8 @@ def s2s_adapter(tokenizer=None, position_type="relative"):
 
 def validate_s2s_decode_steps(max_new_tokens):
     """Return a decode cap that fits the decoder's residue budget."""
-    if (isinstance(max_new_tokens, bool) or not isinstance(max_new_tokens, int)
-            or not 1 <= max_new_tokens <= S2S_DECODE_STEPS):
-        raise ValueError(
-            f"max_new_tokens must be an integer in [1, {S2S_DECODE_STEPS}]: the decoder allows "
-            f"{MAX_LOOP_RESIDUES} residues plus one <eos> step")
-    return max_new_tokens
+    return validate_decode_steps(max_new_tokens, S2S_DECODE_STEPS,
+                                 f"the decoder allows {MAX_LOOP_RESIDUES} residues plus one <eos> step")
 
 
 def build_encoder_input(tokenizer, framework):
@@ -224,26 +180,13 @@ def s2s_collate_fn(batch, pad_token_id=0, encoder_pad_token_id=None):
     and the pad positions are -100. PLM encoders can use a different pad id from the residue decoder.
     Sampling encodes one unpadded framework at a time and shares it across candidates.
     """
-    def pad(key, value):
-        return torch.nn.utils.rnn.pad_sequence(
-            [item[key] for item in batch], batch_first=True, padding_value=value)
-
-    input_ids = pad("input_ids", pad_token_id if encoder_pad_token_id is None
-                    else encoder_pad_token_id)
-    decoder_input_ids = pad("decoder_input_ids", pad_token_id)
-
-    # Explicit, not `input_ids != pad_token_id`: a real pad id may also be a real residue id.
-    attention_mask = torch.zeros_like(input_ids)
-    for row, item in enumerate(batch):
-        attention_mask[row, :len(item["input_ids"])] = 1
-    decoder_attention_mask = torch.zeros_like(decoder_input_ids)
-    for row, item in enumerate(batch):
-        decoder_attention_mask[row, :len(item["decoder_input_ids"])] = 1
-
+    encoder_pad = pad_token_id if encoder_pad_token_id is None else encoder_pad_token_id
+    input_ids = pad_batch(batch, "input_ids", encoder_pad)
+    decoder_input_ids = pad_batch(batch, "decoder_input_ids", pad_token_id)
     return {
         "input_ids": input_ids,
-        "attention_mask": attention_mask,
+        "attention_mask": length_mask(input_ids, batch, "input_ids"),
         "decoder_input_ids": decoder_input_ids,
-        "decoder_attention_mask": decoder_attention_mask,
-        "labels": pad("labels", -100),
+        "decoder_attention_mask": length_mask(decoder_input_ids, batch, "decoder_input_ids"),
+        "labels": pad_batch(batch, "labels", -100),
     }

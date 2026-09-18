@@ -394,7 +394,7 @@ def build_judge(model_type, weights_path=None, *, data_path, max_len, target_reg
     """
     # Local imports: a heavy registry and the masked dataset are only needed when a judge is asked
     # for, and importing them at module load would drag transformers into every plotting script.
-    from cdrseqgen.datasets.dataset_mlm import AntibodyInfillingDataset
+    from cdrseqgen.datasets.dataset_mlm import MaskedInfillingDataset
     from cdrseqgen.methods.mlm.backbones import resolve
 
     judge_backbone = resolve(model_type)
@@ -404,7 +404,7 @@ def build_judge(model_type, weights_path=None, *, data_path, max_len, target_reg
         judge_model.to(device)
     judge_model.eval()
 
-    judge_dataset = AntibodyInfillingDataset(
+    judge_dataset = MaskedInfillingDataset(
         data_path, judge_tokenizer,
         max_len=max_len,
         target_region=target_region,

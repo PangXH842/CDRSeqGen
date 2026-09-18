@@ -1,6 +1,6 @@
 """Main training pipeline. Dataset -> training -> generative eval
 
-  * get_datasets             -- tokenizer + AntibodyInfillingDataset + the train/eval split
+  * get_datasets             -- tokenizer + MaskedInfillingDataset + the train/eval split
   * post_training_generation -- sample from the finished model into generation_eval.json
 
 Notes:
@@ -19,7 +19,7 @@ from typing import Tuple
 import torch
 
 from cdrseqgen.datasets.dataset_common import select_split_indices, evaluation_context_view
-from cdrseqgen.datasets.dataset_mlm import AntibodyInfillingDataset
+from cdrseqgen.datasets.dataset_mlm import MaskedInfillingDataset
 from cdrseqgen.methods.common.training import run_training_pipeline  # re-export for old callers
 from cdrseqgen import artifacts
 
@@ -28,13 +28,13 @@ logger = logging.getLogger(__name__)
 
 def get_datasets(model_args, data_args, training_args, backbone, *, checkpoint_path=None) -> Tuple[torch.utils.data.Dataset, torch.utils.data.Dataset, any]:
     """Handles tokenizer selection, dataset loading, and splitting."""
-    # Load TokenizerAdapter from dataset.py as tokenizer.
+    # Load TokenizerAdapter from dataset_common.py as tokenizer.
     tokenizer = backbone.build_tokenizer(model_args.model_type, checkpoint_path=checkpoint_path)
     masking_policy = getattr(data_args, "masking_policy", "full_span")
     mixed_full_span_probability = getattr(data_args, "mixed_full_span_probability", 0.5)
 
     # Dataset Loading
-    full_dataset = AntibodyInfillingDataset(
+    full_dataset = MaskedInfillingDataset(
         data_args.data_path,
         tokenizer,
         max_len=data_args.max_len,

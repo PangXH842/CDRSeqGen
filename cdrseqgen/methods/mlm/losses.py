@@ -105,7 +105,7 @@ def _cross_entropy(logits, labels, _target_offsets, _target_lengths, config):
 def _weighted_cross_entropy(logits, labels, target_offsets, target_lengths, config):
     if target_offsets is None or target_lengths is None:
         raise ValueError(
-            "weighted_cross_entropy requires target_offsets and target_lengths from collate_fn"
+            "weighted_cross_entropy requires target_offsets and target_lengths from mlm_collate_fn"
         )
     if target_offsets.shape != labels.shape:
         raise ValueError(

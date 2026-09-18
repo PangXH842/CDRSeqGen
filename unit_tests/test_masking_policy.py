@@ -7,10 +7,10 @@ from types import SimpleNamespace
 import torch
 
 from cdrseqgen.datasets.dataset_mlm import (
-    AntibodyInfillingDataset,
+    MaskedInfillingDataset,
     AntibodyTokenizer,
     TokenizerAdapter,
-    collate_fn,
+    mlm_collate_fn,
     normalize_masking_policy,
 )
 from cdrseqgen.methods.mlm.training import get_datasets
@@ -53,7 +53,7 @@ class MaskingPolicyTests(unittest.TestCase):
         self.temp.cleanup()
 
     def _dataset(self, **kwargs):
-        return AntibodyInfillingDataset(
+        return MaskedInfillingDataset(
             str(self.path), self.tokenizer, target_region="h1", **kwargs
         )
 
@@ -87,7 +87,7 @@ class MaskingPolicyTests(unittest.TestCase):
     def test_collate_preserves_padded_loss_metadata(self):
         first = self._dataset()[0]
         second = self._dataset()[1]
-        batch = collate_fn([first, second], pad_token_id=self.tokenizer.pad_id)
+        batch = mlm_collate_fn([first, second], pad_token_id=self.tokenizer.pad_id)
         self.assertEqual(batch["target_offsets"].shape, batch["labels"].shape)
         self.assertEqual(batch["target_lengths"].tolist(), [4, 4])
 

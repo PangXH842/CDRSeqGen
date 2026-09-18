@@ -8,7 +8,7 @@ import logging
 from transformers import set_seed
 
 from cdrseqgen.methods.ar.arguments import setup_args
-from cdrseqgen.methods.ar.backbones import resolve
+from cdrseqgen.methods.ar.backbones import resolve, record_training_layout
 from cdrseqgen.methods.ar.training import build_causal_trainer, get_datasets
 from cdrseqgen.methods.common import build_callbacks
 from cdrseqgen.train.logging import configure_logging, update_latest_link
@@ -45,6 +45,7 @@ def main():
         intermediate_size=model_args.intermediate_size,
         max_len=data_args.max_len,
     )
+    record_training_layout(model, tokenizer, training_args.output_dir)
     trainer = build_causal_trainer(model, training_args, train_dataset, eval_dataset, tokenizer,
                                    callbacks=build_callbacks(model_args, training_args, logger),
                                    trim=model_args.anchor_trim)

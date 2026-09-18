@@ -1,4 +1,4 @@
-"""Offline preprocessing: raw downloads -> the processed JSON that dataset.py consumes.
+"""Offline preprocessing: raw downloads -> the processed JSON the dataset_*.py classes read.
 
 Runs once per dataset, from the repo root:
 
@@ -14,5 +14,6 @@ Runs once per dataset, from the repo root:
 
 Every source emits the same entry schema, so downstream code never branches on dataset; only the
 extraction step differs (OAS lifts ready-made region columns, SAbDab2 folds up per-residue
-numbering). The runtime half that reads this output is ../dataset.py.
+numbering). The runtime half that reads this output is ../dataset_common.py, with one view
+per method in ../dataset_{mlm,ar,s2s}.py.
 """

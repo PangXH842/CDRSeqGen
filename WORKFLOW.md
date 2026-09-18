@@ -26,7 +26,9 @@ raw downloads and processed JSON/metadata live in root `data/raw/` and `data/pro
 The existing data was moved without reprocessing. This checkout retains the gitignored symlink
 `dataset/data -> ../data`, so historical configs and absolute paths still resolve. Saved run
 configs, manifests and result provenance retain their original paths. New commands/configs use
-`data/`; preprocessing is invoked as `python -m cdrseqgen.datasets.preprocess.<source>`.
+`data/`; preprocessing is invoked as `python -m cdrseqgen.datasets.preprocess.<source>`, or
+equivalently `python -m cdrseqgen.datasets.preprocess --source <source>` -- both run the same
+pipeline in `preprocess/__main__.py`.
 On another checkout with historical runs, recreate the compatibility path with
 `mkdir -p dataset` followed by `ln -s ../data dataset/data` if that path does not already exist.
 A directory migration does not make old experiment plans resumable under changed source code;

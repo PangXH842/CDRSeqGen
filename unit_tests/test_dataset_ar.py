@@ -140,12 +140,12 @@ class CapTests(unittest.TestCase):
 
     def test_a_loop_longer_than_the_reserve_is_refused(self):
         # Otherwise the assembled example could overflow max_len without anyone noticing.
-        from cdrseqgen.datasets.dataset_ar import LOOP_LENGTH_RESERVE
-        framework = {"pt1": "AAAA", "pt2": "HHHH", "target": "G" * (LOOP_LENGTH_RESERVE + 1),
-                     "target_length": LOOP_LENGTH_RESERVE + 1, "partner_chain": None,
-                     "antigen": None, "max_len": 256}
-        with self.assertRaises(ValueError):
-            build_causal_prompt(self.adapter, framework)
+        record = dict(RECORD, heavy=dict(RECORD["heavy"], cdr3="G" * (LOOP_LENGTH_RESERVE + 1)))
+        with open(self.path, "w") as handle:
+            json.dump([record], handle)
+        ds = CausalInfillingDataset(self.path, self.adapter, target_region="h3", max_len=256)
+        with self.assertRaisesRegex(ValueError, "exceeds.*reserve"):
+            ds[0]
 
     def test_the_fixed_reserve_cannot_be_overridden(self):
         # Native length or decode settings must never affect flank truncation again.
