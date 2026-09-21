@@ -248,26 +248,25 @@ CDRSeqGen/
 ---
 
 ## ⚙️ Environment Setup
-This project uses Conda for strict CUDA handling and pip for Hugging Face tools.
 
-1. Run the setup script:
-   ```bash
-   chmod +x env.sh
-   ./env.sh
-   ```
-2. Activate the environment:
-   ```bash
-   conda activate cdrprj
-   ```
-3. Run the tests to check the environment:
-   ```bash
-   ./scripts/unit_tests.sh                      # whole suite, a few seconds
-   ./scripts/unit_tests.sh test_length_policy   # one module
-   ```
-   The `unittest` suite combines synthetic fixtures, real tiny scratch and HF ESM/BERT models,
-   checkpoint reloads, and isolated shell-runner checks. It needs no GPU, downloaded weights, or
-   research dataset. See [the test guide](unit_tests/README.md) for guarantees and limitations.
-   The test runner sets the working directory and `PYTHONPATH` for consistent discovery.
+Create the separate training/scoring (`cdrprj`) and IgLM baseline (`iglm`)
+environments from the pinned migration requirements:
+
+```bash
+bash env.sh                              # creates both; refuses existing names
+bash scripts/verify_env.sh                # checks dependencies, GPUs, and plotting
+conda run --no-capture-output -n cdrprj bash scripts/unit_tests.sh
+conda activate cdrprj
+```
+
+Use `bash env.sh cdrprj` or `bash env.sh iglm` to create only one environment.
+The baseline uses Python 3.11 and CUDA 12.8 PyTorch wheels. Check destination
+hardware/driver compatibility before installing. For intentional CPU-only
+validation, run `bash scripts/verify_env.sh all --cpu`.
+
+See [Environment and migration notes](ENVIRONMENT.md) for captured versions,
+validation limits, and the data, model caches, and results that must move outside
+Git. See [the test guide](unit_tests/README.md) for the CPU unittest suite.
 
 ---
 
