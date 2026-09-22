@@ -1,8 +1,8 @@
 """Training entrypoint — dispatches to the method a config declares.
 
-    python train.py configs/h3_scratch.json                 # masked-LM (the default)
-    python train.py configs/h3_ar_scratch.json              # autoregressive
-    python train.py configs/h3_scratch.json --learning_rate 3e-4 --num_train_epochs 20
+    python train.py configs/mlm/heavy/h3_scratch.json                 # masked-LM (the default)
+    python train.py configs/ar/h3_ar_scratch.json              # autoregressive
+    python train.py configs/mlm/heavy/h3_scratch.json --learning_rate 3e-4 --num_train_epochs 20
     python train.py --method ar --target_region h3          # bare CLI, no config file
 
 The method comes from the config's ``"method"`` key, or a ``--method`` flag, and defaults to ``mlm``

@@ -31,8 +31,10 @@ class ExperimentRunnerTests(unittest.TestCase):
         self.corpus.write_text(json.dumps(
             [{'split': s, 'heavy': {'full_aa': 'H'}, 'light': {'full_aa': 'L'}}
              for s in ('train', 'validation', 'test')]))
-        for p in (self.workspace / 'configs').glob('*.json'):
+        for p in (self.workspace / 'configs').rglob('*.json'):
             config = json.loads(p.read_text())
+            if 'target_region' not in config:
+                continue
             config.update(data_path=str(self.corpus), eval_split='validation')
             p.write_text(json.dumps(config))
         (self.workspace / 'train.py').write_text('''
@@ -166,8 +168,8 @@ os.execv(sys.executable, [sys.executable, *args])
             self.assertEqual(trial['config'].get('gen_seed', 42), 42)
 
     def test_sweep_alias_produces_identical_plan_and_dry_run_writes_no_outputs(self):
-        first = self.plan('2,5', 'sweep', 'lr', 'configs/h3_s2s_scratch.json')
-        result = self.invoke('2,5', 'lr', 'configs/h3_s2s_scratch.json',
+        first = self.plan('2,5', 'sweep', 'lr', 'configs/s2s/h3_s2s_scratch.json')
+        result = self.invoke('2,5', 'lr', 'configs/s2s/h3_s2s_scratch.json',
                              script='sweep.sh', DRY_RUN='1')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(first, json.loads(result.stdout[result.stdout.index('{'):]))
@@ -176,7 +178,7 @@ os.execv(sys.executable, [sys.executable, *args])
 
     def test_each_architecture_dimension_can_vary_without_the_other(self):
         for method in ('ar', 's2s'):
-            base = f'configs/h3_{method}_scratch.json'
+            base = f'configs/{method}/h3_{method}_scratch.json'
             plan = self.plan('0', 'sweep', 'lr', base, NUM_LAYERS='2 6', LRS='1e-4', SEEDS='42')
             self.assertEqual([t['config']['num_layers'] for t in plan['trials']], [2, 6])
             self.assertEqual({t['config']['hidden_size'] for t in plan['trials']}, {128})
@@ -195,29 +197,29 @@ os.execv(sys.executable, [sys.executable, *args])
         unpaired = self.workspace / 'unpaired.json'
         unpaired.write_text(json.dumps([{'split': s, 'heavy': {'full_aa': 'H'}, 'light': None}
                                         for s in ('train', 'validation', 'test')]))
-        for name in ('configs/h3_scratch_lc.json', 'configs/h3_scratch.json'):
+        for name in ('configs/mlm/heavy/h3_scratch_lc.json', 'configs/mlm/heavy/h3_scratch.json'):
             path = self.workspace / name
             config = json.loads(path.read_text())
             config['data_path'] = str(unpaired)
             path.write_text(json.dumps(config))
 
-        result = self.invoke('0', 'sweep', 'lr', 'configs/h3_scratch_lc.json')
+        result = self.invoke('0', 'sweep', 'lr', 'configs/mlm/heavy/h3_scratch_lc.json')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('partner-chain', result.stderr)
         self.assertIn('light', result.stderr)
         self.assertFalse(self.records(), "nothing may train before the gate rejects the plan")
 
         # The same corpus is fine for a run that never asks for the partner chain.
-        plan = self.plan('0', 'sweep', 'lr', 'configs/h3_scratch.json')
+        plan = self.plan('0', 'sweep', 'lr', 'configs/mlm/heavy/h3_scratch.json')
         self.assertEqual({t['config']['data_path'] for t in plan['trials']}, {str(unpaired)})
 
     def test_both_modes_honor_config_corpus_and_reject_missing_antigen_before_training(self):
-        for args in (('0', 'mlm_antigen'), ('0', 'sweep', 'lr', 'configs/h3_scratch_ag.json')):
+        for args in (('0', 'mlm_antigen'), ('0', 'sweep', 'lr', 'configs/mlm/antigen/h3_scratch_ag.json')):
             result = self.invoke(*args)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('antigen', result.stderr)
             self.assertFalse(self.records())
-        base = self.workspace / 'configs/h3_scratch_ag.json'
+        base = self.workspace / 'configs/mlm/antigen/h3_scratch_ag.json'
         config = json.loads(base.read_text())
         antigen = self.workspace / 'antigen.json'
         antigen.write_text(json.dumps(
@@ -239,7 +241,7 @@ os.execv(sys.executable, [sys.executable, *args])
         result = self.invoke('0', 'sweep', 'lr')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('validation', result.stderr)
-        result = self.invoke('0', 'sweep', 'loss', 'configs/h3_ar_scratch.json')
+        result = self.invoke('0', 'sweep', 'loss', 'configs/ar/h3_ar_scratch.json')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Loss sweeps require MLM', result.stderr)
         self.assertFalse(self.records())
@@ -252,7 +254,7 @@ os.execv(sys.executable, [sys.executable, *args])
 
     def test_resume_skips_only_matching_completed_trials_and_retries_missing_artifacts(self):
         output = str(self.workspace / 'resume')
-        args = ('0,1', 'sweep', 'lr', 'configs/h3_s2s_scratch.json')
+        args = ('0,1', 'sweep', 'lr', 'configs/s2s/h3_s2s_scratch.json')
         overrides = dict(EXPERIMENT_DIR=output, LRS='1e-4', SEEDS='42 43')
         first = self.invoke(*args, **overrides)
         self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
@@ -273,12 +275,12 @@ os.execv(sys.executable, [sys.executable, *args])
 
     def test_changed_method_scheduler_protocol_or_dataset_cannot_resume(self):
         output = str(self.workspace / 'resume')
-        args = ('0', 'sweep', 'lr', 'configs/h3_ar_scratch.json')
+        args = ('0', 'sweep', 'lr', 'configs/ar/h3_ar_scratch.json')
         options = dict(EXPERIMENT_DIR=output, LRS='1e-4', SEEDS='42')
         result = self.invoke(*args, **options)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         for changed_args, extra in (
-            (('0', 'sweep', 'lr', 'configs/h3_s2s_scratch.json'), {}),
+            (('0', 'sweep', 'lr', 'configs/s2s/h3_s2s_scratch.json'), {}),
             (args, {'SCHEDULER': 'cosine'}),
             (args, {'GEN_EVAL': 'true'}),
             (args, {'SELECT_METRIC': 'accuracy'}),

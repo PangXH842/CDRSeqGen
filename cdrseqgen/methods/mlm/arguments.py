@@ -11,7 +11,7 @@
                             on the CLI
 
 Notes:
-  * A config path is positional: `python train.py configs/h3_scratch.json`. Trailing flags OVERRIDE
+  * A config path is positional: `python train.py configs/mlm/heavy/h3_scratch.json`. Trailing flags OVERRIDE
     the JSON rather than replacing it, so one config plus a flag covers most one-off experiments.
   * The run folder is named from the RESOLVED arguments, not the config filename — `h3_scratch.json
     --target_region l3` produces an `l3_OAS_HC_scratch` folder, so an override can't be misfiled.

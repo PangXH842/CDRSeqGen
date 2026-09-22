@@ -26,7 +26,7 @@ from train import resolve_method
 
 class DispatcherTests(unittest.TestCase):
     def test_cli_method_override_remains_for_the_method_parser(self):
-        argv = ["train.py", "configs/h3_scratch.json", "--method", "ar"]
+        argv = ["train.py", "configs/mlm/heavy/h3_scratch.json", "--method", "ar"]
         method, routed = resolve_method(argv)
         self.assertEqual(method, "ar")
         self.assertEqual(routed, argv)
@@ -216,7 +216,7 @@ class Seq2SeqConfigTests(unittest.TestCase):
         from pathlib import Path
         for name in ("h3_s2s_scratch.json", "h3_s2s_scratch_lc.json"):
             with self.subTest(config=name):
-                config = json.loads((Path("configs") / name).read_text())
+                config = json.loads((Path("configs/s2s") / name).read_text())
                 self.assertEqual(config["method"], "s2s")
                 self.assertIn("num_encoder_layers", config)
                 self.assertIn("num_decoder_layers", config)

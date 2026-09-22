@@ -128,8 +128,8 @@ We use `.json` configuration files to manage hyperparameters cleanly. The traine
 
 **Run a Single Experiment:**
 ```bash
-CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_scratch.json       # masked-LM
-CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_ar_scratch.json    # autoregressive
+CUDA_VISIBLE_DEVICES=0 python train.py configs/mlm/heavy/h3_scratch.json       # masked-LM
+CUDA_VISIBLE_DEVICES=0 python train.py configs/ar/h3_ar_scratch.json    # autoregressive
 ```
 
 > **One entrypoint, three methods.** `train.py` dispatches on the config's `"method"` key — absent
@@ -157,8 +157,8 @@ environment once and invokes [cdrseqgen/experiments.py](cdrseqgen/experiments.py
 
 ```bash
 ./scripts/run.sh 0 compare
-./scripts/run.sh 0,1 sweep lr configs/h3_s2s_scratch.json
-./scripts/sweep.sh 0,1 lr configs/h3_s2s_scratch.json  # identical sweep
+./scripts/run.sh 0,1 sweep lr configs/s2s/h3_s2s_scratch.json
+./scripts/sweep.sh 0,1 lr configs/s2s/h3_s2s_scratch.json  # identical sweep
 DRY_RUN=1 ./scripts/run.sh 0 compare                  # inspect merged configs; write nothing
 ```
 
@@ -238,7 +238,7 @@ stop options remain reusable.
 ```
 
 **S2S pretrained encoders.** Start with `s2s_esm2`. The configs under
-`configs/h3_s2s_{esm2,igbert,protbert}[_lc].json` train a pretrained bidirectional encoder plus
+`configs/s2s/h3_s2s_{esm2,igbert,protbert}[_lc].json` train a pretrained bidirectional encoder plus
 our newly initialized residue decoder. These are encoder-pretrained models; the decoder has no
 pretrained weights. The encoder reads its own amino-acid ids, one native mask token, and native
 CLS/end wrappers. The decoder keeps the same 27-token vocabulary and EOS as scratch S2S.
@@ -257,9 +257,9 @@ FREEZE_ENCODER=true ./scripts/run.sh 0 s2s_esm2  # fixed encoder features; train
 ENCODER_INIT=random ./scripts/run.sh 0 s2s_esm2  # same architecture with a random encoder
 
 # Both controls work in sweep mode too. Keep each setting in its own experiment directory.
-LRS="1e-5 3e-5 1e-4" EPOCH_LIST="10" ./scripts/sweep.sh 0 lr configs/h3_s2s_esm2.json
+LRS="1e-5 3e-5 1e-4" EPOCH_LIST="10" ./scripts/sweep.sh 0 lr configs/s2s/h3_s2s_esm2.json
 # The corresponding config/CLI fields are encoder_init and freeze_encoder:
-CUDA_VISIBLE_DEVICES=0 python train.py configs/h3_s2s_esm2.json --freeze_encoder true
+CUDA_VISIBLE_DEVICES=0 python train.py configs/s2s/h3_s2s_esm2.json --freeze_encoder true
 ```
 
 `hidden_size`, `num_attention_heads`, `intermediate_size`, and `num_decoder_layers` configure
@@ -329,7 +329,7 @@ date/time lives on the batch folder and isn't repeated inside.
 
 **Tag a run** with `CDRSEQGEN_RUN_SUFFIX` to distinguish runs that resolve to the same name:
 ```bash
-CDRSEQGEN_RUN_SUFFIX=ablation_noLC python train.py configs/h3_scratch.json
+CDRSEQGEN_RUN_SUFFIX=ablation_noLC python train.py configs/mlm/heavy/h3_scratch.json
 #  -> results/<batch>/h3_OAS_scratch_ablation_noLC/
 ```
 `sweep.sh` tags every trial with its LR, warm-up, weight decay, epochs and seed, so folders are
@@ -340,13 +340,13 @@ still collide, the second becomes `..._2` with a logged warning; a run never sil
 A standalone `python train.py …` sets neither environment variable and retains the normal behavior.
 Export `CDRSEQGEN_RESULTS_ROOT` yourself to group manual runs:
 ```bash
-CDRSEQGEN_RESULTS_ROOT=results/runs/my_experiment python train.py configs/h3_scratch.json
+CDRSEQGEN_RESULTS_ROOT=results/runs/my_experiment python train.py configs/mlm/heavy/h3_scratch.json
 ```
 
 **Override a config from the CLI:** trailing flags override the JSON (they do **not** replace it), so any
 `TrainingArguments` field is tunable without writing a new config:
 ```bash
-python train.py configs/h3_scratch.json --learning_rate 3e-4 --num_train_epochs 20 --warmup_ratio 0.06
+python train.py configs/mlm/heavy/h3_scratch.json --learning_rate 3e-4 --num_train_epochs 20 --warmup_ratio 0.06
 ```
 
 The original `masking_policy: "full_span"` remains the default: every native CDR residue is replaced
@@ -354,7 +354,7 @@ by its own mask token. Opt into mixed-mask training when training a checkpoint f
 decoding:
 
 ```bash
-python train.py configs/h3_scratch.json \
+python train.py configs/mlm/heavy/h3_scratch.json \
     --masking_policy mixed --mixed_full_span_probability 0.5
 ```
 
@@ -371,12 +371,12 @@ so scratch, ESM-2, IgBert, and ProtBert use the same implementation. The first a
 the contribution of the hypervariable core relative to the easier loop anchors:
 
 ```bash
-python train.py configs/h3_scratch.json \
+python train.py configs/mlm/heavy/h3_scratch.json \
     --loss_type weighted_cross_entropy \
     --core_loss_weight 2.0 --anchor_loss_weight 1.0 --anchor_trim 2
 ```
 
-or, equivalently, from a config: [`configs/h3_scratch_weighted.json`](configs/h3_scratch_weighted.json)
+or, equivalently, from a config: [`configs/mlm/heavy/h3_scratch_weighted.json`](configs/mlm/heavy/h3_scratch_weighted.json)
 is `h3_scratch.json` plus the three loss keys and nothing else, so the two differ only in objective.
 
 The weighted objective is a weighted mean over supervised tokens, so only the core-to-anchor weight
@@ -435,7 +435,7 @@ sweep. The `loss` preset uses 100×10.
 
 **Sweeping a causal config** needs a free-running `RANK_METRIC`. `sweep.sh` is already
 method-neutral — it passes the base config to `train.py`, which dispatches on the config's `method`
-key, so `./scripts/sweep.sh <gpu> <preset> configs/h3_ar_scratch.json` runs unmodified. But the
+key, so `./scripts/sweep.sh <gpu> <preset> configs/ar/h3_ar_scratch.json` runs unmodified. But the
 defaults (`core`, and `SELECT_METRIC=core_accuracy`) are **teacher-forced**, and for a causal model
 teacher-forcing supplies the true loop prefix: a checkpoint can score 0.400 there while matching the
 native length 8% of the time free-running (2026-09-02). Use `length_match` for exact completed,
@@ -668,7 +668,7 @@ the generative metrics — overall **and bucketed by H3 length**, since difficul
 
 ```bash
 python evaluate.py \
-    --config configs/h3_esm2.json \
+    --config configs/mlm/heavy/h3_esm2.json \
     --model_dir results/20260710/20260710_184547_h3_OAS_esm2_t12_35M_UR50D \
     --num_examples 150 --stratify --num_samples 20 \
     --top_p 0.9 \
@@ -689,11 +689,11 @@ or fully inferred sweep:
 
 ```bash
 # inclusive range; either min or max may be omitted
-python evaluate.py --config configs/h3_esm2.json --model_dir results/path/to/run \
+python evaluate.py --config configs/mlm/heavy/h3_esm2.json --model_dir results/path/to/run \
     --length_mode bounded --min_length 11 --max_length 15 --num_samples 20
 
 # no native mask count is supplied to generation
-python evaluate.py --config configs/h3_esm2.json --model_dir results/path/to/run \
+python evaluate.py --config configs/mlm/heavy/h3_esm2.json --model_dir results/path/to/run \
     --length_mode inferred --num_samples 20
 ```
 

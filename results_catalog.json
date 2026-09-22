@@ -1,0 +1,65 @@
+{
+  "scratch_baseline": {
+    "historical_early_matrix": "results/runs/20260724_211745",
+    "historical_oas_sd2_matrix": "results/runs/20260729_202635",
+    "validation_oas_matrix": "results/runs/20260818_192606",
+    "ar_length_corrected": "results/runs/20260902_164544",
+    "s2s_scratch_pair": "results/runs/20260907_175340_s2s_heavy",
+    "three_method_comparison": "results/runs/20260908_173143_compare",
+    "pre_validation_oas_matrix": "results/runs/20260817_200051",
+    "early_ar_pair": "results/runs/20260901_171316"
+  },
+  "pretrained_models": {
+    "historical_oas_sd2_matrix": "results/runs/20260729_202635",
+    "validation_oas_matrix": "results/runs/20260818_192606",
+    "oas4_mlm_esm2": "results/runs/20260903_192305_mlm_heavy_ar_heavy",
+    "s2s_encoder_matrix": "results/runs/20260913_151152_463868_s2s_plm",
+    "pre_validation_oas_matrix": "results/runs/20260817_200051"
+  },
+  "partner_context": {
+    "validation_oas_matrix": "results/runs/20260818_192606",
+    "ar_length_corrected": "results/runs/20260902_164544",
+    "three_method_comparison": "results/runs/20260908_173143_compare",
+    "s2s_encoder_matrix": "results/runs/20260913_151152_463868_s2s_plm",
+    "context_dropout_screen": "results/runs/20260915_131629_103719_context_dropout",
+    "pre_validation_oas_matrix": "results/runs/20260817_200051",
+    "early_ar_pair": "results/runs/20260901_171316"
+  },
+  "context_dropout": {
+    "early_mlm_pilot": "results/runs/20260729_195134_ctxdrop",
+    "ar_s2s_screen": "results/runs/20260915_131629_103719_context_dropout"
+  },
+  "frozen_encoder": {
+    "igbert_three_arm_diagnostic": "results/runs/20260914_140305_226060_igbert_diagnostic"
+  },
+  "conditioning_diagnostics": {
+    "igbert_three_arm_diagnostic": "results/runs/20260914_140305_226060_igbert_diagnostic",
+    "igbert_collapse_report": "results/diagnostics/20260914_igbert",
+    "igbert_diagnostic_summary": "results/diagnostics/20260915_igbert_summary"
+  },
+  "length_free_generation": {
+    "ar_length_corrected": "results/runs/20260902_164544",
+    "oas4_scale_comparison": "results/runs/20260903_192305_mlm_heavy_ar_heavy",
+    "early_two_method_comparison": "results/runs/20260904_165550_compare",
+    "later_two_method_comparison": "results/runs/20260904_195146_compare",
+    "assembled_three_method_comparison": "results/runs/20260907_compare_spliced",
+    "three_method_comparison": "results/runs/20260908_173143_compare",
+    "s2s_encoder_matrix": "results/runs/20260913_151152_463868_s2s_plm"
+  },
+  "decoding_sampling": {
+    "validation_oas_matrix": "results/runs/20260818_192606"
+  },
+  "external_iglm_benchmark": {
+    "fixed_length_pilot": "results/benchmark/oas_h3_validation_smoke_v1",
+    "length_free_pilot": "results/benchmark/oas_h3_validation_length_free_v1"
+  },
+  "additional_seeds": {
+    "early_mlm_seed_check": "results/runs/20260730_160028_seedcheck",
+    "context_dropout_two_seeds": "results/runs/20260915_131629_103719_context_dropout"
+  },
+  "light_chain": {
+    "historical_early_matrix": "results/runs/20260724_211745",
+    "historical_oas_sd2_matrix": "results/runs/20260729_202635",
+    "validation_oas_matrix": "results/runs/20260818_192606"
+  }
+}

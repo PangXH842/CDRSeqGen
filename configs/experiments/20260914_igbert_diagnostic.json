@@ -1,6 +1,6 @@
 {
   "name": "igbert_diagnostic",
-  "base_config": "configs/h3_s2s_igbert_lc.json",
+  "base_config": "configs/s2s/h3_s2s_igbert_lc.json",
   "overrides": {
     "encoder_init": "pretrained",
     "seed": 42,

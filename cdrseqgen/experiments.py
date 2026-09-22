@@ -31,25 +31,26 @@ from cdrseqgen.methods.registry import resolve
 from cdrseqgen.visualization.sweep_tables import KEY, RANKERS
 
 
-def _configs(loops, models, contexts):
-    return [f"configs/{loop}_{model}{context}.json"
+def _configs(loops, models, contexts, directory="mlm/heavy"):
+    return [f"configs/{directory}/{loop}_{model}{context}.json"
             for model in models for loop in loops for context in contexts]
 
 
 SUITES = {
     "mlm_heavy": _configs(("h1", "h2", "h3"), ("scratch", "esm2"), ("", "_lc")),
-    "mlm_light": _configs(("l1", "l2", "l3"), ("scratch", "esm2"), ("", "_hc")),
-    "mlm_antigen": [f"configs/h{i}_{model}{ctx}.json" for model in ("scratch", "esm2")
+    "mlm_light": _configs(("l1", "l2", "l3"), ("scratch", "esm2"), ("", "_hc"), "mlm/light"),
+    "mlm_antigen": [f"configs/mlm/antigen/h{i}_{model}{ctx}.json" for model in ("scratch", "esm2")
                     for ctx in ("_ag_lconly", "_ag") for i in (1, 2, 3)],
     "mlm_igbert": _configs(("h1", "h2", "h3"), ("igbert",), ("", "_lc")),
     "mlm_protbert": _configs(("h1", "h2", "h3"), ("protbert",), ("", "_lc")),
-    "ar_heavy": _configs(("h1", "h2", "h3"), ("ar_scratch",), ("", "_lc")),
-    "s2s_heavy": _configs(("h3",), ("s2s_scratch",), ("", "_lc")),
-    "s2s_esm2": _configs(("h3",), ("s2s_esm2",), ("", "_lc")),
-    "s2s_igbert": _configs(("h3",), ("s2s_igbert",), ("", "_lc")),
-    "s2s_protbert": _configs(("h3",), ("s2s_protbert",), ("", "_lc")),
-    "compare": [f"configs/h3_{model}{ctx}.json" for ctx in ("", "_lc")
-                for model in ("scratch", "ar_scratch", "s2s_scratch")],
+    "ar_heavy": _configs(("h1", "h2", "h3"), ("ar_scratch",), ("", "_lc"), "ar"),
+    "s2s_heavy": _configs(("h3",), ("s2s_scratch",), ("", "_lc"), "s2s"),
+    "s2s_esm2": _configs(("h3",), ("s2s_esm2",), ("", "_lc"), "s2s"),
+    "s2s_igbert": _configs(("h3",), ("s2s_igbert",), ("", "_lc"), "s2s"),
+    "s2s_protbert": _configs(("h3",), ("s2s_protbert",), ("", "_lc"), "s2s"),
+    "compare": [f"configs/{directory}/h3_{model}{ctx}.json" for ctx in ("", "_lc")
+                for directory, model in (("mlm/heavy", "scratch"), ("ar", "ar_scratch"),
+                                         ("s2s", "s2s_scratch"))],
 }
 SUITES["s2s_plm"] = SUITES["s2s_esm2"] + SUITES["s2s_igbert"] + SUITES["s2s_protbert"]
 SUITES["mlm_plm"] = SUITES["mlm_igbert"] + SUITES["mlm_protbert"]
@@ -351,7 +352,7 @@ def build_plan(arguments, env):
         if len(rest) > 3:
             raise ValueError("Usage: run.sh <gpus> sweep [preset] [base_config]")
         mode, name = "sweep", rest[1] if len(rest) > 1 else "h3"
-        base = rest[2] if len(rest) > 2 else "configs/h3_scratch.json"
+        base = rest[2] if len(rest) > 2 else "configs/mlm/heavy/h3_scratch.json"
         trials, rank = sweep_trials(name, base, env)
     else:
         mode, name = "suite", "_".join(dict.fromkeys(rest))

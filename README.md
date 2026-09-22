@@ -84,21 +84,18 @@ Current implemented features include:
 
 `scripts/` holds thin command-line launchers; `cdrseqgen/` holds executable Python logic.
 The launch direction is `run.sh → python -m cdrseqgen.experiments → train.py`; `sweep.sh`
-forwards to `run.sh`. Single-run settings live in `configs/*.json`, multi-run recipes in
+forwards to `run.sh`. Single-run settings live in `configs/{mlm,ar,s2s}/`, multi-run recipes in
 `configs/experiments/`, and resolved plans and outputs in `results/runs/`.
 
 ```text
 CDRSeqGen/
 ├── configs/                    # Run configs and experiment recipes; no executable code.
 │                               #   A config's "method" key selects the pipeline (default mlm)
-│   ├── experiments/            # Dated multi-arm specs referencing the base configs below
-│   ├── h{1,2,3}_scratch[.json|_lc|_ag|_ag_lconly] + h{1,2,3}_esm2[...]
-│   ├── h{1,2,3}_igbert[.json|_lc] + h{1,2,3}_protbert[.json|_lc]
-│   ├── l{1,2,3}_scratch[.json|_hc] + l{1,2,3}_esm2[.json|_hc]
-│   ├── h{1,2,3}_ar_scratch[.json|_lc]
-│   ├── h3_s2s_{esm2,igbert,protbert}[.json|_lc]  # pretrained encoder + new residue decoder
-│   └── h3_s2s_scratch[.json|_lc]   # pins num_encoder/decoder_layers 2/2 = 933k params, so the
-│                               #   compare suite is not confounded by 2.3x capacity (see s2s below)
+│   ├── mlm/                    # Masked infilling: heavy/, light/, antigen/
+│   ├── ar/                     # Autoregressive heavy-chain infilling
+│   ├── s2s/                    # Encoder–decoder H3: scratch and pretrained encoders
+│   ├── experiments/            # Dated multi-arm specs and protocols
+│   └── README.md               # Config selection and naming guide
 ├── cdrseqgen/                  # Library package — grouped by concern (entrypoints stay at root)
 │   ├── experiments.py          # Suite/sweep/spec planner and executor; called by scripts/run.sh
 │   ├── artifacts.py            # Shared names for persisted run artifacts and legacy aliases
@@ -489,7 +486,7 @@ After reviewing stability, the ESM-2 tuning command is:
 # Inspect the six-trial plan first; remove DRY_RUN=1 to launch. Choose available GPU IDs.
 DRY_RUN=1 LRS="1e-5 3e-5 1e-4" SEEDS="42 43" EPOCH_LIST="20" \
 GEN_EVAL=true RANK_METRIC=judge_ppl \
-./scripts/sweep.sh 0 lr configs/h3_s2s_esm2.json
+./scripts/sweep.sh 0 lr configs/s2s/h3_s2s_esm2.json
 ```
 
 The [scratch S2S LR screen](results/runs/20260907_204721_sweep_lr/summary.tsv) and the earlier
@@ -1074,6 +1071,8 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-09-22** -- Reclassified config dirs
+- **2026-09-22** -- Revised environment settings (server migration)
 - **2026-09-18** -- [RECLAIM] `datasets/`: revised dataset class scripts
 - **2026-09-17** -- [RECLAIM] `datasets/preprocess/`: Redesigned the data preprocessing pipeline
 - **2026-09-17** -- Data storage restructure: dataset code to `cdrseqgen/datasets/`; raw/processed files to root `data/` (old: `datasets/data/`)
@@ -1153,22 +1152,24 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 
 Status snapshot: **2026-09-17**. **☑** experiment completed; **◐** partial or historical evidence; **↻** in progress; **☐** pending; **—** requires a pretrained AR adapter first. Completion means exploratory results exist, not that the paper's final confirmation is finished. Pending cells are candidates, not a requirement to fill the entire matrix; prioritize matched context comparisons, the controls needed to interpret them, and confirmation across seeds. The detailed checklists below specify the follow-up work.
 
+The [experiment-oriented results index](RESULTS.md) links each category to its saved evidence and ranks the next runs. Run `python scripts/organize_results.py` to regenerate the local `results/by_experiment/` view from the catalog; original timestamped batches remain the provenance records. Hyperparameter sweeps stay in their original folders and are excluded from this view.
+
 | Experiment category | MLM | AR | S2S |
 |---|---|---|---|
-| **Scratch baseline** | ☑ | ☑ | ☑ |
-| **Pretrained models** | ☑ ESM-2, IgBert, ProtBert | ☐ Pretrained causal adapter and experiments | ☑ ESM-2, IgBert, ProtBert **encoders** |
+| **[Scratch baseline](results/by_experiment/scratch_baseline/)** | ☑ | ☑ | ☑ |
+| **[Pretrained models](results/by_experiment/pretrained_models/)** | ☑ ESM-2, IgBert, ProtBert | ☐ Pretrained causal adapter and experiments | ☑ ESM-2, IgBert, ProtBert **encoders** |
 | **Scratch learning-rate tuning** | ☑ Broader hyperparameter screen | ☑ LR screen | ☑ LR screen; settings not yet promoted |
 | **PLM learning-rate tuning** | ☐ Matched follow-up as needed | — | ☑ ESM-2 four-run partner-present screen reviewed (§15); confirmation pending |
-| **Train with versus without partner context** | ◐ Existing comparisons; match final protocol | ◐ Historical runs; **2 matched no-partner runs pending** | ◐ Existing comparisons; **4 matched no-partner runs pending** |
-| **Context dropout 0 versus 0.5; evaluate both regimes** | ☑ Historical experiments; protocol differs | ☑ 4/4 complete and reviewed (§14) | ☑ Scratch 4/4 and ESM-2 4/4 complete and reviewed (§14) |
+| **[Train with versus without partner context](results/by_experiment/partner_context/)** | ◐ Existing comparisons; match final protocol | ◐ Historical runs; **2 matched no-partner runs pending** | ◐ Existing comparisons; **4 matched no-partner runs pending** |
+| **[Context dropout 0 versus 0.5; evaluate both regimes](results/by_experiment/context_dropout/)** | ☑ Historical experiments; protocol differs | ☑ 4/4 complete and reviewed (§14) | ☑ Scratch 4/4 and ESM-2 4/4 complete and reviewed (§14) |
 | **Same architecture: pretrained versus random initialization** | ☐ | — | ☐ ESM-2 control; code available |
-| **Frozen versus trainable pretrained weights** | ☐ | — | ◐ IgBert diagnostic trained; generation pending. ☐ ESM-2; code available |
-| **Conditioning/collapse diagnostics** | ◐ Context sensitivity studied | ◐ Context-ablation results available | ◐ IgBert probes complete; generation and replication pending |
-| **Length-free generation and length analysis** | ☑ Length-head experiments | ☑ EOS/length analysis | ☑ Generation metrics; comparative analysis ongoing |
-| **Decoding/sampling sensitivity** | ☑ Independent/iterative and sampling studies | ☑ Temperature/length study | ☐ Controlled sampling screen |
-| **Matched external IgLM benchmark** | ◐ Small pilot; final comparison pending | ☐ | ☐ |
-| **Additional seeds for selected contrasts** | ☐ | ☐ Seeds 44–46 | ☐ Seeds 44–46 |
-| **Light-chain experiments under target-loop-specific splits** | ◐ Historical runs; corrected split required | ☐ After split work | ☐ After split work |
+| **[Frozen versus trainable pretrained weights](results/by_experiment/frozen_encoder/)** | ☐ | — | ◐ IgBert diagnostic trained; generation pending. ☐ ESM-2; code available |
+| **[Conditioning/collapse diagnostics](results/by_experiment/conditioning_diagnostics/)** | ◐ Context sensitivity studied | ◐ Context-ablation results available | ◐ IgBert probes complete; generation and replication pending |
+| **[Length-free generation and length analysis](results/by_experiment/length_free_generation/)** | ☑ Length-head experiments | ☑ EOS/length analysis | ☑ Generation metrics; comparative analysis ongoing |
+| **[Decoding/sampling sensitivity](results/by_experiment/decoding_sampling/)** | ☑ Independent/iterative and sampling studies | ☑ Temperature/length study | ☐ Controlled sampling screen |
+| **[Matched external IgLM benchmark](results/by_experiment/external_iglm_benchmark/)** | ◐ Small pilot; final comparison pending | ☐ | ☐ |
+| **[Additional seeds for selected contrasts](results/by_experiment/additional_seeds/)** | ☐ | ☐ Seeds 44–46 | ☐ Seeds 44–46 |
+| **[Light-chain experiments under target-loop-specific splits](results/by_experiment/light_chain/)** | ◐ Historical runs; corrected split required | ☐ After split work | ☐ After split work |
 | **Final frozen protocol, uncertainty estimates and held-out evaluation** | ☐ | ☐ | ☐ |
 
 ### Active milestone — matched CDRSeqGen vs IgLM benchmark

@@ -5,7 +5,7 @@ Use ``--judge`` to choose the shared reference model explicitly; training-time e
 configured ``gen_judge`` default.
 
 Usage example:
-    python evaluate.py --config configs/h3_esm2.json \
+    python evaluate.py --config configs/mlm/heavy/h3_esm2.json \
         --model_dir results/20260710/20260710_184547_h3_OAS_esm2_t12_35M_UR50D \
         --num_examples 150 --stratify --num_samples 20 --top_p 0.9 \
         --judge Exscientia/IgBert
