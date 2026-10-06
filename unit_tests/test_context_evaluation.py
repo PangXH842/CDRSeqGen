@@ -11,7 +11,7 @@ from transformers import TrainingArguments
 from cdrseqgen.datasets.dataset_common import evaluation_context_view, framework_for_dataset
 from cdrseqgen.methods.registry import resolve
 from cdrseqgen.methods.common.evaluation import post_training_generation
-from cdrseqgen.methods.common.arguments import BaseGenerationArguments
+from cdrseqgen.methods.common.arguments import BaseGenerationArguments, validate_common_args
 from cdrseqgen.experiments import completed_artifacts, spec_trials
 from cdrseqgen.artifacts import GENERATION_EVAL_FILENAME, CONTEXT_ABLATION_FILENAME
 from evaluate import default_output_path
@@ -80,6 +80,62 @@ class ContextEvaluationTests(unittest.TestCase):
         self.assertFalse(completed_artifacts(self.root,config))
         (self.root/CONTEXT_ABLATION_FILENAME).write_text(payload)
         self.assertTrue(completed_artifacts(self.root,config))
+
+    def test_no_partner_generators_can_keep_partner_context_for_the_judge(self):
+        for method in ('mlm', 'ar', 's2s'):
+            with self.subTest(method=method):
+                _, evaluation, tok, data, training = self.datasets(method)
+                data.include_partner_chain = False
+                evaluation = evaluation_context_view(evaluation, include_partner_chain=False)
+                gen = BaseGenerationArguments(gen_judge_partner_context='with')
+                calls = []
+                def evaluate(model, tokenizer, dataset, **kwargs):
+                    calls.append((dataset, kwargs))
+                    return 'control'
+                with patch('cdrseqgen.methods.common.evaluation.build_judge', return_value=(object(), object(), object())) as build, patch('cdrseqgen.methods.common.evaluation.resolve', return_value=NS(evaluate=evaluate)):
+                    result = post_training_generation(method, NS(model=object()), tok, evaluation,
+                        data, gen, training, anchor_trim=2)
+                self.assertEqual(result, 'control')
+                build.assert_called_once()
+                self.assertTrue(build.call_args.kwargs['include_partner_chain'])
+                self.assertEqual(len(calls), 1)
+                dataset, kwargs = calls[0]
+                self.assertIsNone(framework_for_dataset(dataset, 0)['partner_chain'])
+                self.assertFalse(kwargs['meta']['training_include_partner_chain'])
+                self.assertFalse(kwargs['meta']['include_partner_chain'])
+                self.assertTrue(kwargs['meta']['judge_include_partner_chain'])
+
+    def test_judge_override_does_not_change_generator_ablation(self):
+        _, evaluation, tok, data, training = self.datasets('s2s')
+        gen = BaseGenerationArguments(gen_eval_context_ablation=True,
+                                      gen_judge_partner_context='without')
+        calls = []
+        with patch('cdrseqgen.methods.common.evaluation.build_judge', return_value=(object(), object(), object())) as build, patch('cdrseqgen.methods.common.evaluation.resolve', return_value=NS(evaluate=lambda *args, **kwargs: calls.append(kwargs))):
+            post_training_generation('s2s', NS(model=object()), tok, evaluation,
+                data, gen, training, anchor_trim=2)
+        self.assertFalse(build.call_args.kwargs['include_partner_chain'])
+        self.assertEqual([call['meta']['include_partner_chain'] for call in calls], [True, False])
+        self.assertTrue(all(not call['meta']['judge_include_partner_chain'] for call in calls))
+
+    def test_invalid_judge_context_fails_before_training(self):
+        args = resolve('s2s').module('arguments')
+        with self.assertRaisesRegex(ValueError, 'gen_judge_partner_context'):
+            validate_common_args(args.ModelArguments(), args.DataArguments(),
+                BaseGenerationArguments(gen_judge_partner_context='typo'), expected_method='s2s')
+
+    def test_completion_accepts_new_warmup_storage_and_rejects_changed_schedule(self):
+        config = dict(warmup_ratio=.06, warmup_steps=0, run_generative_eval=False)
+        saved = dict(warmup_steps=.06, run_generative_eval=False)
+        (self.root/'run_config.json').write_text(json.dumps(saved))
+        (self.root/'epoch_metrics.csv').write_text('epoch,eval_loss\n1,2\n')
+        self.assertTrue(completed_artifacts(self.root, config))
+        saved['warmup_steps'] = .02
+        (self.root/'run_config.json').write_text(json.dumps(saved))
+        self.assertFalse(completed_artifacts(self.root, config))
+        config['warmup_steps'] = 12
+        saved['warmup_steps'] = 12
+        (self.root/'run_config.json').write_text(json.dumps(saved))
+        self.assertTrue(completed_artifacts(self.root, config))
 
     def test_output_identity_includes_both_context_choices(self):
         args=NS(model_dir='x',length_mode='inferred',min_length=None,max_length=None,length_temperature=1.,decoding='causal',num_examples=150,stratify=False,num_samples=20,temperature=1.,top_k=0,top_p=.9,seed=42,skip_perplexity=False,judge='IgBert',judge_path=None,partner_context='with',judge_partner_context='with')

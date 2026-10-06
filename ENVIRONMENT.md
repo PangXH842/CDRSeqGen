@@ -12,10 +12,12 @@ are incompatible:
 
 `requirements/*.txt` preserves the captured Python package pins, with these
 intentional corrections: retain only SymPy 1.14.0, add matplotlib 3.10.7 for
-plotting, and explicitly select the cu128 PyTorch wheel for IgLM. Unused
+plotting and TensorBoard 2.20.0 with its dependency pins for configured training
+logging, and explicitly select the cu128 PyTorch wheel for IgLM. Unused
 `torchvision`, `torchaudio`, and `torchcodec` are omitted. This is a migration
 baseline, not a platform-independent or fully hashed lockfile; dependencies
-introduced by matplotlib are resolved during installation.
+introduced by matplotlib are resolved during installation. TensorBoard and its
+added dependencies were verified on the destination server on 2026-10-06.
 
 ## Create fresh environments
 
@@ -43,7 +45,9 @@ variant rather than silently upgrading this baseline. See the
 
 The verifier runs `pip check`, exercises tensor forward/backward on every visible
 GPU in both environments, imports the training and baseline dependencies, and
-renders a headless plot. It requires CUDA by default. For a deliberate CPU-only
+renders a headless plot. It also constructs a CPU Trainer with TensorBoard reporting
+and verifies a scalar event can be written and read, without calling `train()`.
+It requires CUDA by default. For a deliberate CPU-only
 check use `bash scripts/verify_env.sh all --cpu`; this does not certify GPU readiness.
 Checks use the repository root regardless of the shell's working directory.
 They do not download models or prove real checkpoint/data compatibility: after
@@ -161,3 +165,20 @@ CUDA_VISIBLE_DEVICES=0 HF_HUB_OFFLINE=1 \
 Other historical configs may still contain absolute `/raid/...` dataset paths.
 Use relocated execution copies with verified dataset hashes; retain the original
 records and record any compatibility override needed for a deliberate relocation.
+
+### Training-logging correction (2026-10-06)
+
+The first no-partner AR trials failed during Trainer initialization because the
+base configs request `report_to: tensorboard`, but the migration requirements
+omitted TensorBoard. Neither AR trial reached training. The earlier restoration
+checks imported training modules and evaluated saved models, so they did not
+exercise this callback setup.
+
+Installed TensorBoard 2.20.0 and its missing dependencies in `cdrprj`, retaining
+the existing PyTorch, Transformers, Accelerate and Safetensors versions. The
+requirements now pin these additions, and the verifier includes the real Trainer
+callback and scalar-event check above. The updated CPU verifier and `pip check`
+passed after installation. The failed batch can be retried using its
+original `EXPERIMENT_DIR`: no executable project source or experiment config was
+changed by this correction. The updated requirements and verification script do
+not affect the runner's source fingerprint.

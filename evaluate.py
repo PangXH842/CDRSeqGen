@@ -31,6 +31,7 @@ from cdrseqgen.artifacts import (
 from cdrseqgen.datasets.dataset_common import evaluation_context_view
 from cdrseqgen.methods.registry import decoding_choices, resolve as resolve_method, checkpoint_method
 from cdrseqgen.train.logging import configure_logging
+from cdrseqgen.methods.common.arguments import parse_config_dict
 
 # Entrypoints configure their own logging. This used to arrive for free by importing train.py, which
 # ran basicConfig at import — an accident that broke the moment train.py was split.
@@ -213,7 +214,7 @@ def main():
     argument_module = method.module('arguments')
     parser = HfArgumentParser((argument_module.ModelArguments, argument_module.DataArguments,
                               argument_module.GenerationArguments, TrainingArguments))
-    model_args, data_args, _gen_args, training_args = parser.parse_json_file(json_file=os.path.abspath(args.config))
+    model_args, data_args, _gen_args, training_args = parse_config_dict(parser, supplied_config)
     training_args.output_dir = args.model_dir
     training_args.report_to = []
     training_args.eval_strategy = "no"

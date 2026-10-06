@@ -17,6 +17,7 @@ from cdrseqgen.methods.common.arguments import (
     BaseGenerationArguments,
     BaseModelArguments,
     parse_config_and_cli,
+    parse_config_dict,
     validate_common_args,
 )
 from cdrseqgen.methods.common.training import run_training_pipeline
@@ -163,6 +164,37 @@ class CommonArgumentTests(unittest.TestCase):
                 (parsed,) = parse_config_and_cli(parser)
         self.assertIsNone(parsed.optional_count)
         self.assertEqual(parsed.count, 3)
+
+    def test_legacy_warmup_ratio_preserves_schedule_and_explicit_steps_take_precedence(self):
+        parser = HfArgumentParser(TrainingArguments)
+        base = dict(output_dir='/tmp/unused', use_cpu=True, report_to='none', warmup_ratio=.06)
+        (training,) = parse_config_dict(parser, {**base, 'warmup_steps': 0})
+        self.assertEqual(training.get_warmup_steps(1000), 60)
+        (training,) = parse_config_dict(parser, {**base, 'warmup_steps': 12})
+        self.assertEqual(training.get_warmup_steps(1000), 12)
+        (training,) = parse_config_dict(parser, {**base, 'warmup_ratio': None})
+        self.assertEqual(training.get_warmup_steps(1000), 0)
+
+    def test_warmup_conversion_survives_an_unrelated_cli_override(self):
+        parser = HfArgumentParser(TrainingArguments)
+        with tempfile.NamedTemporaryFile('w', suffix='.json') as handle:
+            json.dump(dict(output_dir='/tmp/unused', use_cpu=True, report_to='none',
+                           warmup_ratio=.06, warmup_steps=0), handle)
+            handle.flush()
+            for tail in ([], ['--learning_rate', '0.0001']):
+                with self.subTest(tail=tail), patch('sys.argv', ['train.py', handle.name, *tail]):
+                    (training,) = parse_config_and_cli(parser)
+                self.assertEqual(training.get_warmup_steps(1000), 60)
+
+    def test_warmup_ratio_remains_native_for_a_parser_supporting_both_fields(self):
+        from dataclasses import dataclass
+        @dataclass
+        class LegacyArgs:
+            warmup_steps: int = 0
+            warmup_ratio: float = 0
+        (parsed,) = parse_config_dict(HfArgumentParser(LegacyArgs), dict(warmup_ratio=.06))
+        self.assertEqual(parsed.warmup_ratio, .06)
+        self.assertEqual(parsed.warmup_steps, 0)
 
 
 class SharedTrainingLifecycleTests(unittest.TestCase):

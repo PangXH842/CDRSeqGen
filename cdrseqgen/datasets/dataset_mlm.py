@@ -14,10 +14,11 @@ Utility functions:
   * mlm_collate_fn              -- pad a batch and derive its attention mask
 
 Notes:
-  * Two policies (MASKING_POLICIES): `full_span` hides the whole loop, matching how fixed-length
-    generation is evaluated. `mixed` hides a uniformly random count instead, leaving at least one
-    residue revealed and one masked, so training sees the partially filled states the iterative
-    decoder actually passes through.
+  * Two policies (MASKING_POLICIES): 
+    * full_span : hides the whole loop, matching how fixed-length generation is evaluated; 
+    * mixed     : hides a uniformly random count instead, leaving at least one residue revealed 
+                  and one masked, so training sees the partially filled states the iterative 
+                  decoder actually passes through.
   * The mask count is drawn per __getitem__ call, so an example's corruption differs between
     epochs. That is deliberate and unlike context dropout, which is fixed per example — compare
     `_keep_context` in dataset_common.

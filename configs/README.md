@@ -29,3 +29,11 @@ DRY_RUN=1 ./scripts/run.sh 0 spec configs/experiments/20260915_context_dropout.j
 Suite names are unchanged. Config and data paths inside experiment specs are relative
 to the repository root, not the enclosing config folder. Historical run configs and
 plans under `results/` retain their original paths; use a fresh plan for new runs.
+
+The next H3 batches are prepared in
+[`20261006_no_partner_controls.json`](experiments/20261006_no_partner_controls.json)
+(six trials), followed by
+[`20261006_esm2_dropout_confirmation.json`](experiments/20261006_esm2_dropout_confirmation.json)
+(four trials). See the [fixed protocol and launch commands](experiments/20261006_h3_followup.md).
+The controls batch was launched on 2026-10-06; its initial TensorBoard startup
+failure is corrected, with retry instructions in the recipe. Confirmation remains pending.

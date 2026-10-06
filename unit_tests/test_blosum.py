@@ -84,6 +84,11 @@ class AlignedTests(unittest.TestCase):
     def test_an_unrelated_sequence_scores_below_zero(self):
         self.assertLess(blosum_aligned_ratio("M" * len(NATIVE), NATIVE), 0.0)
 
+    def test_adjacent_opposing_gaps_are_excluded(self):
+        # D/W scores -4. Opposing one-residue gaps would score -2 with these
+        # penalties, but alignment version 1 excludes that path.
+        self.assertEqual(blosum_aligned("D", "W", gap_open=-1, gap_extend=-1), -4.0)
+
 
 class ReportingTests(unittest.TestCase):
     def test_calculate_reports_both_views_and_they_differ_in_population(self):
@@ -99,12 +104,37 @@ class ReportingTests(unittest.TestCase):
         out = calculate(["ACDE", "ACDF"], native=None)
         self.assertFalse([k for k in out if "blosum" in k])
 
+    def test_aligned_means_retain_duplicates_and_exclude_empty_draws(self):
+        out = calculate(["AC", "AC", "AQ", "ACD", ""], native="AC")
+        # Native self-score is 13; candidate scores are 13, 13, 1, 2, None.
+        self.assertEqual(out["blosum62_aligned_mean"], 29 / 4)
+        self.assertEqual(out["blosum62_aligned_ratio_mean"], (1 + 1 + 1/13 + 2/13) / 4)
+        self.assertEqual(out["n_samples"], 5)
+        self.assertEqual(out["length_match_rate"], 3 / 5)
+
+    def test_empty_candidates_have_no_aligned_scores(self):
+        out = calculate(["", ""], native="AC")
+        self.assertNotIn("blosum62_aligned_mean", out)
+        self.assertNotIn("blosum62_aligned_ratio_mean", out)
+        self.assertEqual(out["n_samples"], 2)
+
+    def test_zero_native_self_score_omits_ratios_without_losing_recovery(self):
+        # A/A=4 and X/X=-4 give a zero positional and aligned denominator.
+        out = calculate(["AX"], native="AX")
+        self.assertNotIn("blosum62_ratio_at_length_mean", out)
+        self.assertNotIn("blosum62_aligned_ratio_mean", out)
+        self.assertEqual(out["blosum62_mean_at_length"], 0.0)
+        self.assertEqual(out["aar_mean"], 1.0)
+
     def test_provenance_names_everything_a_score_depends_on(self):
         p = blosum_provenance()
         for key in ("matrix", "gap_open", "gap_extend", "alignment",
                     "positional_normalisation", "aligned_normalisation"):
             self.assertIn(key, p)
         self.assertEqual(p["matrix"], "BLOSUM62")
+        self.assertEqual(p["alignment_version"], 1)
+        self.assertFalse(p["adjacent_opposing_gaps"])
+        self.assertEqual(p["gap_cost_formula"], "gap_open + (length - 1) * gap_extend")
 
 
 if __name__ == "__main__":

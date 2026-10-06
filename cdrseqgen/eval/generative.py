@@ -1,26 +1,33 @@
-"""Method-neutral generative evaluation: select examples, score them, judge them, write them.
+"""Shared evaluation pipeline for generated CDR candidates.
 
-  * Draw / run_eval_loop  -- the loop every method shares
-  * select_indices        -- stratified or plain subsampling of an eval split
-  * score_with_judge      -- independent-judge perplexity per candidate
-  * format_report / log_report / write_payload / write_confidence_figure
+Workflow:                                      [*] = method-specific strategy hook
+  method wrapper                              -- choose split, seed and generation settings
+    build_judge (optional)                    -- masked-LM reference scorer
+    select_indices                            -- choose evaluation frameworks
+    run_eval_loop
+      [*] draw(index) -> Draw / None           -- generate and retain candidate sequences
+      calculate                               -- sequence metrics from metrics.py
+      [*] self_scores(Draw)                    -- generator scores in candidate order
+      score_with_judge
+        [*] judge_inputs(index, sequence)      -- judge prompt and mask positions
+        pseudo_log_likelihood                 -- masked-LM reference scores
+      candidate details + confidence metrics  -- one scored record per returned Draw
+    log_report -> format_report -> aggregate  -- framework means and population stddevs
+    write_payload / write_confidence_figure   -- JSON and optional PNG
 
-Split out of ``methods/mlm/evaluation.py`` on 2026-09-01, once a second method existed to check the
-abstraction against. The loop owns everything that must NOT differ between methods — which examples
-are drawn, how metrics are aggregated, which judge scores them, what gets written — and a *strategy*
-owns the two things that must:
+Entities and helpers:
+  * Draw                       -- one framework's candidates and scoring inputs
+  * bucket_of                  -- reference-length bucket used in selection and reports
+  * build_masked_judge_prompt  -- framework + candidate length -> judge input and mask positions
+  * [*] payload_length_policy  -- strategy metadata read by the method wrapper
 
-  * ``draw(i)``          -- turn an eval index into candidates (masked expansion vs causal decode)
-  * ``self_scores(drawn)`` -- how surprised the model is by its own draw. A masked LM has only a
-    PSEUDO-perplexity; a causal model has a true one. Inlining either would have made the loop
-    method-specific.
-
-Also required of a strategy: ``judge_inputs(i, seq)`` and ``payload_length_policy()``.
-
-The reason this is shared rather than copied is comparability. Before the split, two evaluation
-tracks in this project had already drifted apart in four ways — progress bar, write guard, summary
-statistic, empty-mask guard — and differences like that make two tracks quietly incomparable. An
-AR-versus-MLM table has exactly that failure mode, one method wide.
+Notes:
+  * Strategies own decoding, validity accounting and generator self-scoring.
+    Wrappers assemble the final payload and choose generator/judge context independently.
+  * MLM self-scores are pseudo-perplexities; AR/S2S use their causal factorizations.
+    The independent judge is a masked LM for every method.
+  * Means are computed per framework; aggregate gives each contributing framework
+    equal weight. Each metric can have a different eligible population.
 """
 import logging
 import os
@@ -78,11 +85,25 @@ SUMMARY_KEYS = [
 
 @dataclass
 class Draw:
-    """One example's candidates, in the shape the shared scoring loop consumes.
+    """Carry one framework's retained candidates and their self-scoring inputs.
 
-    ``spans`` carries (input_ids, mask_positions, token_ids) per candidate so self-perplexity is
-    scored against the prompt that produced it — the fixed track repeats one prompt, the variable
-    track has a different prompt per sampled length.
+    Example:
+      native:     "ACD"
+      seqs:       ["ACD", "AQD", "AC"]
+      spans:      [inputs_0, inputs_1, inputs_2]   (same candidate order)
+      target_len: 3                              (reference length)
+
+    Fields:
+      native / target_len -- ground-truth loop and its length for scoring/reporting
+      seqs                -- normalized candidate strings, including repeated draws
+      spans               -- MLM: (input_ids, mask_positions, token_ids)
+                             AR/S2S: (prompt_or_encoder_input, answer_token_ids)
+      length_policy       -- metadata describing how generation length was chosen
+      record_extra        -- additional fields such as attempt/failure counts
+
+    Notes:
+      * target_len is not an output-length constraint for length-free generation.
+      * record_extra is merged last and can overwrite standard record fields.
     """
 
     native: str
@@ -94,6 +115,16 @@ class Draw:
 
 
 def bucket_of(length):
+    """Return the shared short/medium/long label for a loop length.
+
+    Example:
+      length:  8       14       21
+      bucket: "short" "medium" "long"
+
+    Notes:
+      * Boundaries come from LENGTH_BUCKETS in metrics.py.
+      * Out-of-range values also return "long"; inputs are not validated.
+    """
     for name, lo, hi in LENGTH_BUCKETS:
         if lo <= length <= hi:
             return name
@@ -101,7 +132,26 @@ def bucket_of(length):
 
 
 def select_indices(lengths, k, stratify, rng):
-    """Pick which eval CDR data examples to generate for (all if k < 0 or k >= n)"""
+    """Return sorted evaluation indices sampled without replacement.
+
+    Example: rng=random.Random(42), stratify=False
+      lengths: [8, 14, 21]
+      k:       2
+      indices: [0, 2]          (frameworks with reference lengths 8 and 21)
+
+    Stratified example: rng=random.Random(42), k=3
+      lengths: [8, 9, 14, 15, 21, 22]
+      indices: [0,    2,          5]   (one short, one medium, one long)
+
+    Notes:
+      * rng is seeded by the caller. Without stratification, selection is uniform.
+      * k=None, k<0 or k>=len(lengths) returns all indices; k=0 returns [].
+      * Stratification balances non-empty length buckets, then fills any shortfall
+        from unselected indices. It does not preserve corpus proportions.
+      * Buckets follow first-observed order; final truncation favors earlier buckets
+        when k is smaller than the number of buckets.
+      * Reference lengths choose frameworks here; they are not sent to the generator.
+    """
     n = len(lengths)
 
     if k is None or k < 0 or k >= n:
@@ -120,10 +170,7 @@ def select_indices(lengths, k, stratify, rng):
     for idxs in by_bucket.values():
         picked += rng.sample(idxs, min(per_bucket, len(idxs)))
 
-    # Redistribute the shortfall. An under-populated bucket cannot fill its quota, and without this
-    # the draw silently comes back short of k: SD2 H1 is 749 short-loop / 1 medium, so a request for
-    # 150 returned 75 + 1 = 76 and eight runs of the 07-29 batch had their generative metrics
-    # computed on half the intended sample. Top up from whatever is left, still without replacement.
+    # Fill quotas that small buckets could not satisfy, still without replacement.
     if len(picked) < k:
         taken = set(picked)
         rest = [i for i in range(n) if i not in taken]
@@ -133,11 +180,20 @@ def select_indices(lengths, k, stratify, rng):
 
 
 def aggregate(records, key):
-    """(mean, stdev) of a per-example metric across the sweep; (None, 0.0) if never present.
+    """Return (mean, population_stddev) for one metric across frameworks.
 
-    None rather than NaN: this lands in generation_eval.json, and a bare NaN there is not valid
-    JSON -- standards-compliant readers reject the file, and tables printed the string "nan" for a
-    metric that simply was not collected. Every reader here already treats None as absent.
+    Example: record["metrics"][key] values are [0.0, None, 1.0]
+      included: [0.0, 1.0]
+      mean:     (0 + 1) / 2 = 0.5
+      stddev:   sqrt(((0 - 0.5)**2 + (1 - 0.5)**2) / 2) = 0.5
+      return:   (0.5, 0.5)
+
+    Notes:
+      * Each contributing framework has equal weight, regardless of candidate count.
+      * Missing keys and None are excluded; NaN/Inf are currently not filtered.
+      * No values return (None, 0.0); one value has stddev=0.0.
+      * Stddev describes variation across frameworks, not a confidence interval
+        or variation across training seeds.
     """
     vals = [r["metrics"][key] for r in records if r["metrics"].get(key) is not None]
     if not vals:
@@ -146,10 +202,28 @@ def aggregate(records, key):
 
 
 def format_report(records, title="", judge_name=None):
-    """Build the summary block as one string: overall, then per H3-length bucket"""
+    """Return a text report of overall and length-bucket means ± population stddevs.
+
+    Example: two short-loop records with aar_mean values 0.0 and 1.0
+      OVERALL  (n=2)
+        recovery        0.500  ± 0.500
+      length=short  (n=2)
+        recovery        0.500  ± 0.500
+      (excerpt)
+
+    Notes:
+      * SUMMARY_KEYS chooses metric names; target_len chooses length buckets.
+      * n counts records in the block; each metric may have fewer contributing records.
+      * Missing metrics are omitted; empty records produce only the header/footer.
+      * The spread is population stddev, not a confidence interval.
+      * judge_name only labels the scorer. Comparable judge scores still require
+        matched weights, tokenization, context and scoring populations.
+      * Self-perplexity depends on the generator method and model.
+    """
     lines = []
 
     def block(label, subset):
+        """Append available metric means and spreads for a non-empty record subset."""
         if not subset:
             return
         lines.append(f"\n  {label}  (n={len(subset)})")
@@ -175,13 +249,37 @@ def format_report(records, title="", judge_name=None):
 
 
 def log_report(records, title="", judge_name=None):
-    """Emit the summary through the logger, as one single record"""
+    """Log ``format_report`` as one INFO entry; return ``None``."""
     logger.info(format_report(records, title=title, judge_name=judge_name))
 
 
 def run_eval_loop(strategy, selected, *, model, tokenizer, device, skip_perplexity,
                   judge_model, judge_tokenizer, anchor_trim=ANCHOR_TRIM):
-    """Per-example generate -> score -> record, identical for every length track."""
+    """Return scored framework records for the selected evaluation indices.
+
+    Workflow per index:
+      strategy.draw -> Draw -> sequence metrics + self/judge scores
+                    -> candidate details -> confidence metrics -> framework record
+
+    Example: native="ACD", self-scoring and judge enabled
+      candidates:    ["ACD", "AQD", "AC"]
+      recovery:      [1.0,   2/3,   None]    (wrong-length AAR is undefined)
+      self scores:   [2.0,   3.0,   4.0]
+      judge scores:  [1.5,   None,  2.5]
+      judge coverage: 2 / 3
+
+    Notes:
+      * A None draw produces no record; strategies/wrappers track failed attempts.
+      * skip_perplexity disables self-scoring only; an enabled judge still scores.
+      * Core/anchor recovery, positional BLOSUM and confidence use length-matched
+        candidates; aligned BLOSUM accepts non-empty candidates of any length.
+      * Self-score lists must match candidate order and length. The current zip
+        silently truncates unequal lists when building candidate records.
+      * Score means and judge coverage exclude only None; NaN/Inf currently pass through.
+      * Means within a record weight eligible draws equally; aggregate handles frameworks.
+      * The strategy owns generator execution; model/tokenizer are unused interface args.
+        device is used for judging. Errors propagate; persistence happens in the wrapper.
+    """
     try:
         from tqdm import tqdm
         data_iterator = tqdm(selected, desc="frameworks", disable=None)  # None -> off when not a tty
@@ -197,10 +295,7 @@ def run_eval_loop(strategy, selected, *, model, tokenizer, device, skip_perplexi
         metrics = calculate(drawn.seqs, drawn.native)
         metrics["target_len"] = drawn.target_len
 
-        # Self-scoring is the second thing a method cannot share. A masked LM has only a
-        # PSEUDO-perplexity (score each position with the rest visible); a causal model has a true
-        # one. Both are "how surprised is the model by its own draw", so the loop asks the strategy
-        # rather than assuming either.
+        # Let the strategy supply the generator's own scoring factorization.
         self_perplexities = [None] * len(drawn.seqs)
         if not skip_perplexity:
             self_perplexities = strategy.self_scores(drawn)
@@ -216,10 +311,7 @@ def run_eval_loop(strategy, selected, *, model, tokenizer, device, skip_perplexi
             scored = [p for p in judge_perplexities if p is not None]
             if scored:
                 metrics["judge_perplexity_mean"] = sum(scored) / len(scored)
-            # Skipping keeps one bad candidate from voiding a whole eval, but the mean is then over
-            # an unknown subset unless the coverage travels with it. (benchmark/scorer.py raises
-            # instead — it scores a frozen manifest, where a partial judge population would
-            # silently weaken a published comparison.)
+            # Report coverage alongside the mean over scored candidates.
             metrics["judge_candidates_scored"] = len(scored)
             metrics["judge_coverage"] = len(scored) / len(drawn.seqs) if drawn.seqs else None
             if len(scored) < len(drawn.seqs):
@@ -229,13 +321,7 @@ def run_eval_loop(strategy, selected, *, model, tokenizer, device, skip_perplexi
                     "covers only those."
                 )
 
-        # Per-candidate detail. Recovery is defined only where the length matches, so the
-        # correlation answers "among candidates of the right length, does confidence pick the
-        # accurate one" rather than rediscovering that wrong-length candidates score badly.
-        # The core/anchor split needs a positional correspondence, so like recovery it is defined
-        # only on length-matched candidates. It is what separates "the model learned the J-gene
-        # motif" from "the model learned the hypervariable middle" — the distinction a core-weighted
-        # objective is meant to move, and one whole-loop AAR averages away.
+        # Positional scores require a length match; absent core/anchors score None.
         core_indices, anchor_indices = core_anchor_indices(len(drawn.native), anchor_trim)
         candidates = []
         for seq, self_ppl, judge_ppl in zip(drawn.seqs, self_perplexities, judge_perplexities):
@@ -249,10 +335,7 @@ def run_eval_loop(strategy, selected, *, model, tokenizer, device, skip_perplexi
                     recovery_at_indices(seq, drawn.native, core_indices) if matched else None,
                 "anchor_recovery":
                     recovery_at_indices(seq, drawn.native, anchor_indices) if matched else None,
-                # BLOSUM beside recovery at every level, never instead of it: a conservative
-                # substitution is invisible to exact-match recovery and a radical one is
-                # indistinguishable from it. `blosum62_aligned_ratio` is the only one defined
-                # for a candidate of the wrong length, which is most causal H3 draws.
+                # Only the aligned BLOSUM ratio supports unequal lengths.
                 "blosum62_ratio": blosum_identity_ratio(seq, drawn.native) if matched else None,
                 "blosum62_core_ratio":
                     blosum_identity_ratio(seq, drawn.native, core_indices) if matched else None,
@@ -287,16 +370,26 @@ def run_eval_loop(strategy, selected, *, model, tokenizer, device, skip_perplexi
 
 
 def score_with_judge(strategy, i, seqs, judge_model, judge_tokenizer, device):
-    """Judge perplexity per candidate, aligned with ``seqs``; None where it could not be scored.
+    """Return independent masked-LM pseudo-perplexities in candidate order.
 
-    Returning a positional list rather than a compacted one is what lets a candidate's judge score
-    be paired with its own recovery downstream — a compacted list silently misaligns as soon as
-    one candidate is skipped.
+    Example:
+      candidate:          "ACD"       "AC"
+      encoded token count:  3           2
+      judge mask count:     3           3
+      result:             ppl_ACD      None    (count mismatch)
+
+    Scoring:
+      fill candidate -> re-mask one position per variant -> score its residue
+      pseudo-ppl = exp(-mean(log p(residue | rest)))
+      p=0.5 at every position -> pseudo-ppl=2.0
+
+    Notes:
+      * strategy.judge_inputs(i, seq) supplies (input_ids, mask_positions) or None.
+      * Missing prompts and token/mask count mismatches produce None placeholders.
+      * Special-token logits are banned; sequence order and list length are preserved.
+      * Other errors propagate; NaN/Inf scorer outputs are currently not filtered.
+      * The local import loads the MLM scorer only when judging is requested.
     """
-    # Deferred, like build_judge's registry import: the judge is always a MASKED LM whatever
-    # produced the candidate, so scoring it with a pseudo-log-likelihood is the judge's own
-    # requirement — but importing a method package at module level would invert the dependency and
-    # make cdrseqgen.eval depend on cdrseqgen.methods.
     from cdrseqgen.methods.mlm.sampling import pseudo_log_likelihood
 
     perplexities = []
@@ -318,7 +411,19 @@ def score_with_judge(strategy, i, seqs, judge_model, judge_tokenizer, device):
 
 
 def write_payload(payload, output_path, n_records):
-    """Persist atomically, treating an unwritable path as a warning rather than lost work."""
+    """Write the evaluation payload atomically to JSON and log the outcome.
+
+    Example:
+      output_path: "results/generation_eval.json"
+      n_records:   12
+      payload -> atomic JSON write -> log "Saved 12 framework records"
+
+    Notes:
+      * A falsey output_path skips writing; return value is always None.
+      * n_records labels the log message; it does not validate the payload.
+      * OSError becomes a warning; other serialization errors propagate.
+        Callers needing persisted results must check the output artifact.
+    """
     if not output_path:
         return
     try:
@@ -329,12 +434,17 @@ def write_payload(payload, output_path, n_records):
 
 
 def write_confidence_figure(payload, output_path, title=""):
-    """Draw the confidence-selection figure beside the JSON, as training writes its curves.
+    """Save a confidence-selection PNG beside the evaluation JSON path.
 
-    Skipped silently when there is nothing to plot — a run with --skip_perplexity and no judge
-    has no per-candidate scores, which is a configuration choice rather than a failure. Guarded
-    for the same reason post_training_generation is: a plotting problem must not cost a finished
-    evaluation. matplotlib is imported lazily so an eval that plots nothing never loads it.
+    Example:
+      output_path: "results/generation_eval.json"
+      figure_path: "results/generation_eval_confidence.png"
+      payload["records"] -> candidate selection curves -> saved PNG path
+
+    Notes:
+      * The label is title, falling back to the JSON basename.
+      * Return None for no path, no candidate scores, or plotting failure.
+      * Plotting imports are deferred; exceptions become warnings.
     """
     if not output_path:
         return None
@@ -353,15 +463,21 @@ def write_confidence_figure(payload, output_path, title=""):
 
 
 def build_masked_judge_prompt(judge_tokenizer, framework, length):
-    """A masked prompt for the independent judge at one candidate's length.
+    """Return (input_ids, mask_positions) for judging a candidate of the given length.
 
-    Neutral despite being masked: the judge is a masked LM (IgBert by default) whatever produced the
-    candidate, so this is the JUDGE's input format, not the method-under-test's. A causal strategy
-    needs it for exactly the same reason the variable-length masked track does — candidate lengths
-    vary, so the native-length prompt does not align.
+    Example: scratch tokenizer, pt1="AC", pt2="WY", length=3, no optional context
+      input:     A C <mask> <mask> <mask> W Y
+      positions: 0 1    2      3      4   5 6
+      mask_positions: [2, 3, 4]
 
-    Returns (input_ids, mask_positions); ``mask_positions`` has ``length`` entries, which is what
-    ``score_with_judge`` checks against the tokenized candidate before scoring.
+    Workflow:
+      encode flanks -> inject/cap context -> assemble judge-format masked input
+
+    Notes:
+      * framework supplies pt1/pt2, optional partner_chain/antigen and max_len (default 256).
+      * length is the candidate residue count; native loop residues are not read.
+      * Tokenizers with outer wrappers add them and shift mask positions accordingly.
+      * score_with_judge checks that candidate token count equals mask count.
     """
     pt1_ids = judge_tokenizer.encode(framework["pt1"])
     pt2_ids = judge_tokenizer.encode(framework["pt2"])
@@ -375,22 +491,23 @@ def build_masked_judge_prompt(judge_tokenizer, framework, length):
 
 def build_judge(model_type, weights_path=None, *, data_path, max_len, target_region,
                 include_partner_chain=False, include_antigen=False, device=None):
-    """Load an INDEPENDENT reference LM plus a parallel dataset in its own vocabulary.
+    """Return (judge_model, judge_tokenizer, judge_dataset) for a masked-LM judge.
 
-    Neutral, and deliberately so. The judge is what makes perplexity comparable ACROSS models —
-    self-perplexity measures self-consistency, so an overconfident model rates its own samples
-    highly regardless of quality. That argument does not care which method produced the candidate,
-    and Findings §11 rests on one judge scoring both CDRSeqGen and IgLM. A per-method copy would be
-    the fastest way to make an AR-versus-MLM table meaningless.
+    Workflow:
+      model_type -> resolve MLM backbone -> build tokenizer -> load model weights
+                 -> move to device (optional) -> model.eval()
+      data_path + target/context flags -> full MaskedInfillingDataset
 
-    The judge is a MASKED LM (IgBert by default) whatever it is judging, so it is built through the
-    masked backbone registry and reads the masked dataset view. That is the judge's own format, not
-    an assumption about the model under test.
-
-    Returns (judge_model, judge_tokenizer, judge_dataset).
+    Notes:
+      * weights_path overrides model weights; model_type still selects the tokenizer
+        and architecture. They must match.
+      * Strategies map evaluation-subset indices back to the full judge dataset;
+        generator and judge datasets must use corresponding records/order.
+      * Judge partner/antigen context can differ from generator context.
+      * Keep judge weights, tokenization, context and scoring populations fixed
+        for cross-generator comparisons. Scores do not establish binding function.
+      * Registry imports are deferred until a judge is requested.
     """
-    # Local imports: a heavy registry and the masked dataset are only needed when a judge is asked
-    # for, and importing them at module load would drag transformers into every plotting script.
     from cdrseqgen.datasets.dataset_mlm import MaskedInfillingDataset
     from cdrseqgen.methods.mlm.backbones import resolve
 

@@ -49,12 +49,18 @@ and the [saved evidence](results/misc/restoration_20261006/report.json).
    exact command in [the diagnostic recipe](configs/experiments/20260915_context_dropout.md#evaluate-the-completed-igbert-diagnostic-checkpoints-first), after the judge cache works.
 3. **Run matched no-partner training controls.** The dropout-0 arms in the completed screen were
    trained *with* partner context. The missing controls are two scratch AR trials (seeds 42/43)
-   and four S2S trials (scratch and ESM-2, seeds 42/43), trained without partner but evaluated
-   under the same two regimes. Use a fresh declarative spec and the frozen validation protocol;
-   do not resume the old batch plan with changed inputs.
-4. **Isolate ESM-2 pretraining, then replicate finalists.** Compare trainable pretrained, random
-   initialized, and frozen pretrained encoders with the same architecture and context policy.
-   Add seeds 44–46 and fixed-seed repeats to selected contrasts before judging small differences.
+   and four S2S trials (scratch and ESM-2, seeds 42/43), trained and generated without partner
+   context while the judge retains partner context. The [six-trial spec](configs/experiments/20261006_no_partner_controls.json)
+   and [prospective protocol/commands](configs/experiments/20261006_h3_followup.md) are prepared,
+   and the controls batch has started. Its initial AR attempts failed before training on
+   a missing TensorBoard dependency, now corrected; the recipe includes the retry command.
+   Do not resume September plans with changed inputs.
+4. **Confirm one selected dropout contrast, then isolate ESM-2 pretraining.** The prepared
+   [four-run confirmation spec](configs/experiments/20261006_esm2_dropout_confirmation.json)
+   compares ESM-2 dropout 0/0.5 at seeds 44/45 in both generator context regimes. Additional
+   seed 46 and fixed-seed repeats remain pending time and results. Compare trainable pretrained,
+   randomly initialized, and frozen pretrained encoders separately with matched architecture
+   and context policy before attributing a gain to pretraining.
 5. **Complete the external comparison and held-out evaluation.** Audit OAS overlap with IgLM and
    PLM pretraining data, repair the fixed-length population mismatch, rescore the validation pilot
    on a clean tree, then freeze settings and run the final test once.

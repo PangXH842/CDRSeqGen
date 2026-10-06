@@ -36,7 +36,8 @@ import matplotlib.pyplot as plt
 from cdrseqgen.visualization import plot_style
 from cdrseqgen.visualization.bargraph_plotter import BarSeries, draw_grouped_bars
 from cdrseqgen.visualization.batch_tables import (
-    FAMILY_LABELS, _epoch_metrics, discover_runs, method_of_family, recovery_summary)
+    FAMILY_LABELS, _epoch_metrics, discover_runs, has_repeated_families, method_of_family,
+    recovery_summary)
 from cdrseqgen.visualization.scatterplot_plotter import ScatterSeries, draw_scatter
 from cdrseqgen import artifacts
 
@@ -256,6 +257,51 @@ def plot_batch_dataset(runs, dataset, batch_dir, save_dir=None):
     return plot_style.save_figure(figure, save_dir, f"batch_{dataset.lower()}")
 
 
+def plot_trial_batch_dataset(runs, dataset, batch_dir, save_dir=None):
+    """Keep each seed/setting visible when a family has several trials."""
+    selected = [(key, path) for key, path in sorted(runs.items()) if key[1] == dataset]
+    categories, generations = [], []
+    for key, path in selected:
+        config_path = artifacts.find_run_config(path)
+        config = {}
+        if config_path:
+            with open(config_path) as handle:
+                config = json.load(handle)
+        family = key[3].split("::", 1)[0]
+        categories.append(f"{FAMILY_LABELS.get(family, family)}\n"
+                          f"s{config.get('seed', '?')}, cd{config.get('context_dropout', 0):g}\n"
+                          f"train {'with' if config.get('include_partner_chain') else 'without'} partner")
+        regimes = {}
+        for filename in (GENERATION_EVAL_FILENAME, artifacts.CONTEXT_ABLATION_FILENAME):
+            file = os.path.join(path, filename)
+            if not os.path.isfile(file):
+                continue
+            with open(file) as handle:
+                payload = json.load(handle)
+            partner = payload.get("include_partner_chain",
+                bool(config.get("include_partner_chain")) if filename == GENERATION_EVAL_FILENAME else False)
+            regimes[bool(partner)] = payload.get("summary", {})
+        generations.append(regimes)
+    figure, axes = plt.subplots(2, 1, figsize=(max(10, len(selected) * 1.2), 9))
+    for axis, metric, title, ylabel in (
+        (axes[0], "edit_similarity_mean", "Generated edit similarity (valid candidates)", "Edit similarity"),
+        (axes[1], "judge_perplexity_mean", "Judge perplexity (see table for judge context and coverage)", "Judge perplexity"),
+    ):
+        series = [BarSeries(f"Eval {'with' if partner else 'without'} partner",
+                  [regimes.get(partner, {}).get(metric) for regimes in generations])
+                  for partner in (True, False)]
+        if draw_grouped_bars(axis, categories, series, value_format="{:.3f}"):
+            plot_style.style_axes(axis, title=title, ylabel=ylabel, legend=True, grid="y")
+            axis.tick_params(axis="x", labelsize=8)
+        else:
+            plot_style.empty_panel(axis, "No generation metrics")
+    figure.suptitle(f"{dataset} — {os.path.basename(batch_dir.rstrip('/'))}\n"
+                   "Individual trials; no pooling across seeds or settings", fontsize=13)
+    figure.tight_layout(rect=(0, 0, 1, .94))
+    return plot_style.save_figure(figure, save_dir or plot_style.figures_dir(batch_dir),
+                                  f"batch_{dataset.lower()}_trials")
+
+
 def plot_batch(batch_dir, save_dir=None, dataset=None):
     """One dashboard per dataset in the batch — never one chart spanning two test sets."""
     runs = discover_runs(batch_dir)
@@ -270,7 +316,8 @@ def plot_batch(batch_dir, save_dir=None, dataset=None):
             continue
         count = sum(1 for key in runs if key[1] == name)
         print(f"   {name}: {count} runs")
-        path = plot_batch_dataset(runs, name, batch_dir, save_dir=save_dir)
+        plot = plot_trial_batch_dataset if has_repeated_families(runs) else plot_batch_dataset
+        path = plot(runs, name, batch_dir, save_dir=save_dir)
         if path:
             written.append(path)
     return written

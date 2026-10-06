@@ -14,13 +14,16 @@ def post_training_generation(method, trainer, tokenizer, eval_dataset, data_args
                              training_args, *, anchor_trim, method_options=None):
     """Evaluate the saved model; preserve training artifacts and log any evaluation failure."""
     try:
+        judge_context = getattr(gen_args, 'gen_judge_partner_context', 'trained')
+        judge_partner = (bool(data_args.include_partner_chain) if judge_context == 'trained'
+                         else judge_context == 'with')
         judge_model = judge_tokenizer = judge_dataset = None
         if gen_args.gen_judge:
             judge_model, judge_tokenizer, judge_dataset = build_judge(
                 gen_args.gen_judge, gen_args.gen_judge_path,
                 data_path=data_args.data_path, max_len=data_args.max_len,
                 target_region=data_args.target_region,
-                include_partner_chain=data_args.include_partner_chain,
+                include_partner_chain=judge_partner,
                 include_antigen=data_args.include_antigen, device=training_args.device)
         regimes = [(bool(data_args.include_partner_chain), artifacts.GENERATION_EVAL_FILENAME)]
         if getattr(gen_args, 'gen_eval_context_ablation', False):
@@ -41,9 +44,10 @@ def post_training_generation(method, trainer, tokenizer, eval_dataset, data_args
                 meta={'model_dir': training_args.output_dir, 'method': method,
                       'target_region': data_args.target_region,
                       'include_partner_chain': partner,
+                      'training_include_partner_chain': bool(data_args.include_partner_chain),
                       'training_context_dropout': data_args.context_dropout,
                       'eval_context_dropout': 0.0,
-                      'judge_include_partner_chain': bool(data_args.include_partner_chain),
+                      'judge_include_partner_chain': judge_partner,
                       'include_antigen': bool(data_args.include_antigen)},
                 **(method_options or {}))
             if filename == artifacts.GENERATION_EVAL_FILENAME:

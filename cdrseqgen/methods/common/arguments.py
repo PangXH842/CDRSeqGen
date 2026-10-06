@@ -1,6 +1,6 @@
 """Base run configuration: the arguments and run setup every method shares.
 
-  * BaseModelArguments / BaseDataArguments / BaseGenerationArguments -- the 28 fields both methods
+  * BaseModelArguments / BaseDataArguments / BaseGenerationArguments -- the fields all methods
     declare identically. A method subclasses one and adds only what is its own.
   * parse_config_and_cli  -- config JSON, or config + trailing CLI overrides, or bare CLI
   * initialise_run         -- name the run from RESOLVED arguments, create it, start its log
@@ -18,7 +18,7 @@ import json
 import logging
 import os
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields as dataclass_fields
 
 from cdrseqgen.eval import ANCHOR_TRIM
 from cdrseqgen.train.logging import (RUN_SUFFIX_ENV, attach_file_logging, dataset_tag,
@@ -87,6 +87,10 @@ class BaseGenerationArguments:
         default="Exscientia/IgBert",
         metadata={"help": "Independent judge; '' disables. Self-perplexity is NOT comparable across "
                           "models, so any cross-run claim needs this."})
+    gen_judge_partner_context: str = field(
+        default="trained",
+        metadata={"help": "Judge partner context: trained, with, or without; independent of generator context.",
+                  "choices": ("trained", "with", "without")})
     gen_judge_path: str = field(
         default=None, metadata={"help": "Local weights for the judge, if not the hub id."})
 
@@ -103,6 +107,8 @@ def validate_common_args(model_args, data_args, gen_args, *, expected_method):
 
     if not 0.0 <= data_args.context_dropout <= 1.0:
         raise ValueError("context_dropout must be between 0 and 1")
+    if gen_args.gen_judge_partner_context not in ("trained", "with", "without"):
+        raise ValueError("gen_judge_partner_context must be trained, with, or without")
     if getattr(gen_args, "gen_eval_context_ablation", False):
         if not data_args.include_partner_chain or not gen_args.run_generative_eval or gen_args.gen_num_examples == 0:
             raise ValueError("gen_eval_context_ablation requires partner context and generative evaluation")
@@ -122,6 +128,26 @@ def validate_common_args(model_args, data_args, gen_args, *, expected_method):
         raise ValueError("gen_top_p must be in (0, 1]")
 
 
+def _normalise_warmup_config(parser, config):
+    """Translate legacy ratio configs only when the parser uses the new warmup_steps API."""
+    config = dict(config)
+    supported = {item.name for kind in parser.dataclass_types for item in dataclass_fields(kind)
+                 if item.init}
+    if "warmup_steps" in supported and "warmup_ratio" not in supported and "warmup_ratio" in config:
+        ratio = config.pop("warmup_ratio")
+        if ratio is not None:
+            if isinstance(ratio, bool) or not 0 <= float(ratio) < 1:
+                raise ValueError("Legacy warmup_ratio must be in [0, 1) for this Transformers version")
+            if not config.get("warmup_steps"):
+                config["warmup_steps"] = float(ratio)
+    return config
+
+
+def parse_config_dict(parser, config, *, allow_extra_keys=False):
+    """Parse an execution config with the installed TrainingArguments warmup conventions."""
+    return parser.parse_dict(_normalise_warmup_config(parser, config), allow_extra_keys=allow_extra_keys)
+
+
 def parse_config_and_cli(parser):
     """Parse a config JSON, a config plus trailing CLI overrides, or bare CLI arguments.
 
@@ -130,9 +156,9 @@ def parse_config_and_cli(parser):
     """
     if len(sys.argv) >= 2 and sys.argv[1].endswith(".json"):
         config_path = os.path.abspath(sys.argv[1])
+        with open(config_path) as handle:
+            json_cfg = _normalise_warmup_config(parser, json.load(handle))
         if len(sys.argv) > 2:
-            with open(config_path) as handle:
-                json_cfg = json.load(handle)
             argv = []
             for key, value in json_cfg.items():
                 # JSON null means "use the dataclass default". Serialising it as the literal
@@ -143,7 +169,7 @@ def parse_config_and_cli(parser):
                 argv += [f"--{key}", str(value)]
             argv += sys.argv[2:]
             return parser.parse_args_into_dataclasses(args=argv)
-        return parser.parse_json_file(json_file=config_path)
+        return parser.parse_dict(json_cfg)
     return parser.parse_args_into_dataclasses()
 
 

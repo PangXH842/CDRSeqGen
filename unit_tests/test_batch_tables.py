@@ -1,4 +1,5 @@
 import csv
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -324,6 +325,73 @@ class GenerationPolicyReportingTests(unittest.TestCase):
                 'records': [{'metrics': {'aar_mean': 0.5}}]}))
             table = build_table('design', {('h3', 'OAS', '', 'scratch'): directory})
         self.assertIn('| unknown | 1/1 | 0.500 |', table)
+
+
+class TrialIdentityReportingTests(unittest.TestCase):
+    def make_batch(self, directory):
+        runs = []
+        for seed in (42, 43):
+            for dropout in (0, .5):
+                run = Path(directory) / f'h3_OAS4_LC_s2s_esm2_t12_35M_UR50D_cd{dropout}_s{seed}'
+                write_metrics(run, [dict(epoch=1, eval_accuracy=.5, eval_core_accuracy=.4,
+                    eval_anchor_accuracy=.8, eval_core_coverage=1)])
+                (run/'run_config.json').write_text(json.dumps(dict(method='s2s',
+                    model_type='facebook/esm2_t12_35M_UR50D', seed=seed,
+                    context_dropout=dropout, include_partner_chain=True)))
+                for filename, partner in (('generation_eval.json', True),
+                                          ('generation_eval_without_partner.json', False)):
+                    (run/filename).write_text(json.dumps(dict(include_partner_chain=partner,
+                        judge_include_partner_chain=True,
+                        generation_validity=dict(valid_generation_rate=1, length_absolute_error_mean_capped=3),
+                        summary=dict(edit_similarity_mean=.39, core_recovery_mean=.2,
+                            length_match_rate=.08, judge_perplexity_mean=3.2, judge_coverage=1),
+                        records=[dict(metrics=dict(core_recovery_mean=.2))])))
+                runs.append(run)
+        return runs
+
+    def test_repeated_esm2_trials_are_all_discovered_and_reported(self):
+        from cdrseqgen.visualization.batch_tables import discover_runs, has_repeated_families, render_tables
+        with tempfile.TemporaryDirectory() as directory:
+            expected = self.make_batch(directory)
+            runs = discover_runs(directory)
+            self.assertEqual(len(runs), 4)
+            self.assertEqual(set(runs.values()), {str(p) for p in expected})
+            self.assertTrue(has_repeated_families(runs))
+            table = render_tables(directory, runs, wanted=[])
+            self.assertIn('4 runs', table)
+            for run in expected:
+                self.assertEqual(table.count(f'| {run.name} |'), 3)
+            self.assertIn('Judge partner', table)
+            self.assertIn('Core frameworks', table)
+            self.assertNotIn('nan', table)
+
+    def test_control_report_distinguishes_training_generator_and_judge_context(self):
+        from cdrseqgen.visualization.batch_tables import context_ablation_table
+        with tempfile.TemporaryDirectory() as directory:
+            run = self.make_batch(directory)[0]
+            (run/'generation_eval_without_partner.json').unlink()
+            config = json.loads((run/'run_config.json').read_text())
+            config.update(include_partner_chain=False, gen_judge_partner_context='with')
+            (run/'run_config.json').write_text(json.dumps(config))
+            payload = json.loads((run/'generation_eval.json').read_text())
+            payload['include_partner_chain'] = False
+            (run/'generation_eval.json').write_text(json.dumps(payload))
+            table = context_ablation_table({('h3', 'OAS4', '', 's2s_esm2'): str(run)})
+            self.assertIn('| without | with |', table)
+            self.assertIn('| 1/1 |', table)
+
+    def test_trial_dashboard_keeps_all_seed_and_dropout_categories(self):
+        from unittest.mock import patch
+        from cdrseqgen.visualization.batch_plots import plot_batch
+        from cdrseqgen.visualization.bargraph_plotter import draw_grouped_bars
+        with tempfile.TemporaryDirectory() as directory:
+            self.make_batch(directory)
+            with patch('cdrseqgen.visualization.batch_plots.draw_grouped_bars', wraps=draw_grouped_bars) as draw:
+                paths = plot_batch(directory, save_dir=str(Path(directory)/'figures'))
+            self.assertEqual(len(paths), 1)
+            self.assertTrue(Path(paths[0]).is_file())
+            self.assertEqual(draw.call_count, 2)
+            self.assertTrue(all(len(call.args[1]) == 4 for call in draw.call_args_list))
 
 
 if __name__ == "__main__":

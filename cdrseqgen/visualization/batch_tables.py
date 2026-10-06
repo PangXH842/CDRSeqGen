@@ -118,16 +118,37 @@ def model_family(model):
 
 
 def discover_runs(batch):
-    """{(loop, ds, ctx, family): run_dir} for every parseable run in a batch directory"""
-    runs = {}
+    """Preserve every run; qualify repeated family keys with the run directory name.
+
+    A single run per family keeps the historical matrix keys. Multiple seeds or settings use
+    ``family::run_name`` keys so no arbitrary trial becomes the family's representative.
+    """
+    grouped = defaultdict(list)
     for path in sorted(glob.glob(os.path.join(batch, "*"))):
         if not os.path.isdir(path):
             continue
-        m = RUN_RE.match(os.path.basename(path))
-        if not m:
+        match = RUN_RE.match(os.path.basename(path))
+        if not match:
             continue
-        runs[(m["loop"], m["ds"], m["ctx"], model_family(m["model"]))] = path
+        family = model_family(match["model"])
+        config_path = find_run_config(path)
+        if config_path:
+            config = _load(str(config_path))
+            if config.get("model_type"):
+                method = config.get("method", "mlm")
+                prefix = "" if method == "mlm" else method + "_"
+                family = model_family(prefix + config["model_type"].rsplit("/", 1)[-1])
+        grouped[(match["loop"], match["ds"], match["ctx"], family)].append(path)
+    runs = {}
+    for key, paths in grouped.items():
+        for path in paths:
+            trial_key = key if len(paths) == 1 else (*key[:3], key[3] + "::" + os.path.basename(path))
+            runs[trial_key] = path
     return runs
+
+
+def has_repeated_families(runs):
+    return any("::" in key[3] for key in runs)
 
 
 def recovery_summary(run_dir, min_core_coverage=MIN_REPORT_CORE_COVERAGE):
@@ -685,36 +706,64 @@ def build_table(name, runs, *, decoding_paths=None):
     )
 
 
-def context_ablation_table(runs):
+def trial_recovery_table(runs):
+    """Report each training trial explicitly rather than selecting a seed for a matrix cell."""
+    rows = []
+    for key, run_dir in sorted(runs.items()):
+        config_path = find_run_config(run_dir)
+        config = _load(str(config_path)) if config_path else {}
+        summary = recovery_summary(run_dir)
+        rows.append([os.path.basename(run_dir), key[3].split("::", 1)[0],
+                     config.get("seed", "unknown"),
+                     "with" if config.get("include_partner_chain", bool(key[2])) else "without",
+                     config.get("context_dropout", 0), summary["epoch"] if summary else "—",
+                     summary["primary_metric"] if summary else "—",
+                     _coverage_text(summary["core_coverage"]) if summary else "unknown",
+                     _primary_text(summary)])
+    return markdown_table("Per-trial teacher-forced recovery (conditioning differs by method)",
+        ["Run", "Method/backbone", "Seed", "Train partner", "Train dropout", "Best epoch",
+         "Metric", "Core coverage", "Recovery"], rows)
+
+
+def context_ablation_table(runs, *, include_primary=False):
     """Show both inference regimes and training dropout explicitly, without pooling seeds."""
     rows = []
     for run_dir in sorted(set(runs.values())):
         extra = os.path.join(run_dir, artifacts.CONTEXT_ABLATION_FILENAME)
-        if not os.path.isfile(extra):
-            continue
         config_path = find_run_config(run_dir)
-        with open(config_path) as handle:
-            config = json.load(handle)
-        for filename, partner in ((artifacts.GENERATION_EVAL_FILENAME, "with"),
-                                  (artifacts.CONTEXT_ABLATION_FILENAME, "without")):
-            with open(os.path.join(run_dir, filename)) as handle:
-                payload = json.load(handle)
+        config = _load(str(config_path)) if config_path else {}
+        choice = config.get("gen_judge_partner_context", "trained")
+        if not include_primary and not os.path.isfile(extra) and choice == "trained":
+            continue
+        for filename in (artifacts.GENERATION_EVAL_FILENAME, artifacts.CONTEXT_ABLATION_FILENAME):
+            path = os.path.join(run_dir, filename)
+            if not os.path.isfile(path):
+                continue
+            payload = _load(path)
+            partner = payload.get("include_partner_chain",
+                bool(config.get("include_partner_chain")) if filename == artifacts.GENERATION_EVAL_FILENAME else False)
+            judge_partner = payload.get("judge_include_partner_chain",
+                bool(config.get("include_partner_chain")) if choice == "trained" else choice == "with")
             summary = payload.get("summary", {})
             def number(value):
                 return "—" if value is None else f"{value:.4f}"
             rows.append([os.path.basename(run_dir), str(config.get("context_dropout", 0)),
-                         str(config.get("seed", 42)), partner,
+                         str(config.get("seed", 42)), "with" if partner else "without",
+                         "with" if judge_partner else "without",
                          number(payload.get("generation_validity", {}).get("valid_generation_rate")),
                          number(summary.get("edit_similarity_mean")),
                          number(summary.get("core_recovery_mean")),
+                         f"{sum(r.get('metrics', {}).get('core_recovery_mean') is not None for r in payload.get('records', []))}/{len(payload.get('records', []))}",
                          number(summary.get("length_match_rate")),
+                         number(payload.get("generation_validity", {}).get("length_absolute_error_mean_capped")),
+                         number(summary.get("judge_coverage")),
                          number(summary.get("judge_perplexity_mean"))])
     if not rows:
         return ""
-    return markdown_table("Partner-context ablation",
-        ["Run", "Train dropout", "Seed", "Eval partner", "Validity", "Edit similarity",
-         "Conditional core", "Length match", "Judge PPL"], rows) + (
-        "\nJudge context is fixed to the configured training context in both regimes. "
+    return markdown_table("Per-trial generation and partner context",
+        ["Run", "Train dropout", "Seed", "Eval partner", "Judge partner", "Validity", "Edit similarity",
+         "Conditional core", "Core frameworks", "Length match", "Length MAE", "Judge coverage", "Judge PPL"], rows) + (
+        "\nGenerator and judge partner context are recorded separately. "
         "Core recovery uses length-matched candidates; inspect JSON records for contributing "
         "populations. Edit similarity excludes invalid candidates; interpret alongside validity.\n")
 
@@ -736,10 +785,16 @@ def render_tables(batch, runs, wanted=None, *, decoding_paths=None, source=None)
     if warning:
         blocks.append(warning + "\n")
 
-    for name in wanted:
-        blocks.append(build_table(name, runs) + "\n")
+    repeated = has_repeated_families(runs)
+    if repeated:
+        blocks.append("Multiple trials share a model family. Each trial is reported separately; "
+                      "family matrices would select an arbitrary seed or setting.\n")
+        blocks.append(trial_recovery_table(runs) + "\n")
+    else:
+        for name in wanted:
+            blocks.append(build_table(name, runs) + "\n")
 
-    context = context_ablation_table(runs)
+    context = context_ablation_table(runs, include_primary=repeated)
     if context:
         blocks.append(context + "\n")
     decoding = build_table("decoding", runs, decoding_paths=decoding_paths)

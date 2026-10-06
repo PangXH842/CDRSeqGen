@@ -54,6 +54,49 @@ class ConfidenceMetricTests(unittest.TestCase):
         out = confidence_metrics([None, 0.5, 0.9, 0.2], [1.0, 2.0, 3.0, 4.0], prefix="c")
         self.assertEqual(out["c_n"], 3)
 
+    def test_unequal_lengths_raise_before_dropping_missing_values(self):
+        for recoveries, scores in (([0.9, 0.5, 0.1], [1.0, 2.0]),
+                                   ([0.9, 0.5], [1.0, 2.0, 3.0]),
+                                   ([], [None])):
+            with self.subTest(recoveries=recoveries, scores=scores):
+                with self.assertRaisesRegex(ValueError, "equal-length"):
+                    confidence_metrics(recoveries, scores)
+
+    def test_nonfinite_scores_drop_pairs_without_shifting_candidates(self):
+        out = confidence_metrics(
+            [0.9, 0.4, 0.1, 0.8, 0.6, 0.7],
+            [1.0, float("nan"), 9.0, 2.0, float("inf"), float("-inf")],
+            prefix="c",
+        )
+        self.assertEqual(out["c_n"], 3)
+        self.assertAlmostEqual(out["c_spearman"], 1.0)
+        self.assertAlmostEqual(out["c_baseline_recovery"], 0.6)
+        self.assertAlmostEqual(out["c_top1_recovery"], 0.9)
+        self.assertAlmostEqual(out["c_top3_recovery"], 0.6)
+
+    def test_nonfinite_recoveries_are_excluded(self):
+        out = confidence_metrics(
+            [0.9, float("nan"), 0.5, float("inf"), 0.1, float("-inf")],
+            [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            prefix="c",
+        )
+        self.assertEqual(out["c_n"], 3)
+        self.assertAlmostEqual(out["c_spearman"], 1.0)
+        self.assertAlmostEqual(out["c_baseline_recovery"], 0.5)
+        self.assertAlmostEqual(out["c_top1_recovery"], 0.9)
+
+    def test_reporting_minimum_uses_only_finite_pairs(self):
+        out = confidence_metrics([0.5, 0.4, 0.9], [1.0, 2.0, float("nan")], prefix="c")
+        self.assertEqual(out, {"c_n": 2})
+
+    def test_no_eligible_pairs_reports_zero(self):
+        out = confidence_metrics(
+            [None, float("nan"), float("inf"), float("-inf"), 0.5, 0.6, 0.7],
+            [1.0, 1.0, 1.0, 1.0, None, float("nan"), float("inf")],
+            prefix="c",
+        )
+        self.assertEqual(out, {"c_n": 0})
+
 
 if __name__ == "__main__":
     unittest.main()

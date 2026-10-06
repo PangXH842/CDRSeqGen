@@ -393,10 +393,16 @@ def completed_artifacts(run_dir, config):
             if value is None or key in {"output_dir", "data_path"}:
                 continue
             actual = saved.get(key)
+            if key == "warmup_ratio" and key not in saved:
+                # New TrainingArguments removes warmup_ratio and stores the fraction in steps.
+                expected = config.get("warmup_steps") or value
+                if saved.get("warmup_steps") == expected:
+                    continue
             # Transformers 5 converts the deprecated warmup_ratio into warmup_steps.
             # Older versions leave steps=0; both represent the same requested ratio.
             if key == "warmup_steps" and config.get("warmup_ratio") is not None:
-                if actual in (value, config["warmup_ratio"]):
+                allowed = (value,) if value else (value, config["warmup_ratio"])
+                if actual in allowed:
                     continue
             # TrainingArguments normalizes report_to from a string to a list.
             if key == "report_to" and isinstance(value, str):

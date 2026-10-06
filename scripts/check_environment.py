@@ -9,6 +9,38 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
+def check_training_logging():
+    """Construct the configured logging callback and verify a readable scalar event."""
+    import torch
+    from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+    from transformers import Trainer, TrainingArguments
+    from transformers.integrations import TensorBoardCallback
+
+    with tempfile.TemporaryDirectory() as directory:
+        args = TrainingArguments(output_dir=directory, use_cpu=True,
+                                 report_to="tensorboard", disable_tqdm=True)
+        # No datasets or train() call: only exercise Trainer initialization and logging.
+        trainer = Trainer(model=torch.nn.Linear(1, 1), args=args)
+        callbacks = [callback for callback in trainer.callback_handler.callbacks
+                     if isinstance(callback, TensorBoardCallback)]
+        if len(callbacks) != 1:
+            raise RuntimeError("Trainer did not configure exactly one TensorBoard callback")
+        callback = callbacks[0]
+        # Keep smoke events local even if the caller set TENSORBOARD_LOGGING_DIR.
+        callback.logging_dir = str(Path(directory) / "tensorboard")
+        try:
+            callback.on_train_begin(args, trainer.state, trainer.control, model=trainer.model)
+            callback.on_log(args, trainer.state, trainer.control, logs={"loss": 0.5})
+            callback.tb_writer.flush()
+            events = EventAccumulator(callback.logging_dir).Reload()
+            values = events.Scalars("train/loss")
+            if len(values) != 1 or values[0].value != 0.5:
+                raise RuntimeError("TensorBoard scalar write/read failed")
+        finally:
+            callback.on_train_end(args, trainer.state, trainer.control)
+    print("Trainer initialization and TensorBoard scalar write/read OK")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("environment", choices=("cdrprj", "iglm"))
@@ -50,6 +82,7 @@ def main():
             fig.savefig(Path(directory) / "smoke.png")
             plt.close(fig)
         print("Training imports and headless plotting OK")
+        check_training_logging()
     else:
         from iglm import IgLM
         from iglm.model.tokens import BAD_WORD_IDS

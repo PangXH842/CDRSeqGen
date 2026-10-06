@@ -97,4 +97,59 @@ class ExperimentSpecTests(unittest.TestCase):
             other, _ = build_plan(['0', 'spec', self.write()], {})
         self.assertNotEqual(seen[0], [t['trial_id'] for t in other['trials']])
 
+
+class FollowupRecipeTests(unittest.TestCase):
+    def test_no_partner_controls_cover_each_model_and_seed_with_fixed_judge_context(self):
+        from transformers import HfArgumentParser, TrainingArguments
+        from cdrseqgen.methods.common.arguments import parse_config_dict, validate_common_args
+        from cdrseqgen.methods.registry import resolve
+        controls, _ = spec_trials('configs/experiments/20261006_no_partner_controls.json', {})
+        self.assertEqual(len(controls), 6)
+        self.assertEqual(len({(t['config']['method'], t['config']['model_type'], t['config']['seed'])
+                             for t in controls}), 6)
+        for trial in controls:
+            config = trial['config']
+            with self.subTest(trial=trial['suffix']):
+                self.assertFalse(config['include_partner_chain'])
+                self.assertEqual(config['context_dropout'], 0)
+                self.assertEqual(config['gen_judge_partner_context'], 'with')
+                self.assertFalse(config['gen_eval_context_ablation'])
+                self.assertEqual(config['num_train_epochs'], 20)
+                self.assertEqual(config['gen_num_examples'], 150)
+                self.assertEqual(config['gen_num_samples'], 20)
+                self.assertEqual(config['gen_seed'], 42)
+                self.assertEqual(config['data_seed'], config['seed'])
+                self.assertEqual(config['eval_split'], 'validation')
+                self.assertEqual(config['learning_rate'], 3e-5 if 'esm2' in config['model_type'] else 1e-4)
+                module = resolve(config['method']).module('arguments')
+                parser = HfArgumentParser((module.ModelArguments, module.DataArguments,
+                    module.GenerationArguments, TrainingArguments))
+                model, data, gen, training = parse_config_dict(parser, {**config, 'use_cpu': True, 'report_to': 'none'})
+                validate_common_args(model, data, gen, expected_method=config['method'])
+                self.assertEqual(training.get_warmup_steps(1000), 60 if 'esm2' in config['model_type'] else 0)
+
+    def test_confirmation_pairs_change_only_dropout_and_use_new_shared_seeds(self):
+        from transformers import HfArgumentParser, TrainingArguments
+        from cdrseqgen.methods.common.arguments import parse_config_dict
+        from cdrseqgen.methods.s2s.arguments import ModelArguments, DataArguments, GenerationArguments, validate_args
+        trials, _ = spec_trials('configs/experiments/20261006_esm2_dropout_confirmation.json', {})
+        self.assertEqual(len(trials), 4)
+        for index, seed in ((0, 44), (2, 45)):
+            first, second = (dict(t['config']) for t in trials[index:index+2])
+            self.assertEqual(first.pop('context_dropout'), 0)
+            self.assertEqual(second.pop('context_dropout'), .5)
+            self.assertEqual(first, second)
+            self.assertEqual(first['seed'], seed)
+            self.assertEqual(first['data_seed'], seed)
+            self.assertTrue(first['gen_eval_context_ablation'])
+            self.assertTrue(first['include_partner_chain'])
+            self.assertEqual(first['gen_judge_partner_context'], 'with')
+            self.assertEqual(first['learning_rate'], 3e-5)
+        for trial in trials:
+            parser = HfArgumentParser((ModelArguments, DataArguments, GenerationArguments, TrainingArguments))
+            model, data, gen, training = parse_config_dict(parser,
+                {**trial['config'], 'use_cpu': True, 'report_to': 'none'})
+            validate_args(model, data, gen)
+            self.assertEqual(training.get_warmup_steps(1000), 60)
+
 if __name__=='__main__':unittest.main()
