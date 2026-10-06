@@ -102,3 +102,62 @@ original records, and use relocated copies/config overrides for execution.
 Record the source Git commit and verify transferred data checksums before
 retiring the old server. Authentication should be configured separately on the
 new server; it is not part of the environment files.
+
+## Destination-server restoration (2026-10-06)
+
+The transferred pretrained cache is complete at `/mnt/hdd/pang/hf-cache/hub`.
+The default lookup path, `/home/pang/.cache/huggingface/hub`, now points there
+through a symlink. Existing commands can load models by their Hub IDs without
+setting `HF_HOME`. No model downloads or package changes were needed.
+
+| Model | Verified cached revision |
+| --- | --- |
+| `Exscientia/IgBert` | `81a4abb8a4dac5cdcbefc28e5b331a82224c485d` |
+| `Rostlab/prot_bert` | `7a894481acdc12202f0a415dd567f6cfdb698908` |
+| `facebook/esm2_t12_35M_UR50D` | `6fbf070e65b0b7291e7bbcd451118c216cff79d8` |
+
+Cache symlinks and weight blob SHA-256 hashes passed verification. All five
+processed datasets also match their preprocessing metadata hashes. Both
+environments passed `pip check`, imports and GPU forward/backward on physical
+GPU 0 (RTX PRO 6000 Blackwell Max-Q); `cdrprj` also passed headless plotting.
+GPU 1 was occupied and was excluded from these checks.
+
+Offline model checks passed through the real project loaders:
+
+- ESM-2 and ProtBert preserve canonical residue tokenization and produce finite
+  masked-LM logits on GPU.
+- The saved scratch S2S checkpoint generated six valid candidates from three
+  OAS4 validation frameworks, with finite IgBert scores and full judge coverage.
+  Its input contract matched without `--force`.
+- The packaged IgLM checkpoint generated two valid natural-EOS candidates from
+  one validation framework through the benchmark adapter, with no failures.
+- The experiment launcher activated `cdrprj` and planned all six `compare`
+  trials in dry-run mode without launching training.
+
+These are execution checks, not comparative scientific results. Evidence,
+model/data hashes and logs are saved in
+[`results/misc/restoration_20261006/report.json`](results/misc/restoration_20261006/report.json).
+Historical run configs, checkpoints and evaluation outputs were preserved.
+
+To repeat the environment check using the same GPU selection:
+
+```bash
+PATH=/home/pang/miniconda3/bin:$PATH CUDA_VISIBLE_DEVICES=0 HF_HUB_OFFLINE=1 \
+  bash scripts/verify_env.sh all
+```
+
+The saved-checkpoint evaluation used:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 HF_HUB_OFFLINE=1 \
+  /home/pang/miniconda3/envs/cdrprj/bin/python evaluate.py \
+  --config configs/s2s/h3_s2s_scratch.json \
+  --model_dir results/runs/20260908_173143_compare/h3_OAS4_s2s_scratch \
+  --num_examples 3 --num_samples 2 --temperature 1 --top_k 0 --top_p 0.9 \
+  --seed 42 --judge Exscientia/IgBert \
+  --partner_context without --judge_partner_context with
+```
+
+Other historical configs may still contain absolute `/raid/...` dataset paths.
+Use relocated execution copies with verified dataset hashes; retain the original
+records and record any compatibility override needed for a deliberate relocation.

@@ -28,28 +28,34 @@ experiments within a category used identical protocols.
 The scratch/PLM learning-rate and loss screens are intentionally omitted from this category
 view. See the corresponding `*sweep*` folders and the README findings for their results.
 
+## Restoration status — 2026-10-06
+
+The IgBert, ProtBert and ESM-2 caches are restored to the default lookup path via
+a symlink to `/mnt/hdd/pang/hf-cache/hub`. Offline cache integrity, all five processed
+dataset hashes, both environments on GPU 0, real ESM-2/ProtBert forward passes, a
+saved S2S checkpoint with the real IgBert judge, and a packaged IgLM validation
+smoke run all passed. No downloads or package changes were needed. See
+[environment restoration](ENVIRONMENT.md#destination-server-restoration-2026-10-06)
+and the [saved evidence](results/misc/restoration_20261006/report.json).
+
 ## Next run order
 
-1. **Complete the migration dependency check.** Locate or restore the IgBert, ProtBert and ESM-2
-   Hugging Face caches, then do one real judge-backed validation evaluation. Unit tests, both GPU
-   environments, and a saved scratch checkpoint already passed on this server; the pretrained
-   cache was not found at the default path when checked on 2026-09-22.
-2. **Freeze a validation protocol before more comparative training.** Specify example IDs,
+1. **Freeze a validation protocol before more comparative training.** Specify example IDs,
    length policy, candidate/attempt budget, context for generator and judge, endpoints,
    checkpoint selection, and how failures/length-matched subsets are reported. Settle whether
    IgBert judge perplexity can be supporting only, given model-family and OAS overlap. Keep the
    final test split untouched. The protocol decision and leakage audit gate final claims.
-3. **Evaluate the three saved IgBert diagnostic checkpoints.** This needs no training. Use the
+2. **Evaluate the three saved IgBert diagnostic checkpoints.** This needs no training. Use the
    exact command in [the diagnostic recipe](configs/experiments/20260915_context_dropout.md#evaluate-the-completed-igbert-diagnostic-checkpoints-first), after the judge cache works.
-4. **Run matched no-partner training controls.** The dropout-0 arms in the completed screen were
+3. **Run matched no-partner training controls.** The dropout-0 arms in the completed screen were
    trained *with* partner context. The missing controls are two scratch AR trials (seeds 42/43)
    and four S2S trials (scratch and ESM-2, seeds 42/43), trained without partner but evaluated
    under the same two regimes. Use a fresh declarative spec and the frozen validation protocol;
    do not resume the old batch plan with changed inputs.
-5. **Isolate ESM-2 pretraining, then replicate finalists.** Compare trainable pretrained, random
+4. **Isolate ESM-2 pretraining, then replicate finalists.** Compare trainable pretrained, random
    initialized, and frozen pretrained encoders with the same architecture and context policy.
    Add seeds 44–46 and fixed-seed repeats to selected contrasts before judging small differences.
-6. **Complete the external comparison and held-out evaluation.** Audit OAS overlap with IgLM and
+5. **Complete the external comparison and held-out evaluation.** Audit OAS overlap with IgLM and
    PLM pretraining data, repair the fixed-length population mismatch, rescore the validation pilot
    on a clean tree, then freeze settings and run the final test once.
 
