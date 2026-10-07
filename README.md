@@ -1,8 +1,8 @@
 <!-- Note to AI: Edits allowed OUTSIDE of MANUAL PROTECTION ZONES and INSIDE of AI ACCESS ZONES, and DO NOT COMMIT ON MY BEHALF -->
 # CDRSeqGen: Modular Antibody Infilling Framework
 
-**Date Updated:** 2026-10-06
-**Status:** AR/S2S context-dropout and ESM-2 LR screens complete; matched controls and confirmation pending
+**Date Updated:** 2026-10-07
+**Status:** Six no-partner controls and four ESM-2 dropout-confirmation trials audited complete; MLM no-partner controls are the next prepared batch
 
 ## Project Overview
 CDRSeqGen is a computational immunology framework designed to predict antibody loop sequences given the surrounding framework context. 
@@ -25,7 +25,7 @@ Current implemented features include:
 - **Pluggable backbones**: supports various PLMs, current list: custom transformer (scratch), ESM-2, IgBert, ProtBert
 
 **Training & experiments**
-- **Batch experiment runner**: one planner/executor behind `run.sh` drives named suites, hyperparameter sweeps, and declarative multi-arm specs; it shards trials across GPUs, freezes each batch as a `plan.json` (merged configs, dataset hashes, source identity) for exact resume, skips runs whose artifacts are already complete, and writes the round's tables and dashboards when it finishes
+- **Batch experiment runner**: `run.sh list|plan|run|status|resume` exposes named recipes, suites and sweeps through one planner/executor; related recipes share base settings. It shards trials across GPUs, freezes each batch as a `plan.json` (merged configs, dataset hashes, source identity), verifies completion artifacts and writes tables/dashboards. Batch resume skips complete trials and restarts unfinished training; checkpoint recovery is separate. See the [experiment guide](configs/experiments/README.md).
 
 **Generation**
 - **Sampling**: independent / iterative (Mask-Predict) decoding with temperature (`0` = greedy), top-k, top-p — samples a *library* of candidate loops instead of one argmax guess
@@ -83,8 +83,9 @@ Current implemented features include:
 
 ## 🏗️ Repository Structure
 
-`scripts/` holds thin command-line launchers; `cdrseqgen/` holds executable Python logic.
-The launch direction is `run.sh → python -m cdrseqgen.experiments → train.py`; `sweep.sh`
+`scripts/` holds command-line interfaces; `cdrseqgen/` holds planning, training and evaluation logic.
+Named commands follow `run.sh → scripts/experiments.py → cdrseqgen.experiments → train.py`;
+legacy GPU-first commands call the same planner/executor directly. `sweep.sh`
 forwards to `run.sh`. Single-run settings live in `configs/{mlm,ar,s2s}/`, multi-run recipes in
 `configs/experiments/`, and resolved plans and outputs in `results/runs/`.
 
@@ -95,7 +96,7 @@ CDRSeqGen/
 │   ├── mlm/                    # Masked infilling: heavy/, light/, antigen/
 │   ├── ar/                     # Autoregressive heavy-chain infilling
 │   ├── s2s/                    # Encoder–decoder H3: scratch and pretrained encoders
-│   ├── experiments/            # Dated multi-arm specs and protocols
+│   ├── experiments/            # Named multi-arm specs, protocols and shared bases/
 │   └── README.md               # Config selection and naming guide
 ├── cdrseqgen/                  # Library package — grouped by concern (entrypoints stay at root)
 │   ├── experiments.py          # Suite/sweep/spec planner and executor; called by scripts/run.sh
@@ -233,10 +234,8 @@ CDRSeqGen/
 ├── evaluate.py                 # Entrypoint — held-out generative evaluation (+ --judge)
 ├── fit_mlm_length.py           # Add MLM length artifacts to an older checkpoint
 ├── scripts/
-│   ├── run.sh                  # Launcher: <gpus> [suite ...] or <gpus> sweep [preset] [config]
-│                               #   Suites name their method first: mlm_heavy | mlm_light |
-│                               #   mlm_antigen | mlm_igbert | mlm_protbert | mlm_plm |
-│                               #   ar_heavy | s2s_heavy | s2s_{esm2,igbert,protbert,plm} | compare | all. Several GPUs shard the round
+│   ├── run.sh                  # list | plan | run | status | resume; legacy GPU-first commands
+│   ├── experiments.py          # Named CLI; discovers recipes and uses the shared planner/executor
 │   ├── sweep.sh                # Compatibility alias for run.sh <gpus> sweep [preset] [config]
 │   └── unit_tests.sh           # Unit test runner (sets PYTHONPATH; no GPU or data needed)
 ├── env.sh
@@ -948,9 +947,20 @@ The [12-run context screen](results/runs/20260915_131629_103719_context_dropout/
 | S2S ESM-2 | 0.0 | 0.3932 | 0.3689 | 3.526 | 4.368 |
 | S2S ESM-2 | 0.5 | 0.3899 | 0.3872 | 3.531 | 3.558 |
 
-Dropout improves partner-absent edit similarity in **both seeds for all three models**: mean gains **+0.0078 / +0.0050 / +0.0183** for AR / scratch S2S / ESM-2 S2S. Partner-present edit costs are **−0.0010 / −0.0016 / −0.0032**, also consistent in direction across seeds. Partner-absent judge perplexity improves in every pair. This is a robustness trade-off; it does not show that dropout improves every metric or that training without partner context would be worse. Those matched no-partner training controls remain pending.
+Dropout improves partner-absent edit similarity in **both seeds for all three models**: mean gains **+0.0078 / +0.0050 / +0.0183** for AR / scratch S2S / ESM-2 S2S. Partner-present edit costs are **−0.0010 / −0.0016 / −0.0032**, also consistent in direction across seeds. Partner-absent judge perplexity improves in every pair. This is a robustness trade-off; it does not show that dropout improves every metric or that training without partner context would be worse. The six no-partner training controls are now complete ([October 7 review](results/reviews/20261007-no-partner-controls.md)); comparisons to the September screen span source/runtime versions.
 
 **Coverage and limits:** 71,999/72,000 candidates were valid. The sole exception was a complete-empty draw from ESM-2/dropout 0/seed 43 without partner context. All 150 frameworks contributed valid candidates in every regime, and judge coverage was complete over valid candidates. Edit similarity excludes that empty draw; generated core recovery is conditional on matching length and has different contributing populations. Two seeds are screening evidence, without a significance or equivalence claim. The existing automatic `batch_tables.md` omits three ESM-2 trials through family-key collisions; use the complete per-seed tables in the [September 15–17 review](results/reviews/0915-0917-review.md).
+
+**ESM-2 confirmation — audited 2026-10-07.** All four trials at seeds 44/45 and dropout 0/0.5 passed the [completion audit](results/reviews/20261007-esm2-confirmation.md): eight scored outputs, the same 150 validation frameworks in both regimes, **24,000/24,000 valid draws** and full judge coverage. Final weights match the selected checkpoints; sequence summaries were reproduced from the saved candidates.
+
+| Seed | Dropout | Edit, partner present ↑ | Edit, partner absent ↑ | Δ present (0.5 − 0) | Δ absent (0.5 − 0) |
+|---|---|---|---|---|---|
+| 44 | 0.0 | 0.3930 | 0.3056 | — | — |
+| 44 | 0.5 | 0.3888 | 0.3894 | −0.0042 | +0.0838 |
+| 45 | 0.0 | 0.3926 | 0.3285 | — | — |
+| 45 | 0.5 | 0.3887 | 0.3901 | −0.0039 | +0.0616 |
+
+The missing-partner robustness direction repeats in both new seeds, with mean changes **+0.0727 absent / −0.0041 present**. The absent-context effects exceed the September screen; keep batches separate because seeds, executable source and runtime differ. These are descriptive validation results, with cluster-aware uncertainty and final held-out benchmarking still pending. All four configs record a dirty checkout; their executable fingerprint is frozen. The interrupted fourth trial restored its optimizer/RNG and early-stopping state, finished at epoch 13, and saved the best epoch-10 weights. Its resumed epoch-12 checkpoint was pruned by normal retention; the recovery journal retains the input hashes. **No rerun is needed for completion.** Next: [two scratch MLM no-partner controls](configs/experiments/20261007_mlm_context.md).
 
 #### 15. ESM-2 learning-rate tuning improves teacher-forced recovery more clearly than generation
 
@@ -1095,6 +1105,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-10-07** -- Experiment scripts rework
 - **2026-10-06** -- [RECLAIM] `eval/`: `metrics.py`, `generative.py`
 - **2026-09-22** -- Reclassified config dirs
 - **2026-09-22** -- Revised environment settings (server migration)
@@ -1175,7 +1186,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 
 ### Experiment coverage across methods
 
-Status snapshot: **2026-09-17**. **☑** experiment completed; **◐** partial or historical evidence; **↻** in progress; **☐** pending; **—** requires a pretrained AR adapter first. Completion means exploratory results exist, not that the paper's final confirmation is finished. Pending cells are candidates, not a requirement to fill the entire matrix; prioritize matched context comparisons, the controls needed to interpret them, and confirmation across seeds. The detailed checklists below specify the follow-up work.
+Status snapshot: **2026-10-07** (no-partner controls and ESM-2 confirmation audited; MLM follow-up stages prepared). **☑** experiment completed; **◐** partial or historical evidence; **↻** in progress; **☐** pending; **—** requires a pretrained AR adapter first. Completion means validation/development evidence exists, not that the final held-out comparison is finished. Pending cells are candidates, not a requirement to fill the entire matrix; prioritize matched context comparisons, the controls needed to interpret them, and confirmation across seeds. The detailed checklists below specify the follow-up work.
 
 The [experiment-oriented results index](RESULTS.md) links each category to its saved evidence and ranks the next runs. Run `python scripts/organize_results.py` to regenerate the local `results/by_experiment/` view from the catalog; original timestamped batches remain the provenance records. Hyperparameter sweeps stay in their original folders and are excluded from this view.
 
@@ -1185,15 +1196,15 @@ The [experiment-oriented results index](RESULTS.md) links each category to its s
 | **[Pretrained models](results/by_experiment/pretrained_models/)** | ☑ ESM-2, IgBert, ProtBert | ☐ Pretrained causal adapter and experiments | ☑ ESM-2, IgBert, ProtBert **encoders** |
 | **Scratch learning-rate tuning** | ☑ Broader hyperparameter screen | ☑ LR screen | ☑ LR screen; settings not yet promoted |
 | **PLM learning-rate tuning** | ☐ Matched follow-up as needed | — | ☑ ESM-2 four-run partner-present screen reviewed (§15); confirmation pending |
-| **[Train with versus without partner context](results/by_experiment/partner_context/)** | ◐ Existing comparisons; match final protocol | ◐ Historical runs; **2 matched no-partner runs pending** | ◐ Existing comparisons; **4 matched no-partner runs pending** |
-| **[Context dropout 0 versus 0.5; evaluate both regimes](results/by_experiment/context_dropout/)** | ☑ Historical experiments; protocol differs | ☑ 4/4 complete and reviewed (§14) | ☑ Scratch 4/4 and ESM-2 4/4 complete and reviewed (§14) |
+| **[Train with versus without partner context](results/by_experiment/partner_context/)** | ◐ Existing comparisons; [two matched scratch no-partner controls prepared](configs/experiments/20261007_mlm_context.md#smallest-useful-next-batch), not launched | ◐ Historical partner-present runs; **2/2 no-partner controls complete** | ◐ Historical partner-present runs; **4/4 no-partner controls complete** |
+| **[Context dropout 0 versus 0.5; evaluate both regimes](results/by_experiment/context_dropout/)** | ◐ Historical experiments; [four matched scratch trials prepared](configs/experiments/20261007_mlm_context.md#smallest-useful-next-batch), not launched | ☑ 4/4 complete and reviewed (§14) | ☑ Scratch/ESM-2 screens; **4/4 new ESM-2 seed-44/45 confirmations audited** (§14) |
 | **Same architecture: pretrained versus random initialization** | ☐ | — | ☐ ESM-2 control; code available |
 | **[Frozen versus trainable pretrained weights](results/by_experiment/frozen_encoder/)** | ☐ | — | ◐ IgBert diagnostic trained; generation pending. ☐ ESM-2; code available |
 | **[Conditioning/collapse diagnostics](results/by_experiment/conditioning_diagnostics/)** | ◐ Context sensitivity studied | ◐ Context-ablation results available | ◐ IgBert probes complete; generation and replication pending |
 | **[Length-free generation and length analysis](results/by_experiment/length_free_generation/)** | ☑ Length-head experiments | ☑ EOS/length analysis | ☑ Generation metrics; comparative analysis ongoing |
 | **[Decoding/sampling sensitivity](results/by_experiment/decoding_sampling/)** | ☑ Independent/iterative and sampling studies | ☑ Temperature/length study | ☐ Controlled sampling screen |
 | **[Matched external IgLM benchmark](results/by_experiment/external_iglm_benchmark/)** | ◐ Small pilot; final comparison pending | ☐ | ☐ |
-| **[Additional seeds for selected contrasts](results/by_experiment/additional_seeds/)** | ☐ | ☐ Seeds 44–46 | ☐ Seeds 44–46 |
+| **[Additional seeds for selected contrasts](results/by_experiment/additional_seeds/)** | ☐ | ☐ Seeds 44–46 | ◐ ESM-2 dropout seeds 44/45 complete; other contrasts/repeats pending |
 | **[Light-chain experiments under target-loop-specific splits](results/by_experiment/light_chain/)** | ◐ Historical runs; corrected split required | ☐ After split work | ☐ After split work |
 | **Final frozen protocol, uncertainty estimates and held-out evaluation** | ☐ | ☐ | ☐ |
 
@@ -1242,10 +1253,11 @@ Both methods run on the **same frozen examples**, with the same candidate count 
 
 - [x] **Complete the three-arm IgBert diagnostic** (`20260914_140305_226060_igbert_diagnostic`). All arms finished three epochs, with 49 finite probe records and three epoch checkpoints each. The original-LR replay did not reproduce the earlier collapse within this window. Epoch-3 validation loss / core recovery: original 1.6092 / 0.3836; lower LR 1.6954 / 0.3566; frozen 1.6185 / 0.3814. All retained conditioning. This establishes neither failure incidence nor a preventive effect of freezing/lower LR. See the [completed diagnostic report](results/diagnostics/20260915_igbert_summary/REPORT.md).
 - [ ] **Evaluate the three saved diagnostic checkpoints generatively.** Same validation examples and 150 × 20 generation protocol, with fixed partner context for generator and judge; no retraining. [Commands](configs/experiments/20260915_context_dropout.md#evaluate-the-completed-igbert-diagnostic-checkpoints-first).
-- [x] **Run and review the AR/S2S context-dropout screen.** All 12 trials completed, with both evaluation regimes and fixed judge context. Dropout 0.5 improves missing-partner edit similarity in both seeds for every model, at a small partner-present cost (§14; [September 15–17 review](results/reviews/0915-0917-review.md)). Matched no-partner training controls and additional seeds remain pending.
+- [x] **Run and review the AR/S2S context-dropout screen.** All 12 trials completed, with both evaluation regimes and fixed judge context. Dropout 0.5 improves missing-partner edit similarity in both seeds for every model, at a small partner-present cost (§14; [September 15–17 review](results/reviews/0915-0917-review.md)). All six no-partner training controls are complete ([October 7 review](results/reviews/20261007-no-partner-controls.md)), and the selected ESM-2 contrast was audited at seeds 44/45 ([confirmation review](results/reviews/20261007-esm2-confirmation.md)). Broader stability/uncertainty work remains pending.
 - [x] **Preserve trial identity in batch tables.** Fixed 2026-10-06: new tables and dashboards retain every seed/dropout trial and show generator/judge context separately. Artifact-only regression against the completed context batch discovers all 12 runs and both evaluation regimes. Historical reports remain as originally saved.
-- [ ] **Add six models trained without partner context — next training batch.** Scratch AR, scratch S2S and ESM-2 S2S × seeds 42/43, with `include_partner_chain: false` and `context_dropout: 0`. Match the current screen within each model: OAS4 H3 validation split, optimizer, batch size, 20-epoch maximum, early stopping and checkpoint-selection metric. Evaluate the same 150 × 20 examples/candidates without generator partner context and with fixed partner context for the judge. Compare against partner-trained dropout 0 and 0.5 models; removing the partner only at inference does not replace this training control. The [six-trial spec](configs/experiments/20261006_no_partner_controls.json) was launched 2026-10-06; initial AR attempts failed before training on missing TensorBoard, now corrected. See the [protocol/retry commands](configs/experiments/20261006_h3_followup.md).
-- [ ] **Confirm selected contrasts with seeds 44–46.** Select follow-ups using validation results, then extend both sides of each contrast, including both dropout conditions when testing a dropout benefit. The [initial four-run ESM-2 spec](configs/experiments/20261006_esm2_dropout_confirmation.json) prepares dropout 0/0.5 at seeds 44/45 after the six controls; seed 46 remains optional pending time and results. Report individual seeds and paired differences; keep the test split untouched until settings and endpoints are frozen. For IgBert stability follow-ups, also report collapse incidence: one failure and one clean replay establish neither its rate nor run-to-run variance.
+- [x] **Complete six models trained without partner context.** Scratch AR, scratch S2S and ESM-2 S2S × seeds 42/43, with `include_partner_chain: false` and `context_dropout: 0`. Match the current screen within each model: OAS4 H3 validation split, optimizer, batch size, 20-epoch maximum, early stopping and checkpoint-selection metric. Evaluate the same 150 × 20 examples/candidates without generator partner context and with fixed partner context for the judge. Compare against partner-trained dropout 0 and 0.5 models; removing the partner only at inference does not replace this training control. The [six-trial spec](configs/experiments/20261006_no_partner_controls.json) completed 2026-10-06: 6/6 trials, 18,000 valid candidates and full judge coverage. The two initial TensorBoard failures have successful AR retries; no rerun is needed. Comparisons to September retain source/runtime differences. See the [completion review](results/reviews/20261007-no-partner-controls.md) and [next-batch commands](configs/experiments/20261006_h3_followup.md#commands-for-the-user).
+- [x] **Confirm the selected ESM-2 dropout contrast at seeds 44/45.** All four trials in the [spec](configs/experiments/20261006_esm2_dropout_confirmation.json) passed the [completion audit](results/reviews/20261007-esm2-confirmation.md), including both generator context regimes and recovered-run checkpoint provenance. Missing-partner edit gains are +0.0838/+0.0616; partner-present costs are −0.0042/−0.0039. Keep seed/source/runtime differences visible and the test split untouched. Seed 46, fixed-seed repeats and cluster-aware uncertainty remain follow-ups; this checkbox does not complete the broader stability or final-evaluation study.
+- [ ] **Run the prepared MLM context controls.** Start with two scratch MLM models trained/generated without partner context at seeds 42/43; inferred lengths, 150 × 20 draws and partner-present judge. Add the separate four-run dropout stage if cross-method context robustness is central. Historical MLM sweeps remain available for their existing claims. See the [recipe](configs/experiments/20261007_mlm_context.md) and [named experiment commands](configs/experiments/README.md).
 - [ ] **Separate ESM-2 pretraining from capacity and adaptation.** After reviewing the context screen, compare trainable pretrained, trainable randomly initialized, and frozen pretrained encoders of the same ESM-2 architecture, initially at seeds 42/43. Hold the decoder, corpus, context policy and evaluation protocol fixed; reuse current runs only where settings match. Use `encoder_init`/`freeze_encoder` in a JSON spec. Allow comparable validation tuning effort, since random initialization may require a different learning rate. Report generation quality, validity and contributing populations alongside teacher-forced recovery.
 - [x] **Screen ESM-2 learning rates on a longer budget.** Four trials at `1e-5`/`1e-4`, seeds 42/43, up to 20 epochs, completed and reviewed against the `3e-5` context-screen reference (§15; [September 15–17 review](results/reviews/0915-0917-review.md)). All use dropout 0 and partner-present generation. `1e-4` is a candidate for confirmation, not a promoted default; its dropout interaction and partner-absent behavior remain unmeasured.
 - [ ] **Compare tuned scratch and PLM systems under a matched protocol.** Match corpus, split, evaluation and comparable tuning effort; state epoch and compute budgets. The initial matrix's judge-perplexity gap (PLMs 3.441–4.132 versus scratch 3.215/3.250) is historical; the new partner-present ESM-2 `1e-4` mean is 3.345 (§15), and differing capacities and architectures still confound attribution to pretraining. Retain the same-architecture pretrained-versus-random control

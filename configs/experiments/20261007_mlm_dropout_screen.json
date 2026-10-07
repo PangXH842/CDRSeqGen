@@ -1,0 +1,42 @@
+{
+  "name": "mlm_dropout_screen",
+  "base_config": "configs/experiments/bases/h3_mlm_scratch.json",
+  "overrides": {
+    "include_partner_chain": true,
+    "gen_eval_context_ablation": true
+  },
+  "trials": [
+    {
+      "name": "mlm_scratch_cd00_s42",
+      "overrides": {
+        "context_dropout": 0.0,
+        "seed": 42,
+        "data_seed": 42
+      }
+    },
+    {
+      "name": "mlm_scratch_cd50_s42",
+      "overrides": {
+        "context_dropout": 0.5,
+        "seed": 42,
+        "data_seed": 42
+      }
+    },
+    {
+      "name": "mlm_scratch_cd00_s43",
+      "overrides": {
+        "context_dropout": 0.0,
+        "seed": 43,
+        "data_seed": 43
+      }
+    },
+    {
+      "name": "mlm_scratch_cd50_s43",
+      "overrides": {
+        "context_dropout": 0.5,
+        "seed": 43,
+        "data_seed": 43
+      }
+    }
+  ]
+}

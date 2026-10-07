@@ -151,9 +151,27 @@ CUDA_VISIBLE_DEVICES=0 python train.py configs/ar/h3_ar_scratch.json    # autore
 `generate.py` also dispatches through the method registry. AR/S2S use length-free probe cases;
 existing showcase cases that explicitly request `target_length` need a compatible fixture.
 
-**One launcher for suites and sweeps:** [scripts/run.sh](scripts/run.sh) selects the project
-environment once and invokes [cdrseqgen/experiments.py](cdrseqgen/experiments.py).
-[scripts/sweep.sh](scripts/sweep.sh) is a compatibility alias for the same launcher:
+**One experiment interface:** [scripts/run.sh](scripts/run.sh) selects the project
+environment and routes named commands through [scripts/experiments.py](scripts/experiments.py).
+The existing [planner/executor](cdrseqgen/experiments.py) owns dataset validation,
+GPU scheduling, artifact checks, frozen plans and reports. Start with the
+[experiment guide](configs/experiments/README.md) for recipe names and shared settings:
+
+```bash
+./scripts/run.sh list
+./scripts/run.sh plan mlm_no_partner_controls --gpus 0
+./scripts/run.sh run mlm_no_partner_controls --gpus 0
+./scripts/run.sh status results/runs/<batch>
+./scripts/run.sh resume results/runs/<batch> --gpus 0
+```
+
+Named commands take execution choices as flags: `--gpus`, `--output` for a new
+batch, and `--data` for an explicit corpus override. Scientific settings stay in
+the recipe/base config; related recipes can share a flat base under
+`configs/experiments/bases/`. Planning writes no files; `--json` prints every merged
+config and the corpus/source identity. The no-argument launcher displays help.
+
+GPU-first commands and [scripts/sweep.sh](scripts/sweep.sh) remain compatible:
 
 ```bash
 ./scripts/run.sh 0 compare
@@ -174,9 +192,13 @@ status per trial, with device, log, and run paths). Training still writes its fu
 to each run's `run_config.json`. This unifies execution; it does not automatically promote a sweep
 winner into the shipped training configs.
 
-Set `EXPERIMENT_DIR=results/runs/my_round` for either mode to resume that exact plan.
-`SWEEP_DIR` remains an alias in sweep mode. Resume skips only completed trials with compatible
-artifacts, retries failures/incomplete runs, and refuses changed configs, data, source, or protocol.
+Use `run.sh resume BATCH --gpus 0` to resume from the frozen plan, checking source,
+runtime, corpus content and trial identities without rereading a changed recipe.
+It skips completed trials with compatible artifacts and restarts unfinished
+training from scratch. Optimizer-checkpoint recovery remains a separate operation.
+The legacy commands use `EXPERIMENT_DIR=results/runs/my_round`; `SWEEP_DIR` remains
+an alias in sweep mode. Those commands rebuild the requested plan and refuse
+changed configs, data, source or protocol.
 Older folders without `plan.json` remain available for analysis; start a fresh folder for this
 runner. A retry updates its trial's status rather than counting as another training seed.
 
@@ -194,8 +216,8 @@ filename identity. The test split remains unused during this screen.
 under `configs/experiments/` instead of adding a permanent suite or another shell script:
 
 ```bash
-DRY_RUN=1 ./scripts/run.sh 0 spec configs/experiments/20260914_igbert_diagnostic.json
-./scripts/run.sh 0,1,2 spec configs/experiments/20260914_igbert_diagnostic.json
+./scripts/run.sh plan igbert_diagnostic --gpus 0
+./scripts/run.sh run igbert_diagnostic --gpus 0,1,2
 ```
 
 A spec contains `name`, an optional shared `base_config`, optional shared `overrides`, and a
@@ -205,9 +227,10 @@ Config and data paths are relative to the repository root, as with regular suite
 use letters, digits, underscores, and hyphens; the first character must be a letter or digit.
 Identical resolved trials are rejected; declare distinct settings or seeds explicitly.
 
-`DATA_PATH` may override the resolved corpus path. Put `seed`/`data_seed`, `encoder_init`, and
-`freeze_encoder` in the spec; their environment overrides are rejected to avoid changing the
-meaning of individual arms. `DRY_RUN`, GPU assignment, `EXPERIMENT_DIR`, resolved `plan.json`,
+Use `--data` with named commands; legacy commands accept `DATA_PATH`. Put
+`seed`/`data_seed`, `encoder_init`, and `freeze_encoder` in the spec. Named commands
+reject legacy experiment environment overrides so settings cannot change invisibly.
+For GPU-first commands, `DRY_RUN`, GPU assignment, `EXPERIMENT_DIR`, resolved `plan.json`,
 completion checks, and batch reporting use the existing suite executor. The dated IgBert recipe
 can be archived after diagnosis without changing the runner; its monitoring and scheduler-preserving
 stop options remain reusable.

@@ -7,14 +7,17 @@
     "s2s_scratch_pair": "results/runs/20260907_175340_s2s_heavy",
     "three_method_comparison": "results/runs/20260908_173143_compare",
     "pre_validation_oas_matrix": "results/runs/20260817_200051",
-    "early_ar_pair": "results/runs/20260901_171316"
+    "early_ar_pair": "results/runs/20260901_171316",
+    "no_partner_training_controls": "results/runs/20261006_140502_185951_no_partner_controls"
   },
   "pretrained_models": {
     "historical_oas_sd2_matrix": "results/runs/20260729_202635",
     "validation_oas_matrix": "results/runs/20260818_192606",
     "oas4_mlm_esm2": "results/runs/20260903_192305_mlm_heavy_ar_heavy",
     "s2s_encoder_matrix": "results/runs/20260913_151152_463868_s2s_plm",
-    "pre_validation_oas_matrix": "results/runs/20260817_200051"
+    "pre_validation_oas_matrix": "results/runs/20260817_200051",
+    "no_partner_training_controls": "results/runs/20261006_140502_185951_no_partner_controls",
+    "esm2_dropout_confirmation": "results/runs/20261007_013541_142543_esm2_dropout_confirmation"
   },
   "partner_context": {
     "validation_oas_matrix": "results/runs/20260818_192606",
@@ -23,11 +26,14 @@
     "s2s_encoder_matrix": "results/runs/20260913_151152_463868_s2s_plm",
     "context_dropout_screen": "results/runs/20260915_131629_103719_context_dropout",
     "pre_validation_oas_matrix": "results/runs/20260817_200051",
-    "early_ar_pair": "results/runs/20260901_171316"
+    "early_ar_pair": "results/runs/20260901_171316",
+    "no_partner_training_controls": "results/runs/20261006_140502_185951_no_partner_controls",
+    "esm2_dropout_confirmation": "results/runs/20261007_013541_142543_esm2_dropout_confirmation"
   },
   "context_dropout": {
     "early_mlm_pilot": "results/runs/20260729_195134_ctxdrop",
-    "ar_s2s_screen": "results/runs/20260915_131629_103719_context_dropout"
+    "ar_s2s_screen": "results/runs/20260915_131629_103719_context_dropout",
+    "esm2_dropout_confirmation": "results/runs/20261007_013541_142543_esm2_dropout_confirmation"
   },
   "frozen_encoder": {
     "igbert_three_arm_diagnostic": "results/runs/20260914_140305_226060_igbert_diagnostic"
@@ -44,7 +50,9 @@
     "later_two_method_comparison": "results/runs/20260904_195146_compare",
     "assembled_three_method_comparison": "results/runs/20260907_compare_spliced",
     "three_method_comparison": "results/runs/20260908_173143_compare",
-    "s2s_encoder_matrix": "results/runs/20260913_151152_463868_s2s_plm"
+    "s2s_encoder_matrix": "results/runs/20260913_151152_463868_s2s_plm",
+    "no_partner_training_controls": "results/runs/20261006_140502_185951_no_partner_controls",
+    "esm2_dropout_confirmation": "results/runs/20261007_013541_142543_esm2_dropout_confirmation"
   },
   "decoding_sampling": {
     "validation_oas_matrix": "results/runs/20260818_192606"
@@ -55,7 +63,9 @@
   },
   "additional_seeds": {
     "early_mlm_seed_check": "results/runs/20260730_160028_seedcheck",
-    "context_dropout_two_seeds": "results/runs/20260915_131629_103719_context_dropout"
+    "context_dropout_two_seeds": "results/runs/20260915_131629_103719_context_dropout",
+    "no_partner_training_controls": "results/runs/20261006_140502_185951_no_partner_controls",
+    "esm2_dropout_confirmation": "results/runs/20261007_013541_142543_esm2_dropout_confirmation"
   },
   "light_chain": {
     "historical_early_matrix": "results/runs/20260724_211745",

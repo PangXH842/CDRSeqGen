@@ -25,7 +25,7 @@ Use the project Python environment (`conda activate cdrprj` if needed). No GPU, 
 | PLM encoder/decoder token ids, pretrained weights, gradients, frozen dropout, and offline reload agree | `test_s2s_plm` (real local ESM/BERT models and Trainer) |
 | Model weights actually update, then survive serialization | `test_model_roundtrip` (real dataset/collator/model/optimizer/save/reload for MLM and AR) |
 | Failed, empty, wrong-length, or unscored draws cannot silently improve a metric | `test_ar_evaluation`, `test_metrics`, `test_confidence_metrics`, `test_sweep_tables`, benchmark scorer/track tests |
-| A matched batch receives its intended corpus, length policy, sampling settings, and devices | `test_runner` (both entry points, sequential/sharded execution, dataset gates, frozen plans, and resume) |
+| A matched batch receives its intended corpus, length policy, sampling settings, and devices | `test_runner` (legacy/named commands, plan equivalence, sequential/sharded execution, explicit grids, dataset gates, frozen-plan resume, artifact verification and active locks) |
 | Results preserve data/checkpoint provenance and resume compatibility | `test_preprocess_provenance`, `test_artifacts`, adapter and manifest tests |
 | Missing values are not plotted as zero; tables state actual length policy and recovery coverage | `test_plotting`, `test_batch_tables`, `test_benchmark_plotter` |
 

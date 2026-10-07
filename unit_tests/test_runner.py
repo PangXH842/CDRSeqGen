@@ -4,6 +4,7 @@ Only training and reporting are replaced. The real planner, dataset gate, subpro
 artifact checks, journal, and resume contract all execute; nothing needs a GPU or research corpus.
 """
 import csv
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -76,12 +77,24 @@ def report(plan, output):
 experiments.report = report
 raise SystemExit(experiments.main(sys.argv[1:]))
 ''')
+        (self.workspace / 'named_driver.py').write_text('''
+import json, sys
+from cdrseqgen import experiments
+from scripts import experiments as commands
+def report(plan, output):
+    (output / 'report_called.json').write_text(json.dumps({
+        'mode': plan['mode'], 'rank_metric': plan['rank_metric']}))
+experiments.report = report
+raise SystemExit(commands.main(sys.argv[1:]))
+''')
         interpreter = self.workspace / 'python'
         interpreter.write_text('#!' + sys.executable + '\n' + '''
 import os, sys
 args = sys.argv[1:]
 if args[:2] == ['-m', 'cdrseqgen.experiments']:
     args = ['driver.py', *args[2:]]
+elif args[:1] == ['scripts/experiments.py']:
+    args = ['named_driver.py', *args[1:]]
 os.execv(sys.executable, [sys.executable, *args])
 ''')
         interpreter.chmod(0o755)
@@ -125,6 +138,114 @@ os.execv(sys.executable, [sys.executable, *args])
         rejected = self.invoke('0', 's2s_heavy', DRY_RUN='1', FREEZE_ENCODER='true')
         self.assertNotEqual(rejected.returncode, 0)
         self.assertIn('require an S2S PLM', rejected.stderr)
+
+    def test_named_discovery_and_planning_match_legacy_without_creating_outputs(self):
+        listed = self.invoke('list')
+        self.assertEqual(listed.returncode, 0, listed.stderr)
+        self.assertIn('mlm_no_partner_controls', listed.stdout)
+        self.assertIn('sweep:lr', listed.stdout)
+        named = self.invoke('plan', 'mlm_no_partner_controls', '--gpus', '2,5', '--json')
+        self.assertEqual(named.returncode, 0, named.stderr)
+        legacy = self.plan('2,5', 'spec', 'configs/experiments/20261007_mlm_no_partner_controls.json')
+        self.assertEqual(json.loads(named.stdout), legacy)
+        sweep = self.invoke('plan', 'sweep:lr', '--config', 'configs/s2s/h3_s2s_scratch.json',
+                            '--grid', 'lr=1e-4', '--grid', 'seed=42,43', '--json')
+        self.assertEqual(sweep.returncode, 0, sweep.stderr)
+        legacy_sweep = self.plan('0', 'sweep', 'lr', 'configs/s2s/h3_s2s_scratch.json',
+                                 LRS='1e-4', SEEDS='42 43')
+        self.assertEqual(json.loads(sweep.stdout), legacy_sweep)
+        relocated = self.invoke('plan', 'mlm_no_partner_controls', '--data', str(self.corpus), '--json')
+        self.assertEqual(relocated.returncode, 0, relocated.stderr)
+        self.assertEqual(json.loads(relocated.stdout), legacy)
+        self.assertFalse((self.workspace / 'results').exists())
+        self.assertFalse(self.records())
+        empty = self.invoke()
+        self.assertEqual(empty.returncode, 0, empty.stderr)
+        self.assertIn('usage:', empty.stdout)
+        self.assertFalse(self.records())
+
+    def test_named_commands_reject_hidden_choices_ambiguous_names_and_invalid_devices(self):
+        for key, value in (('SEED', '99'), ('EXPERIMENT_DIR', 'old_batch'), ('DRY_RUN', '1'),
+                           ('LRS', '1e-3'), ('DATA_PATH', str(self.corpus))):
+            with self.subTest(key=key):
+                result = self.invoke('run', 'mlm_no_partner_controls', **{key: value})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('unset ' + key, result.stderr)
+        for args in (('plan', 'nonexistent'), ('plan', 'compare', '--gpus', '0,0'),
+                     ('plan', 'compare', '--grid', 'seed=42'),
+                     ('plan', 'sweep:lr', '--grid', 'seed=42', '--grid', 'seed=43')):
+            with self.subTest(args=args):
+                self.assertNotEqual(self.invoke(*args).returncode, 0)
+        original = self.workspace / 'configs/experiments/20261007_mlm_no_partner_controls.json'
+        shutil.copyfile(original, original.with_name('duplicate.json'))
+        result = self.invoke('list')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Ambiguous experiment name', result.stderr)
+        explicit = self.invoke('plan', str(original), '--json')
+        self.assertEqual(explicit.returncode, 0, explicit.stderr)
+        self.assertEqual(json.loads(explicit.stdout)['name'], 'mlm_no_partner_controls')
+        self.assertFalse(self.records())
+
+    def test_named_status_and_resume_use_frozen_configs_and_retry_only_incomplete_trials(self):
+        output = self.workspace / 'named batch'
+        first = self.invoke('run', 'mlm_no_partner_controls', '--gpus', '2,5', '--output', str(output))
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        self.assertEqual(len(self.records()), 2)
+        status = self.invoke('status', str(output), '--json')
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertEqual(json.loads(status.stdout)['completed'], 2)
+        retry_as_new = self.invoke('run', 'mlm_no_partner_controls', '--output', str(output))
+        self.assertNotEqual(retry_as_new.returncode, 0)
+        self.assertIn('use run.sh resume', retry_as_new.stderr)
+        spec_path = self.workspace / 'configs/experiments/20261007_mlm_no_partner_controls.json'
+        spec = json.loads(spec_path.read_text())
+        spec['trials'][0]['overrides']['seed'] = 99
+        spec_path.write_text(json.dumps(spec))
+        row = json.loads(status.stdout)['trials'][0]
+        (Path(row['run_dir']) / 'generation_eval.json').unlink()
+        incomplete = self.invoke('status', str(output), '--json')
+        self.assertEqual(json.loads(incomplete.stdout)['completed'], 1)
+        self.assertEqual(json.loads(incomplete.stdout)['trials'][0]['status'], 'incomplete')
+        resumed = self.invoke('resume', str(output), '--gpus', '5')
+        self.assertEqual(resumed.returncode, 0, resumed.stdout + resumed.stderr)
+        self.assertEqual(resumed.stdout.count('SKIP completed'), 1)
+        self.assertEqual(len(self.records()), 3)
+        self.assertEqual({r['config']['seed'] for r in self.records()}, {42, 43})
+        self.assertEqual(self.records()[-1]['gpu'], '5')
+        self.corpus.write_text(self.corpus.read_text() + '\n')
+        rejected = self.invoke('resume', str(output))
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn('Dataset differs', rejected.stderr)
+        self.assertEqual(len(self.records()), 3)
+
+    def test_named_resume_checks_source_trial_identity_and_active_lock(self):
+        output = self.workspace / 'frozen'
+        launched = self.invoke('run', 'mlm_no_partner_controls', '--output', str(output))
+        self.assertEqual(launched.returncode, 0, launched.stdout + launched.stderr)
+        plan_path = output / 'plan.json'
+        original = json.loads(plan_path.read_text())
+        changed = json.loads(plan_path.read_text())
+        changed['runtime']['source_sha256'] = 'changed'
+        plan_path.write_text(json.dumps(changed))
+        rejected = self.invoke('resume', str(output))
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn('Source/runtime differs', rejected.stderr)
+        changed = json.loads(json.dumps(original))
+        changed['trials'][0]['config']['seed'] = 99
+        plan_path.write_text(json.dumps(changed))
+        rejected = self.invoke('resume', str(output))
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn('Frozen trial identity differs', rejected.stderr)
+        plan_path.write_text(json.dumps(original))
+        with (output / '.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            status = self.invoke('status', str(output), '--json')
+            self.assertEqual(status.returncode, 0, status.stderr)
+            self.assertTrue(json.loads(status.stdout)['active'])
+            rejected = self.invoke('resume', str(output))
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn('Another runner', rejected.stderr)
+        self.assertEqual(len(self.records()), 2)
 
     def test_compare_matches_generation_protocol_and_shards_on_one_or_multiple_devices(self):
         for devices in ('2', '2,5'):

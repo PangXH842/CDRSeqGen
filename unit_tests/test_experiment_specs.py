@@ -99,6 +99,59 @@ class ExperimentSpecTests(unittest.TestCase):
 
 
 class FollowupRecipeTests(unittest.TestCase):
+    def test_mlm_stages_complete_the_same_context_matrix_without_native_length(self):
+        from transformers import HfArgumentParser, TrainingArguments
+        from cdrseqgen.methods.common.arguments import parse_config_dict, validate_common_args
+        from cdrseqgen.methods.mlm.arguments import ModelArguments, DataArguments, GenerationArguments
+        from cdrseqgen.methods.mlm.length import resolve_generation_length_policy
+        from cdrseqgen.methods.mlm.losses import loss_config_from_args
+
+        controls, _ = spec_trials('configs/experiments/20261007_mlm_no_partner_controls.json', {})
+        screen, _ = spec_trials('configs/experiments/20261007_mlm_dropout_screen.json', {})
+        self.assertEqual(len(controls), 2)
+        self.assertEqual(len(screen), 4)
+        trials = controls + screen
+        self.assertEqual(
+            {(t['config']['include_partner_chain'], t['config']['context_dropout'],
+              t['config']['seed']) for t in trials},
+            {(partner, dropout, seed) for partner, dropout in
+             ((False, 0.0), (True, 0.0), (True, 0.5)) for seed in (42, 43)})
+        common = None
+        evaluations = 0
+        for trial in trials:
+            config = dict(trial['config'])
+            with self.subTest(trial=trial['suffix']):
+                self.assertEqual(config['data_seed'], config['seed'])
+                self.assertEqual(config['gen_eval_context_ablation'], config['include_partner_chain'])
+                self.assertEqual(config['eval_split'], 'validation')
+                self.assertEqual(config['max_len'], 384)
+                self.assertFalse(config['include_antigen'])
+                self.assertTrue(config['train_length_predictor'])
+                self.assertEqual(config['gen_judge_partner_context'], 'with')
+                self.assertEqual((config['gen_num_examples'], config['gen_num_samples'],
+                                  config['gen_seed']), (150, 20, 42))
+                parser = HfArgumentParser((ModelArguments, DataArguments, GenerationArguments,
+                                          TrainingArguments))
+                model, data, gen, training = parse_config_dict(
+                    parser, {**config, 'use_cpu': True, 'report_to': 'none'})
+                validate_common_args(model, data, gen, expected_method='mlm')
+                self.assertEqual(loss_config_from_args(model, training).loss_type, 'cross_entropy')
+                self.assertEqual(data.masking_policy, 'full_span')
+                policy = resolve_generation_length_policy(
+                    gen.gen_length_mode, min_length=gen.gen_min_length,
+                    max_length=gen.gen_max_length)
+                self.assertEqual(policy.mode, 'inferred')
+                self.assertTrue(policy.requires_predictor)
+                self.assertEqual(training.get_warmup_steps(1000), 0)
+                evaluations += 1 + int(config['gen_eval_context_ablation'])
+                for key in ('seed', 'data_seed', 'include_partner_chain', 'context_dropout',
+                            'gen_eval_context_ablation'):
+                    config.pop(key)
+                if common is None:
+                    common = config
+                self.assertEqual(config, common)
+        self.assertEqual(evaluations, 10)
+
     def test_no_partner_controls_cover_each_model_and_seed_with_fixed_judge_context(self):
         from transformers import HfArgumentParser, TrainingArguments
         from cdrseqgen.methods.common.arguments import parse_config_dict, validate_common_args
