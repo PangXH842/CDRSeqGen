@@ -8,8 +8,8 @@
 The method comes from the config's ``"method"`` key, or a ``--method`` flag, and defaults to ``mlm``
 so every pre-existing config keeps working untouched.
 
-**This file only routes.** Each method owns its own parser and its own ``entrypoint.main()``, in
-``cdrseqgen/methods/<method>/entrypoint.py``. That is the point: a single shared parser would have to
+**This file only routes.** Each method owns its own parser and its own ``train_cli.main()``, in
+``cdrseqgen/methods/<method>/train_cli.py``. That is the point: a single shared parser would have to
 accept ``masking_policy`` and ``gen_length_mode`` from a causal run and ``gen_max_new_tokens`` from a
 masked one, and silently ignore whichever half did not apply. The 28 arguments the methods DO share
 are inherited from ``methods/common/arguments.py``, so they cannot drift — they already had, with
@@ -57,7 +57,7 @@ def main():
     # The method's own parser also consumes --method. Keeping it here makes a CLI override replace
     # the config value in run_config.json instead of routing one way while recording another.
     sys.argv = argv
-    resolve(method).module('entrypoint').main()
+    resolve(method).module('train_cli').main()
 
 
 if __name__ == "__main__":

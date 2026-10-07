@@ -109,6 +109,8 @@ def validate_adapter_record(record: dict[str, Any], manifest_record: dict[str, A
     if track == "fixed_native_length" and len(record["samples"]) > record["length_matches"]:
         raise ValueError(f"{example_id} retained more samples than matching attempts")
     for sample in record["samples"]:
+        if not sample:
+            raise ValueError(f'{example_id} contains an empty retained sample')
         if track == "fixed_native_length" and len(sample) != record["native_length"]:
             raise ValueError(f"{example_id} contains a retained sample with the wrong length")
         invalid = sorted(set(sample) - AMINO_ACIDS)

@@ -62,32 +62,45 @@ class DispatcherTests(unittest.TestCase):
 class MethodRegistryTests(unittest.TestCase):
     """A method is only usable if every component the dispatchers reach for actually exists."""
 
-    CLI_PROTOCOL = ("prepare_evaluation", "evaluation_options", "prepare_generation",
-                    "generation_state", "generate_case")
+    COMMAND_PROTOCOLS = {
+        "train_cli": ("main",),
+        "eval_cli": ("prepare_evaluation", "evaluation_options", "evaluate"),
+        "gen_cli": ("prepare_generation", "generation_state", "generate_case"),
+    }
 
     def test_every_registered_method_resolves_its_components(self):
         from cdrseqgen.methods.registry import METHODS, resolve
         for name, method in METHODS.items():
             with self.subTest(method=name):
-                for component in ("arguments", "backbones", "training", "evaluation", "cli",
-                                  "entrypoint"):
+                for component in ("arguments", "backbones", "training", "evaluation",
+                                  *self.COMMAND_PROTOCOLS):
                     self.assertTrue(hasattr(method.module(component), "__name__"))
-                # The evaluator named in the registry must exist, or post-training generation
-                # fails only after a full training run has already been paid for.
-                self.assertTrue(callable(getattr(method.module("evaluation"), method.evaluator)))
-                self.assertTrue(callable(method.module("entrypoint").main))
+                self.assertTrue(callable(method.module("eval_cli").evaluate))
+                self.assertTrue(callable(method.module("train_cli").main))
                 self.assertTrue(callable(method.module("training").get_datasets))
                 self.assertIs(resolve(name), method)
 
-    def test_every_method_exposes_the_identical_cli_protocol(self):
-        """The five functions generate.py/evaluate.py dispatch through. A method missing one fails
-        at the point of use — after a checkpoint is loaded — rather than at import."""
+    def test_every_method_exposes_the_identical_command_protocols(self):
+        """All three root commands must find the functions they call in every method."""
         from cdrseqgen.methods.registry import METHODS
         for name, method in METHODS.items():
-            cli = method.module("cli")
-            for function in self.CLI_PROTOCOL:
-                with self.subTest(method=name, function=function):
-                    self.assertTrue(callable(getattr(cli, function, None)))
+            for component, functions in self.COMMAND_PROTOCOLS.items():
+                command = method.module(component)
+                for function in functions:
+                    with self.subTest(method=name, command=component, function=function):
+                        self.assertTrue(callable(getattr(command, function, None)))
+
+    def test_post_training_evaluation_forwards_to_the_command_interface(self):
+        """Preserve arguments and return values through the shared evaluation route."""
+        from cdrseqgen.methods.registry import METHODS
+        args = (object(), object(), object())
+        options = {"length_mode": "inferred", "anchor_trim": 3, "seed": 43}
+        for name, method in METHODS.items():
+            with self.subTest(method=name):
+                command = method.module("eval_cli")
+                with patch.object(command, "evaluate", return_value={"records": []}) as evaluate:
+                    self.assertEqual(method.evaluate(*args, **options), {"records": []})
+                evaluate.assert_called_once_with(*args, **options)
 
     def test_a_checkpoint_cannot_be_reinterpreted_by_another_method(self):
         from cdrseqgen.methods.registry import checkpoint_method

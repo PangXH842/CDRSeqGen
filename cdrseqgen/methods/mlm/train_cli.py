@@ -1,8 +1,33 @@
-"""Masked-LM training entrypoint. Invoked by the top-level ``train.py`` dispatcher.
+"""MLM training command: root train.py calls main().
 
-Kept in the method package because it is the part that genuinely diverges: it builds an
-``MLMLossTrainer`` around an external loss registry, fits the gap-sentinel length head, and runs
-the fixed-native generative evaluation. None of that exists on the causal side.
+Caller:
+  train.py -> methods.registry -> method.module('train_cli').main()
+
+Steps:
+  * 1.1. Set up logging                     via train.logging.configure_logging().
+         (*) update latest after the datasets load successfully.
+  * 1.2. Parse config/CLI                   via mlm.arguments.setup_args(); 
+         and set the random seed            via transformers.set_seed().
+  * 2.1. Resolve the backbone adapter       via mlm.backbones.resolve().
+  * 2.2. Obtain train/eval datasets and tokenizer 
+                                            from mlm.training.get_datasets().
+  * 3.1. Create/load the model              via backbone.load_training_model().
+  * 3.2. Configure and log the loss         via mlm.losses.loss_config_from_args().
+  * 3.3. Construct mlm.losses.MLMLossTrainer 
+                                            with the collator, recovery metrics and callbacks.
+  * 4  . Run training and reconstruction evaluation 
+                                            via common.training.run_training_pipeline(); 
+         and save model/tokenizer, metrics, training CSV and plots.
+  * 4A . Fit the MLM length predictor       via mlm.length_predictor.fit_length_predictor().
+  * 5  . Generate and score candidates      via mlm.training.post_training_generation().
+
+Notes:
+  * configure_logging() runs at module import; main() obtains the logger.
+  * Step 4 respects do_train/do_eval. Step 4A requires both do_train and
+    train_length_predictor; step 5 requires run_generative_eval.
+  * Step 4 measures masked-loop reconstruction. Step 5 evaluates generated
+    candidate sequences under the chosen decoding and length policies.
+
 """
 import functools
 
@@ -25,27 +50,25 @@ configure_logging()
 
 
 def main():
+    # 1.1 Set up logging
     import logging
     logger = logging.getLogger(__name__)
 
+    # 1.2 Set up arguments
     model_args, data_args, gen_args, training_args = setup_args()
     set_seed(training_args.seed)
-    loss_config = loss_config_from_args(model_args, training_args)
-    logger.info(
-        "🎯 Loss: %s (core=%g, anchor=%g, trim=%d, label_smoothing=%g)",
-        loss_config.loss_type,
-        loss_config.core_weight,
-        loss_config.anchor_weight,
-        loss_config.anchor_trim,
-        loss_config.label_smoothing,
-    )
 
+    # 2.1 Load model type
     backbone = resolve(model_args.model_type)
-    train_dataset, eval_dataset, tokenizer = get_datasets(model_args, data_args, training_args, backbone)
-    # Only now is this a real run: a rejected config (an undeclared eval_split, say) must not take
-    # results/runs/latest away from the last batch that actually produced results.
+
+    # 2.2 Load datasets
+    train_dataset, eval_dataset, tokenizer = get_datasets(
+        model_args, data_args, training_args, backbone)
+
+    # (1.1) Update latest link for logging
     update_latest_link(training_args.output_dir)
 
+    # 3.1 Prepare model
     # load_training_model ignores the scratch-only kwargs for pretrained backbones (**kw)
     model = backbone.load_training_model(
         model_args.model_type,
@@ -57,6 +80,18 @@ def main():
         max_len=data_args.max_len,
     )
 
+    # 3.2 Configure loss
+    loss_config = loss_config_from_args(model_args, training_args)
+    logger.info(
+        "🎯 Loss: %s (core=%g, anchor=%g, trim=%d, label_smoothing=%g)",
+        loss_config.loss_type,
+        loss_config.core_weight,
+        loss_config.anchor_weight,
+        loss_config.anchor_trim,
+        loss_config.label_smoothing,
+    )
+
+    # 3.3 Prepare trainer
     trainer = MLMLossTrainer(
         model=model,
         args=training_args,
@@ -68,8 +103,10 @@ def main():
         callbacks=build_callbacks(model_args, training_args, logger),
     )
 
+    # 4. Run training/evaluation pipeline
     run_training_pipeline(trainer, training_args, tokenizer=tokenizer)
 
+    # 4A. MLM extension: fit the length predictor
     length_predictor = None
     if training_args.do_train and data_args.train_length_predictor:
         from cdrseqgen.methods.mlm.length_predictor import fit_length_predictor
@@ -86,6 +123,7 @@ def main():
             seed=training_args.seed,
         )
 
+    # 5. Run generative evaluation
     if gen_args.run_generative_eval:
         post_training_generation(
             trainer, tokenizer, eval_dataset, data_args, gen_args, training_args,

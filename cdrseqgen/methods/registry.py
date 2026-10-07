@@ -1,7 +1,8 @@
 """Lazy method dispatch shared by training, generation, and held-out evaluation.
 
-A method owns arguments, backbones, training, evaluation, and a CLI adapter. Importing this registry
-loads no model library. Future methods can use different model inputs/tokenizers behind that boundary.
+A method exposes train_cli, eval_cli and gen_cli for the three root commands.
+Its backbones, training, evaluation and sampling modules implement the stages
+those commands use. Importing this registry loads no model library.
 """
 from dataclasses import dataclass
 from importlib import import_module
@@ -11,21 +12,20 @@ from importlib import import_module
 class Method:
     name: str
     package: str
-    evaluator: str
     decoders: tuple = ()        # decoder names --decoding accepts for this method
 
     def module(self, component):
         return import_module(f'{self.package}.{component}')
 
     def evaluate(self, *args, **kwargs):
-        return getattr(self.module('evaluation'), self.evaluator)(*args, **kwargs)
+        """Use the same evaluation interface as root evaluate.py, including after training."""
+        return self.module('eval_cli').evaluate(*args, **kwargs)
 
 
 METHODS = {
-    'mlm': Method('mlm', 'cdrseqgen.methods.mlm', 'run_generative_eval',
-                  ('independent', 'iterative')),
-    'ar': Method('ar', 'cdrseqgen.methods.ar', 'run_causal_generative_eval', ('causal',)),
-    's2s': Method('s2s', 'cdrseqgen.methods.s2s', 'run_s2s_generative_eval', ('seq2seq',)),
+    'mlm': Method('mlm', 'cdrseqgen.methods.mlm', ('independent', 'iterative')),
+    'ar': Method('ar', 'cdrseqgen.methods.ar', ('causal',)),
+    's2s': Method('s2s', 'cdrseqgen.methods.s2s', ('seq2seq',)),
 }
 DEFAULT_METHOD = 'mlm'
 

@@ -4,6 +4,10 @@ Entrypoint used to evaluate trained model checkpoints, especially CDR generation
 Use ``--judge`` to choose the shared reference model explicitly; training-time evaluation uses its
 configured ``gen_judge`` default.
 
+Method calls:
+  evaluate.py -> methods.registry -> <method>/eval_cli.py
+  prepare_evaluation -> evaluation_options -> evaluate
+
 Usage example:
     python evaluate.py --config configs/mlm/heavy/h3_esm2.json \
         --model_dir results/20260710/20260710_184547_h3_OAS_esm2_t12_35M_UR50D \
@@ -209,8 +213,8 @@ def main():
     method = resolve_method(supplied_config.get('method', 'mlm'))
     if run_config is not None:
         checkpoint_method(run_config, method.name)  # architecture mismatches cannot be forced
-    cli = method.module('cli')
-    cli.prepare_evaluation(args, run_config or supplied_config)
+    eval_cli = method.module('eval_cli')
+    eval_cli.prepare_evaluation(args, run_config or supplied_config)
     argument_module = method.module('arguments')
     parser = HfArgumentParser((argument_module.ModelArguments, argument_module.DataArguments,
                               argument_module.GenerationArguments, TrainingArguments))
@@ -257,7 +261,7 @@ def main():
     model = backbone.load_pretrained_model(args.model_dir)
     model.to(device)
 
-    method_options = cli.evaluation_options(args, device)
+    method_options = eval_cli.evaluation_options(args, device)
 
     judge_model = judge_tokenizer = judge_dataset = None
     if args.judge:
@@ -272,7 +276,7 @@ def main():
             device=device,
         )
 
-    method.evaluate(
+    eval_cli.evaluate(
         model, tokenizer, eval_dataset,
         device=device,
         num_samples=args.num_samples,

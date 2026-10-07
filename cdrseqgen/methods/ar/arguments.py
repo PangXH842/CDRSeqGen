@@ -43,6 +43,20 @@ class GenerationArguments(BaseGenerationArguments):
                           "the cap is incomplete and is dropped rather than scored as a loop."})
 
 
+def validate_inference_args(args):
+    """Validate saved-checkpoint decoder/length options and set args.decoding.
+
+    Called by eval_cli.prepare_evaluation and gen_cli.prepare_generation.
+    """
+    if args.decoding not in (None, 'causal'):
+        raise ValueError('AR checkpoints require causal decoding')
+    if args.min_length is not None or args.max_length is not None:
+        raise ValueError('AR currently chooses length via EOS; bounded/fixed length is unsupported')
+    if args.length_temperature != 1.0:
+        raise ValueError('AR has no separate length-temperature control')
+    args.decoding = 'causal'
+
+
 def validate_args(model_args, data_args, gen_args):
     """Validate causal-only limits in addition to the shared method contract."""
     validate_common_args(model_args, data_args, gen_args, expected_method="ar")

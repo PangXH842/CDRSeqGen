@@ -13,6 +13,7 @@ bootstrap cannot live here, because importing this module is what it makes possi
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 from cdrseqgen.artifacts import atomic_write_json, git_state, sha256_file
@@ -29,6 +30,16 @@ RESUME_IDENTITY_KEYS = ("schema_version", "adapter", "benchmark_id", "manifest",
 MANIFEST_RECORD_FIELDS = (
     "example_id", "parent_sequence", "pt1", "native", "pt2", "native_length", "infill_range",
 )
+
+
+def execution_source_identity() -> dict:
+    """Hash local Python sources so dirty-checkout edits cannot mix resumed outputs."""
+    root = Path(__file__).resolve().parents[1]
+    paths = [p for directory in ('cdrseqgen', 'benchmark')
+             for p in (root / directory).rglob('*.py')]
+    sources = {str(p.relative_to(root)): sha256_file(p) for p in sorted(paths)}
+    return {'sha256': hashlib.sha256(json.dumps(sources, sort_keys=True).encode()).hexdigest(),
+            'files': sources}
 
 
 def stable_example_seed(base_seed: int, example_id: str) -> int:

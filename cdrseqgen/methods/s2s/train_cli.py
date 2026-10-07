@@ -1,4 +1,4 @@
-"""Encoder-decoder training entrypoint. Invoked by the top-level ``train.py`` dispatcher.
+"""Encoder-decoder training command. Invoked by the top-level ``train.py`` dispatcher.
 
 Kept in the method package for the same reason as its siblings: a plain ``Trainer`` (the model
 returns its own loss), no length head, and a decode-to-``<eos>`` generative evaluation.

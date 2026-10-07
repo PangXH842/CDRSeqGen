@@ -5,6 +5,11 @@ names come from each top-level JSON's `name`; there is no separate registry to
 keep in sync. Paths inside configs and relative command arguments resolve from
 the repository root, even when the launcher is invoked elsewhere.
 
+The next inference-only comparison uses the same launcher through
+`run.sh benchmark plan|smoke|run|status|resume`; its scientific recipe lives in
+[benchmark/recipes](../../benchmark/recipes/oas4_h3_length_free.md). It reuses completed
+checkpoints and has a separate benchmark plan/output contract from training batches.
+
 ```bash
 ./scripts/run.sh list
 ./scripts/run.sh plan mlm_no_partner_controls --gpus 0
@@ -34,12 +39,14 @@ Completion status belongs in [RESULTS.md](../../RESULTS.md) and each batch's
 
 | Name | Runs | Purpose | Recipe/details |
 |---|---:|---|---|
-| `mlm_no_partner_controls` | 2 | Scratch MLM trained/generated without its partner, seeds 42/43 | [spec](20261007_mlm_no_partner_controls.json), [protocol](20261007_mlm_context.md) |
-| `mlm_dropout_screen` | 4 | Scratch MLM dropout 0/0.5, seeds 42/43, both evaluation contexts | [spec](20261007_mlm_dropout_screen.json), [protocol](20261007_mlm_context.md) |
+| `mlm_no_partner_controls` | 2 | Scratch MLM trained/generated without its partner, seeds 42/43; completed | [spec](20261007_mlm_no_partner_controls.json), [protocol](20261007_mlm_context.md) |
+| `mlm_dropout_screen` | 4 | Scratch MLM dropout 0/0.5, seeds 42/43, both contexts; completed and audited | [spec](20261007_mlm_dropout_screen.json), [protocol](20261007_mlm_context.md) |
 | `esm2_dropout_confirmation` | 4 | S2S ESM-2 dropout 0/0.5, seeds 44/45; completed | [spec](20261006_esm2_dropout_confirmation.json), [protocol](20261006_h3_followup.md) |
 | `no_partner_controls` | 6 | AR/scratch S2S/ESM-2 S2S no-partner controls, seeds 42/43; completed | [spec](20261006_no_partner_controls.json), [review](../../results/reviews/20261007-no-partner-controls.md) |
 | `context_dropout` | 12 | September AR/S2S screen, both contexts; historical protocol | [spec](20260915_context_dropout.json), [protocol](20260915_context_dropout.md) |
 | `igbert_diagnostic` | 3 | S2S IgBert trainable/frozen/lower-LR diagnostic | [spec](20260914_igbert_diagnostic.json), [details](20260915_context_dropout.md) |
+
+The completed context recipes need no completion rerun. Their `run` commands create new experiments; use `status` to inspect the saved batches and the linked audits for reporting.
 
 Built-in model/loop suites, such as `compare`, are also accepted as experiment
 names. Use `list` to see them. For an explicit spec path:

@@ -4,6 +4,42 @@ The manifest is the frozen, model-independent input shared by CDRSeqGen and exte
 Model adapters may tokenize these strings differently, but must not reconstruct or reselect the
 examples themselves.
 
+## Next batch: OAS4 three-method validation comparison
+
+The [current recipe](recipes/oas4_h3_length_free.json) and [commands/protocol](recipes/oas4_h3_length_free.md)
+reuse the completed scratch MLM/AR/S2S no-partner checkpoints. No retraining or length-head fitting
+is needed. The adapter now dispatches MLM, AR and S2S; EOS methods use the length-free track.
+The frozen 150-framework manifest has exactly the membership of the audited context study.
+
+Start with the five-framework, four-arm smoke batch:
+
+```bash
+./scripts/run.sh benchmark plan --stage smoke
+./scripts/run.sh benchmark smoke --gpu 0 \
+  --output results/benchmark/oas4_h3_length_free_smoke_20261007
+```
+
+Then review the smoke outputs before the full seven-arm batch (both training seeds plus IgLM).
+All generators receive heavy-chain flanks without partner/antigen or native length. The judge
+receives heavy-chain context only. This fixed judge policy differs from the partner-present judge
+in the context-dropout study: those older judge scores cannot be copied into this comparison.
+New inference/scoring results will retain the saved checkpoints' actual training provenance.
+
+The full validation budget is 150 frameworks × 20 requested attempts × seven arms = 21,000.
+IgLM gets the same attempt cap, without retrying invalid draws to replenish its retained pool.
+AR/S2S/IgLM have a 97-token EOS budget. IgLM natural/filter decoding no longer forces EOS at the
+cap; capped nonterminating and empty draws are failures. MLM uses its existing learned length
+classes. Edit similarity is primary; lengths, conditional recovery populations, diversity, validity
+and judge scores are supporting. This is a validation demonstration; final testing and cluster-aware
+uncertainty remain separate work.
+
+Plans read/hash inputs and check environments without loading model weights. Benchmark `smoke`,
+`run` and `resume` generate/score models and are user-run. Source/input/environment fingerprints
+remain fixed within a batch; avoid Python edits while it runs. `status` reads existing output files.
+
+The older one-donor commands below remain historical examples, with their original manifests and
+source versions. Use the OAS4 recipe above for the next comparison.
+
 ## Included manifests
 
 `manifests/oas_h3_test_sample_v1.json` contains a deterministic 25-record sample of the 2,111-record

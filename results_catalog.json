@@ -8,7 +8,9 @@
     "three_method_comparison": "results/runs/20260908_173143_compare",
     "pre_validation_oas_matrix": "results/runs/20260817_200051",
     "early_ar_pair": "results/runs/20260901_171316",
-    "no_partner_training_controls": "results/runs/20261006_140502_185951_no_partner_controls"
+    "no_partner_training_controls": "results/runs/20261006_140502_185951_no_partner_controls",
+    "mlm_no_partner_controls": "results/runs/20261007_144639_381443_mlm_no_partner_controls",
+    "mlm_dropout_screen": "results/runs/20261007_163535_226387_mlm_dropout_screen"
   },
   "pretrained_models": {
     "historical_oas_sd2_matrix": "results/runs/20260729_202635",
@@ -28,12 +30,15 @@
     "pre_validation_oas_matrix": "results/runs/20260817_200051",
     "early_ar_pair": "results/runs/20260901_171316",
     "no_partner_training_controls": "results/runs/20261006_140502_185951_no_partner_controls",
-    "esm2_dropout_confirmation": "results/runs/20261007_013541_142543_esm2_dropout_confirmation"
+    "esm2_dropout_confirmation": "results/runs/20261007_013541_142543_esm2_dropout_confirmation",
+    "mlm_no_partner_controls": "results/runs/20261007_144639_381443_mlm_no_partner_controls",
+    "mlm_dropout_screen": "results/runs/20261007_163535_226387_mlm_dropout_screen"
   },
   "context_dropout": {
     "early_mlm_pilot": "results/runs/20260729_195134_ctxdrop",
     "ar_s2s_screen": "results/runs/20260915_131629_103719_context_dropout",
-    "esm2_dropout_confirmation": "results/runs/20261007_013541_142543_esm2_dropout_confirmation"
+    "esm2_dropout_confirmation": "results/runs/20261007_013541_142543_esm2_dropout_confirmation",
+    "mlm_dropout_screen": "results/runs/20261007_163535_226387_mlm_dropout_screen"
   },
   "frozen_encoder": {
     "igbert_three_arm_diagnostic": "results/runs/20260914_140305_226060_igbert_diagnostic"
@@ -52,7 +57,9 @@
     "three_method_comparison": "results/runs/20260908_173143_compare",
     "s2s_encoder_matrix": "results/runs/20260913_151152_463868_s2s_plm",
     "no_partner_training_controls": "results/runs/20261006_140502_185951_no_partner_controls",
-    "esm2_dropout_confirmation": "results/runs/20261007_013541_142543_esm2_dropout_confirmation"
+    "esm2_dropout_confirmation": "results/runs/20261007_013541_142543_esm2_dropout_confirmation",
+    "mlm_no_partner_controls": "results/runs/20261007_144639_381443_mlm_no_partner_controls",
+    "mlm_dropout_screen": "results/runs/20261007_163535_226387_mlm_dropout_screen"
   },
   "decoding_sampling": {
     "validation_oas_matrix": "results/runs/20260818_192606"
@@ -65,7 +72,9 @@
     "early_mlm_seed_check": "results/runs/20260730_160028_seedcheck",
     "context_dropout_two_seeds": "results/runs/20260915_131629_103719_context_dropout",
     "no_partner_training_controls": "results/runs/20261006_140502_185951_no_partner_controls",
-    "esm2_dropout_confirmation": "results/runs/20261007_013541_142543_esm2_dropout_confirmation"
+    "esm2_dropout_confirmation": "results/runs/20261007_013541_142543_esm2_dropout_confirmation",
+    "mlm_no_partner_controls": "results/runs/20261007_144639_381443_mlm_no_partner_controls",
+    "mlm_dropout_screen": "results/runs/20261007_163535_226387_mlm_dropout_screen"
   },
   "light_chain": {
     "historical_early_matrix": "results/runs/20260724_211745",

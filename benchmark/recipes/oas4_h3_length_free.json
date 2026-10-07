@@ -1,0 +1,68 @@
+{
+  "name": "oas4_h3_length_free",
+  "manifest": "benchmark/manifests/oas4_h3_validation_length_free_v1.json",
+  "smoke_manifest": "benchmark/manifests/oas4_h3_validation_length_free_smoke_v1.json",
+  "arms": [
+    {
+      "label": "mlm_s42",
+      "method": "mlm",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261007_144639_381443_mlm_no_partner_controls/h3_OAS4_scratch_mlm_scratch_no_partner_s42"
+    },
+    {
+      "label": "mlm_s43",
+      "method": "mlm",
+      "training_seed": 43,
+      "checkpoint": "results/runs/20261007_144639_381443_mlm_no_partner_controls/h3_OAS4_scratch_mlm_scratch_no_partner_s43"
+    },
+    {
+      "label": "ar_s42",
+      "method": "ar",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261006_140502_185951_no_partner_controls/h3_OAS4_ar_scratch_ar_scratch_no_partner_s42_2"
+    },
+    {
+      "label": "ar_s43",
+      "method": "ar",
+      "training_seed": 43,
+      "checkpoint": "results/runs/20261006_140502_185951_no_partner_controls/h3_OAS4_ar_scratch_ar_scratch_no_partner_s43_2"
+    },
+    {
+      "label": "s2s_s42",
+      "method": "s2s",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261006_140502_185951_no_partner_controls/h3_OAS4_s2s_scratch_s2s_scratch_no_partner_s42"
+    },
+    {
+      "label": "s2s_s43",
+      "method": "s2s",
+      "training_seed": 43,
+      "checkpoint": "results/runs/20261006_140502_185951_no_partner_controls/h3_OAS4_s2s_scratch_s2s_scratch_no_partner_s43"
+    }
+  ],
+  "sampling": {
+    "num_samples": 20,
+    "smoke_num_samples": 5,
+    "temperature": 1.0,
+    "top_k": 0,
+    "top_p": 0.9,
+    "length_temperature": 1.0,
+    "seed": 42,
+    "max_new_tokens": 97
+  },
+  "iglm": {
+    "model_name": "IgLM",
+    "max_length": 256
+  },
+  "judge": {
+    "name": "Exscientia/IgBert",
+    "max_len": 384
+  },
+  "endpoint": "Framework-averaged native edit similarity; length, diversity, conditional recovery and judge scores are supporting.",
+  "limits": [
+    "Validation demonstration; no final test estimate or isolated architecture/pretraining effect.",
+    "IgLM/IgBert pretraining overlap with OAS is unresolved. Judge sees heavy chain only in every arm.",
+    "Saved checkpoints retain their real training source/runtime versions; inference/scoring use one frozen source snapshot.",
+    "Two training seeds; descriptive summaries. Cluster-aware intervals and fixed-seed repeat variability are separate work."
+  ]
+}

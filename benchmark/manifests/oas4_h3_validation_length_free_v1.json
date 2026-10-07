@@ -1,0 +1,3005 @@
+{
+  "schema_version": "cdrseqgen.benchmark_manifest.v1",
+  "benchmark_id": "oas4_h3_validation_length_free_v1",
+  "task": {
+    "name": "cdr_h3_infilling",
+    "target_region": "h3",
+    "numbering_scheme": "IMGT",
+    "track": "length_free",
+    "anchor_trim_each_end": 2,
+    "partner_chain_context": false,
+    "antigen_context": false
+  },
+  "source": {
+    "dataset": "OAS paired",
+    "processed_file": "processed_oas_multi.json",
+    "processed_file_sha256": "bd854ae32de886bc9b4466edf5d1aa3ade6c09847b622ceaa60cba395bbd5ad8",
+    "metadata_file": "processed_oas_multi.metadata.json",
+    "preprocessing_metadata": {
+      "schema_version": "cdrseqgen.processed_metadata.v1",
+      "processed_file": "processed_oas_multi.json",
+      "processed_file_sha256": "bd854ae32de886bc9b4466edf5d1aa3ade6c09847b622ceaa60cba395bbd5ad8",
+      "dataset": "OAS paired",
+      "sources": [
+        {
+          "dataset": "OAS",
+          "run": 1287154,
+          "species": "human",
+          "source_url": "https://doi.org/10.1038/s41586-022-05371-z",
+          "author": "Jaffe et al., 2022",
+          "subject": "Donor-3",
+          "path": "dataset/data/raw/oas/1287154_1_Paired_All.csv",
+          "entries": 19800
+        },
+        {
+          "dataset": "OAS",
+          "run": 1287155,
+          "species": "human",
+          "source_url": "https://doi.org/10.1038/s41586-022-05371-z",
+          "author": "Jaffe et al., 2022",
+          "subject": "Donor-3",
+          "path": "dataset/data/raw/oas/1287155_1_Paired_All.csv",
+          "entries": 19261
+        },
+        {
+          "dataset": "OAS",
+          "run": 1287169,
+          "species": "human",
+          "source_url": "https://doi.org/10.1038/s41586-022-05371-z",
+          "author": "Jaffe et al., 2022",
+          "subject": "Donor-4",
+          "path": "dataset/data/raw/oas/1287169_1_Paired_All.csv",
+          "entries": 20917
+        },
+        {
+          "dataset": "OAS",
+          "run": 1287171,
+          "species": "human",
+          "source_url": "https://doi.org/10.1038/s41586-022-05371-z",
+          "author": "Jaffe et al., 2022",
+          "subject": "Donor-4",
+          "path": "dataset/data/raw/oas/1287171_1_Paired_All.csv",
+          "entries": 21426
+        },
+        {
+          "dataset": "OAS",
+          "run": 1287186,
+          "species": "human",
+          "source_url": "https://doi.org/10.1038/s41586-022-05371-z",
+          "author": "Jaffe et al., 2022",
+          "subject": "Donor-2",
+          "path": "dataset/data/raw/oas/1287186_1_Paired_All.csv",
+          "entries": 16929
+        },
+        {
+          "dataset": "OAS",
+          "run": 1287187,
+          "species": "human",
+          "source_url": "https://doi.org/10.1038/s41586-022-05371-z",
+          "author": "Jaffe et al., 2022",
+          "subject": "Donor-2",
+          "path": "dataset/data/raw/oas/1287187_1_Paired_All.csv",
+          "entries": 16340
+        },
+        {
+          "dataset": "OAS",
+          "run": 1287201,
+          "species": "human",
+          "source_url": "https://doi.org/10.1038/s41586-022-05371-z",
+          "author": "Jaffe et al., 2022",
+          "subject": "Donor-1",
+          "path": "dataset/data/raw/oas/1287201_1_Paired_All.csv",
+          "entries": 18872
+        },
+        {
+          "dataset": "OAS",
+          "run": 1287203,
+          "species": "human",
+          "source_url": "https://doi.org/10.1038/s41586-022-05371-z",
+          "author": "Jaffe et al., 2022",
+          "subject": "Donor-1",
+          "path": "dataset/data/raw/oas/1287203_1_Paired_All.csv",
+          "entries": 19182
+        }
+      ],
+      "donors": [
+        "Donor-1",
+        "Donor-2",
+        "Donor-3",
+        "Donor-4"
+      ],
+      "records": 152727,
+      "preprocessing": {
+        "productive_pairs_only": true,
+        "numbering_scheme": "IMGT",
+        "split": "cluster",
+        "test_fraction": 0.1,
+        "validation_fraction": 0.1,
+        "cluster_identity": 0.85,
+        "seed": 42,
+        "limit": null,
+        "dedup": "exact",
+        "duplicates_dropped": 3540
+      },
+      "longest_loop": {
+        "h1": 15,
+        "h2": 18,
+        "h3": 49,
+        "l1": 14,
+        "l2": 10,
+        "l3": 20
+      }
+    }
+  },
+  "selection": {
+    "split": "validation",
+    "eligible_records": 15273,
+    "selected_records": 150,
+    "strategy": "Reuse exact frameworks from audited MLM/AR/S2S context controls; order by stable example_id",
+    "selection_seed": "42",
+    "membership_source": "results/runs/20261007_144639_381443_mlm_no_partner_controls/h3_OAS4_scratch_mlm_scratch_no_partner_s42/generation_eval.json",
+    "membership_source_sha256": "1c320bf36bf399e7b730019d4818f036a003a505b40d41b08bc0dfb543c7a11f"
+  },
+  "conditioning": {
+    "chain": "heavy",
+    "species_values": [
+      "human"
+    ],
+    "iglm_chain_token": "[HEAVY]",
+    "iglm_species_tokens": [
+      "[HUMAN]"
+    ]
+  },
+  "records": [
+    {
+      "example_id": "oas:1287154:ACACCGGGTCAGAAGC-1_contig_2",
+      "source_index": 1054,
+      "sequence_id": "ACACCGGGTCAGAAGC-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTGYYMHWVRQAPGQGLEWMGRINPNSGGTNYAQKFQGRVTMTRDTSISTAYMELSRLRSDDTAVYYC",
+      "native": "ARDITRRDCSGGSCYSFPYYYYYMDV",
+      "pt2": "WGKGTTVTVSS",
+      "native_length": 26,
+      "infill_range": [
+        96,
+        122
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTGYYMHWVRQAPGQGLEWMGRINPNSGGTNYAQKFQGRVTMTRDTSISTAYMELSRLRSDDTAVYYCARDITRRDCSGGSCYSFPYYYYYMDVWGKGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:ATCCACCGTTCCATGA-1_contig_2",
+      "source_index": 3820,
+      "sequence_id": "ATCCACCGTTCCATGA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVTLRESGPALVKPTQTLTLTCTFSGFSLSTSGMCVSWIRQPPGKALEWLALIDWDDDKYYSTSLKTRLTISKDTSKNQVVLTMTNMDPVDTATYYC",
+      "native": "ARSSPSIAVAAGFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 15,
+      "infill_range": [
+        97,
+        112
+      ],
+      "parent_sequence": "QVTLRESGPALVKPTQTLTLTCTFSGFSLSTSGMCVSWIRQPPGKALEWLALIDWDDDKYYSTSLKTRLTISKDTSKNQVVLTMTNMDPVDTATYYCARSSPSIAVAAGFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:ATGCGATGTGTTTGGT-1_contig_2",
+      "source_index": 4081,
+      "sequence_id": "ATGCGATGTGTTTGGT-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSETLSLTCAVSGYSISSGYYWGWIRQPPGKGLEWIGSIYHSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARRLPVLRYFDWGGPYYFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 20,
+      "infill_range": [
+        96,
+        116
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSETLSLTCAVSGYSISSGYYWGWIRQPPGKGLEWIGSIYHSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARRLPVLRYFDWGGPYYFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:CAAGTTGGTTCAGGCC-1_contig_2",
+      "source_index": 4708,
+      "sequence_id": "CAAGTTGGTTCAGGCC-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYGISWVRQAPGQGLEWMGWISAYNGNTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYC",
+      "native": "ARGAVAQSPDDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 12,
+      "infill_range": [
+        96,
+        108
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYGISWVRQAPGQGLEWMGWISAYNGNTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYCARGAVAQSPDDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:CACAGTATCTTCCTTC-1_contig_1",
+      "source_index": 4982,
+      "sequence_id": "CACAGTATCTTCCTTC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAVISYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKDGQWPPRGYFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 14,
+      "infill_range": [
+        96,
+        110
+      ],
+      "parent_sequence": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAVISYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKDGQWPPRGYFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:CACATAGTCACATAGC-1_contig_2",
+      "source_index": 5008,
+      "sequence_id": "CACATAGTCACATAGC-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLLESGGGLVQPGGSLRLSCAASGITFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYDADSVKGRFTISRDNSKNMLYLQMNSLRAEDTAVYYC",
+      "native": "AKLSDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 6,
+      "infill_range": [
+        96,
+        102
+      ],
+      "parent_sequence": "EVQLLESGGGLVQPGGSLRLSCAASGITFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYDADSVKGRFTISRDNSKNMLYLQMNSLRAEDTAVYYCAKLSDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:CCTAAAGGTAAATACG-1_contig_2",
+      "source_index": 6857,
+      "sequence_id": "CCTAAAGGTAAATACG-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSETLSLTCAVSGYSISSGYYWGWIRQPPGKGLEWIGSIYHSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARTPNCLWFGELTCPNWFDP",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 20,
+      "infill_range": [
+        96,
+        116
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSETLSLTCAVSGYSISSGYYWGWIRQPPGKGLEWIGSIYHSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARTPNCLWFGELTCPNWFDPWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:CCTTCGAGTCGAATCT-1_contig_2",
+      "source_index": 7204,
+      "sequence_id": "CCTTCGAGTCGAATCT-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITTDESTSTAYMELSSLRSEDTAVYYC",
+      "native": "AREGRSGGNSGFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 14,
+      "infill_range": [
+        96,
+        110
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITTDESTSTAYMELSSLRSEDTAVYYCAREGRSGGNSGFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:CTAGAGTAGATCCCGC-1_contig_2",
+      "source_index": 9031,
+      "sequence_id": "CTAGAGTAGATCCCGC-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVKPGGSLRLSCAASGFTFSSYSMNWVRQAPGKGLEWVSSISSSSSYIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYC",
+      "native": "ARDQGNDVRYFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 13,
+      "infill_range": [
+        96,
+        109
+      ],
+      "parent_sequence": "EVQLVESGGGLVKPGGSLRLSCAASGFTFSSYSMNWVRQAPGKGLEWVSSISSSSSYIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYCARDQGNDVRYFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:GAATAAGAGATCGGGT-1_contig_2",
+      "source_index": 10691,
+      "sequence_id": "GAATAAGAGATCGGGT-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYGISWVRQAPGQGLEWMGWISAYNGNTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYC",
+      "native": "ARDPADSSGWYPVYDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 16,
+      "infill_range": [
+        96,
+        112
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYGISWVRQAPGQGLEWMGWISAYNGNTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYCARDPADSSGWYPVYDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:GATCAGTCAAAGTCAA-1_contig_2",
+      "source_index": 11354,
+      "sequence_id": "GATCAGTCAAAGTCAA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVKPGGSLRLSCAASGFTFSSYSMNWVRQAPGKGLEWVSSISSSSSYIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYC",
+      "native": "AREGTGPSAIWFRDYYYYMDV",
+      "pt2": "WGKGTTVTVSS",
+      "native_length": 21,
+      "infill_range": [
+        96,
+        117
+      ],
+      "parent_sequence": "EVQLVESGGGLVKPGGSLRLSCAASGFTFSSYSMNWVRQAPGKGLEWVSSISSSSSYIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYCAREGTGPSAIWFRDYYYYMDVWGKGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:GATGCTACAAGTTAAG-1_contig_1",
+      "source_index": 11655,
+      "sequence_id": "GATGCTACAAGTTAAG-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGSYYWSWIRQPAGKGLEWIGRIYTSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARDTDIVVVTAPARQSHAFDI",
+      "pt2": "WGQGTMVTVSS",
+      "native_length": 21,
+      "infill_range": [
+        97,
+        118
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGSYYWSWIRQPAGKGLEWIGRIYTSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARDTDIVVVTAPARQSHAFDIWGQGTMVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:GGAAAGCAGGCCGAAT-1_contig_1",
+      "source_index": 12848,
+      "sequence_id": "GGAAAGCAGGCCGAAT-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVESGGGVVQPGGSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAFIRYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKDGSLDYGDPMTGYYYYYMDV",
+      "pt2": "WGKGTTVTVSS",
+      "native_length": 22,
+      "infill_range": [
+        96,
+        118
+      ],
+      "parent_sequence": "QVQLVESGGGVVQPGGSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAFIRYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKDGSLDYGDPMTGYYYYYMDVWGKGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:GGACAGAAGTAAGTAC-1_contig_1",
+      "source_index": 12989,
+      "sequence_id": "GGACAGAAGTAAGTAC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSETLSLTCTVSGGSISSYYWSWIRQPPGKGLEWIGYIYYSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARVEGRDGYNYYYYYYMDV",
+      "pt2": "WGKGTTVTVSS",
+      "native_length": 19,
+      "infill_range": [
+        95,
+        114
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSETLSLTCTVSGGSISSYYWSWIRQPPGKGLEWIGYIYYSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARVEGRDGYNYYYYYYMDVWGKGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:GTAGGCCGTCTGGTCG-1_contig_1",
+      "source_index": 14210,
+      "sequence_id": "GTAGGCCGTCTGGTCG-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYYMHWVRQAPGQGLEWMGIINPSGGSTSYAQKFQGRVTMTRDTSTSTVYMELSSLRSEDTAVYYC",
+      "native": "ARDQVDYYGSGSYQPLDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 18,
+      "infill_range": [
+        96,
+        114
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYYMHWVRQAPGQGLEWMGIINPSGGSTSYAQKFQGRVTMTRDTSTSTVYMELSSLRSEDTAVYYCARDQVDYYGSGSYQPLDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:GTTCATTTCCAACCAA-1_contig_1",
+      "source_index": 15114,
+      "sequence_id": "GTTCATTTCCAACCAA-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYC",
+      "native": "ARTQPEFHVVAPLGYCSGGSCYSQS",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 25,
+      "infill_range": [
+        96,
+        121
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYCARTQPEFHVVAPLGYCSGGSCYSQSWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:TAAACCGTCCAGTATG-1_contig_1",
+      "source_index": 15289,
+      "sequence_id": "TAAACCGTCCAGTATG-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYGISWVRQAPGQGLEWMGWISAYNGNTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYC",
+      "native": "ARGAYYDFWSGYYPEPHPMDV",
+      "pt2": "WGKGTTVTVSS",
+      "native_length": 21,
+      "infill_range": [
+        96,
+        117
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYGISWVRQAPGQGLEWMGWISAYNGNTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYCARGAYYDFWSGYYPEPHPMDVWGKGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:TACGGGCCACTAAGTC-1_contig_1",
+      "source_index": 15656,
+      "sequence_id": "TACGGGCCACTAAGTC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYC",
+      "native": "ARDSITIFGVADGAFDI",
+      "pt2": "WGQGTMVTVSS",
+      "native_length": 17,
+      "infill_range": [
+        96,
+        113
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYCARDSITIFGVADGAFDIWGQGTMVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:TATTACCTCGAACTGT-1_contig_2",
+      "source_index": 16306,
+      "sequence_id": "TATTACCTCGAACTGT-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKDSDDFWSGYYQTPDAFDI",
+      "pt2": "WGQGTMVTVSS",
+      "native_length": 20,
+      "infill_range": [
+        96,
+        116
+      ],
+      "parent_sequence": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKDSDDFWSGYYQTPDAFDIWGQGTMVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:TCACAAGTCTTCGAGA-1_contig_1",
+      "source_index": 16438,
+      "sequence_id": "TCACAAGTCTTCGAGA-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSHWMAWVRHAPGKGLEWVANIKQGASQKFHVDSVKGRFTISRDDAKNSLFLQMNSLRSDDTAVYYC",
+      "native": "ARGPHYGGRTDYLDH",
+      "pt2": "WGQGALVTVSS",
+      "native_length": 15,
+      "infill_range": [
+        96,
+        111
+      ],
+      "parent_sequence": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSHWMAWVRHAPGKGLEWVANIKQGASQKFHVDSVKGRFTISRDDAKNSLFLQMNSLRSDDTAVYYCARGPHYGGRTDYLDHWGQGALVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:TCACGAATCTGATACG-1_contig_1",
+      "source_index": 16486,
+      "sequence_id": "TCACGAATCTGATACG-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVESGGGVVQPGGSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAFIRYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKDLPRYYDILTGYFRPGAIDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 22,
+      "infill_range": [
+        96,
+        118
+      ],
+      "parent_sequence": "QVQLVESGGGVVQPGGSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAFIRYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKDLPRYYDILTGYFRPGAIDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287154:TGCCCTACAGGAACGT-1_contig_1",
+      "source_index": 18020,
+      "sequence_id": "TGCCCTACAGGAACGT-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITTDESTSTAYMELSSLRSEDTAVYYC",
+      "native": "ARDQIPLMAFDI",
+      "pt2": "WGQGTMVTVSS",
+      "native_length": 12,
+      "infill_range": [
+        96,
+        108
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITTDESTSTAYMELSSLRSEDTAVYYCARDQIPLMAFDIWGQGTMVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:AACCATGCAAACAACA-1_contig_2",
+      "source_index": 20076,
+      "sequence_id": "AACCATGCAAACAACA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVESGGGLVKPGGSLRLSCAASGFTFSDYYMSWIRQAPGKGLEWVSYISSSGSTIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYC",
+      "native": "ARVRPYNWFDP",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 11,
+      "infill_range": [
+        96,
+        107
+      ],
+      "parent_sequence": "QVQLVESGGGLVKPGGSLRLSCAASGFTFSDYYMSWIRQAPGKGLEWVSYISSSGSTIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYCARVRPYNWFDPWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:AGCGTATAGAACAATC-1_contig_2",
+      "source_index": 22428,
+      "sequence_id": "AGCGTATAGAACAATC-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QLQLQESGPGLVKPSETLSLTCTVSGGSISSSSYYWGWIRQPPGKGLEWIGSIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARLEGEAVAATGY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 13,
+      "infill_range": [
+        97,
+        110
+      ],
+      "parent_sequence": "QLQLQESGPGLVKPSETLSLTCTVSGGSISSSSYYWGWIRQPPGKGLEWIGSIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARLEGEAVAATGYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:AGTGTCAAGACTCGGA-1_contig_1",
+      "source_index": 23036,
+      "sequence_id": "AGTGTCAAGACTCGGA-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSGTLSLTCAVSGGSISSSNWWSWIRQPPGKGLEWIGEIYHSGSTNYNPSLKSRVTISVDKSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ATRGAEGYYYYYMDV",
+      "pt2": "WGKGTTVTVSS",
+      "native_length": 15,
+      "infill_range": [
+        96,
+        111
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSGTLSLTCAVSGGSISSSNWWSWIRQPPGKGLEWIGEIYHSGSTNYNPSLKSRVTISVDKSKNQFSLKLSSVTAADTAVYYCATRGAEGYYYYYMDVWGKGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:CAGTCCTCATAGTAAG-1_contig_1",
+      "source_index": 25171,
+      "sequence_id": "CAGTCCTCATAGTAAG-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYYMHWVRQAPGQGLEWMGIINPSGGSTSYAQKFQGRVTMTRDTSTSTVYMELSSLRSEDTAVYYC",
+      "native": "ARARYSSGWFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 12,
+      "infill_range": [
+        96,
+        108
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYYMHWVRQAPGQGLEWMGIINPSGGSTSYAQKFQGRVTMTRDTSTSTVYMELSSLRSEDTAVYYCARARYSSGWFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:CATTCGCCATATGAGA-1_contig_2",
+      "source_index": 25654,
+      "sequence_id": "CATTCGCCATATGAGA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYC",
+      "native": "ARTRITMVQGVITSYNWFDP",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 20,
+      "infill_range": [
+        96,
+        116
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYCARTRITMVQGVITSYNWFDPWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:CCGGGATGTCAAACTC-1_contig_1",
+      "source_index": 26148,
+      "sequence_id": "CCGGGATGTCAAACTC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVQSGAEVKKPGESLKISCKGSGYSFTSYWIGWVRQMPGKGLEWMGIIYPGDSDTRYSPSFQGQVTISADKSISTAYLQWSSLKASDTAMYYC",
+      "native": "VRRGLYCSGGSCYSGFHMVAFDI",
+      "pt2": "WGQGTMVTVSS",
+      "native_length": 23,
+      "infill_range": [
+        96,
+        119
+      ],
+      "parent_sequence": "EVQLVQSGAEVKKPGESLKISCKGSGYSFTSYWIGWVRQMPGKGLEWMGIIYPGDSDTRYSPSFQGQVTISADKSISTAYLQWSSLKASDTAMYYCVRRGLYCSGGSCYSGFHMVAFDIWGQGTMVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:CCGTACTTCGTCCAGG-1_contig_2",
+      "source_index": 26247,
+      "sequence_id": "CCGTACTTCGTCCAGG-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQQSGPGLVKPSQTLSLTCAISGDSVSSNSAAWNWIRQSPSRGLEWLGRTYYRSKWYNDYAVSVKSRITINPDTSKNQFSLQLNSVTPEDTAVYYC",
+      "native": "ARDRDYDYIWGSYRQRFGQFLFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 24,
+      "infill_range": [
+        99,
+        123
+      ],
+      "parent_sequence": "QVQLQQSGPGLVKPSQTLSLTCAISGDSVSSNSAAWNWIRQSPSRGLEWLGRTYYRSKWYNDYAVSVKSRITINPDTSKNQFSLQLNSVTPEDTAVYYCARDRDYDYIWGSYRQRFGQFLFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:CGGACGTAGACTTGAA-1_contig_2",
+      "source_index": 27486,
+      "sequence_id": "CGGACGTAGACTTGAA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQQWGAGLLKPSETLSLTCAVYGGSFSGYYWSWIRQPPGKGLEWIGEINHSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARDTAMDEPFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 12,
+      "infill_range": [
+        95,
+        107
+      ],
+      "parent_sequence": "QVQLQQWGAGLLKPSETLSLTCAVYGGSFSGYYWSWIRQPPGKGLEWIGEINHSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARDTAMDEPFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:GCAATCAGTAGAGGAA-1_contig_1",
+      "source_index": 31145,
+      "sequence_id": "GCAATCAGTAGAGGAA-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQQWGAGLLKPSETLSLTCAVYGGSFSGYYWSWIRQPPGKGLEWIGEINHSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARGLTVAGIWN",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 11,
+      "infill_range": [
+        95,
+        106
+      ],
+      "parent_sequence": "QVQLQQWGAGLLKPSETLSLTCAVYGGSFSGYYWSWIRQPPGKGLEWIGEINHSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARGLTVAGIWNWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:GGACAAGCAAATCCGT-1_contig_1",
+      "source_index": 32262,
+      "sequence_id": "GGACAAGCAAATCCGT-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLLKPSQTLSLTCTVSGDSVSSGFYYWSWIRQPAGKGLEWIGRIYTSGRTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARTSYCGGDCYPYIQH",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 16,
+      "infill_range": [
+        97,
+        113
+      ],
+      "parent_sequence": "QVQLQESGPGLLKPSQTLSLTCTVSGDSVSSGFYYWSWIRQPAGKGLEWIGRIYTSGRTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARTSYCGGDCYPYIQHWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:GTGGGTCTCTTGAGGT-1_contig_1",
+      "source_index": 34214,
+      "sequence_id": "GTGGGTCTCTTGAGGT-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGSELKKPGASVKVSCKASGYTFTSYAMNWVRQAPGQGLEWMGWINTNTGNPTYAQGFTGRFVFSLDTSVSTAYLQISSLKAEDTAVYYC",
+      "native": "ARSYPLYYYGSGSYGPEFDP",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 20,
+      "infill_range": [
+        96,
+        116
+      ],
+      "parent_sequence": "QVQLVQSGSELKKPGASVKVSCKASGYTFTSYAMNWVRQAPGQGLEWMGWINTNTGNPTYAQGFTGRFVFSLDTSVSTAYLQISSLKAEDTAVYYCARSYPLYYYGSGSYGPEFDPWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:GTTCTCGGTGTTCGAT-1_contig_1",
+      "source_index": 34472,
+      "sequence_id": "GTTCTCGGTGTTCGAT-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGSYYWSWIRQPAGKGLEWIGRIYTSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "AREVSPHSKITMVRGNFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 19,
+      "infill_range": [
+        97,
+        116
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGSYYWSWIRQPAGKGLEWIGRIYTSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCAREVSPHSKITMVRGNFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:TACACGATCACCGTAA-1_contig_2",
+      "source_index": 34725,
+      "sequence_id": "TACACGATCACCGTAA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYC",
+      "native": "ARRGGGSGSLGHFQH",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 15,
+      "infill_range": [
+        96,
+        111
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYCARRGGGSGSLGHFQHWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:TAGAGCTTCTTCGGTC-1_contig_1",
+      "source_index": 35199,
+      "sequence_id": "TAGAGCTTCTTCGGTC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKEALGYCSGGSCYGVY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 17,
+      "infill_range": [
+        96,
+        113
+      ],
+      "parent_sequence": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKEALGYCSGGSCYGVYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:TCAGCTCCACAGAGGT-1_contig_1",
+      "source_index": 35774,
+      "sequence_id": "TCAGCTCCACAGAGGT-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYEMNWVRQAPGKGLEWVSYISSSGSTIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYC",
+      "native": "ARVRFRSSGWDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 12,
+      "infill_range": [
+        96,
+        108
+      ],
+      "parent_sequence": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYEMNWVRQAPGKGLEWVSYISSSGSTIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYCARVRFRSSGWDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:TCATTACGTCCTCTTG-1_contig_1",
+      "source_index": 35920,
+      "sequence_id": "TCATTACGTCCTCTTG-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVKPGGSLRLSCAASGFTFSSYSMNWVRQAPGKGLEWVSSISSSSSYIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYC",
+      "native": "ARDGGITGTTFHYYYYYMDV",
+      "pt2": "WGKGTTVTVSS",
+      "native_length": 20,
+      "infill_range": [
+        96,
+        116
+      ],
+      "parent_sequence": "EVQLVESGGGLVKPGGSLRLSCAASGFTFSSYSMNWVRQAPGKGLEWVSSISSSSSYIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYCARDGGITGTTFHYYYYYMDVWGKGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:TCCACACTCTACCAGA-1_contig_2",
+      "source_index": 36043,
+      "sequence_id": "TCCACACTCTACCAGA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVQPGRSLRLSCAASGFTFDDYAMHWVRQAPGKGLEWVSGISWNSGSIGYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTALYYC",
+      "native": "AKDRDYYGSETFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 14,
+      "infill_range": [
+        96,
+        110
+      ],
+      "parent_sequence": "EVQLVESGGGLVQPGRSLRLSCAASGFTFDDYAMHWVRQAPGKGLEWVSGISWNSGSIGYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTALYYCAKDRDYYGSETFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:TCTTCGGGTTACGACT-1_contig_2",
+      "source_index": 36649,
+      "sequence_id": "TCTTCGGGTTACGACT-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKDHSSGRPDAFDI",
+      "pt2": "WGQGTMVTVSS",
+      "native_length": 14,
+      "infill_range": [
+        96,
+        110
+      ],
+      "parent_sequence": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKDHSSGRPDAFDIWGQGTMVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:TGCGGGTAGACAATAC-1_contig_2",
+      "source_index": 37335,
+      "sequence_id": "TGCGGGTAGACAATAC-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVESGGGVVQPGGSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAFIRYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKDLTWGGLRVDGDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 15,
+      "infill_range": [
+        96,
+        111
+      ],
+      "parent_sequence": "QVQLVESGGGVVQPGGSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAFIRYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKDLTWGGLRVDGDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:TGGACGCAGGGAGTAA-1_contig_1",
+      "source_index": 37511,
+      "sequence_id": "TGGACGCAGGGAGTAA-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTGYYMHWVRQAPGQGLEWMGWINPNSGGTNYAQKFQGRVTMTRDTSISTAYMELSRLRSDDTAVYYC",
+      "native": "ARSHYDILTGTLGAFDI",
+      "pt2": "WGQGTMVTVSS",
+      "native_length": 17,
+      "infill_range": [
+        96,
+        113
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTGYYMHWVRQAPGQGLEWMGWINPNSGGTNYAQKFQGRVTMTRDTSISTAYMELSRLRSDDTAVYYCARSHYDILTGTLGAFDIWGQGTMVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:TTAGTTCGTAAACACA-1_contig_2",
+      "source_index": 38196,
+      "sequence_id": "TTAGTTCGTAAACACA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYC",
+      "native": "ARETQHPPDYSNYEDPDADAFDI",
+      "pt2": "WGQGTMVTVSS",
+      "native_length": 23,
+      "infill_range": [
+        96,
+        119
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYCARETQHPPDYSNYEDPDADAFDIWGQGTMVTVSS"
+    },
+    {
+      "example_id": "oas:1287155:TTAGTTCTCCTAGTGA-1_contig_1",
+      "source_index": 38218,
+      "sequence_id": "TTAGTTCTCCTAGTGA-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYAMHWVRQAPGQRLEWMGWINAGNGNTKYSQKFQGRVTITRDTSASTAYMELSSLRSEDTAVYYC",
+      "native": "ASLPHVGIPAMDLGY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 15,
+      "infill_range": [
+        96,
+        111
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYAMHWVRQAPGQRLEWMGWINAGNGNTKYSQKFQGRVTITRDTSASTAYMELSSLRSEDTAVYYCASLPHVGIPAMDLGYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:AATCGGTGTAGGCATG-1_contig_1",
+      "source_index": 40083,
+      "sequence_id": "AATCGGTGTAGGCATG-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVKPGGSLRLSCAASGFTFSNAWMSWVRQAPGKGLEWVGRIKSKTDGGTTDYAAPVKGRFTISRDDSKNTLYLQMNSLKTEDTAVYYC",
+      "native": "TTSLVTDFWSGYYWVDAFDI",
+      "pt2": "WGQGTMVTVSS",
+      "native_length": 20,
+      "infill_range": [
+        98,
+        118
+      ],
+      "parent_sequence": "EVQLVESGGGLVKPGGSLRLSCAASGFTFSNAWMSWVRQAPGKGLEWVGRIKSKTDGGTTDYAAPVKGRFTISRDDSKNTLYLQMNSLKTEDTAVYYCTTSLVTDFWSGYYWVDAFDIWGQGTMVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:AATCGGTGTTCGTTGA-1_contig_1",
+      "source_index": 40094,
+      "sequence_id": "AATCGGTGTTCGTTGA-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQQWGAGLLKPSETLSLTCAVYGGSFSGYYWSWIRQPPGKGLEWIGEINHSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARRRRWFGEQILGY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 14,
+      "infill_range": [
+        95,
+        109
+      ],
+      "parent_sequence": "QVQLQQWGAGLLKPSETLSLTCAVYGGSFSGYYWSWIRQPPGKGLEWIGEINHSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARRRRWFGEQILGYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:ATTCTACTCATCGCTC-1_contig_2",
+      "source_index": 43585,
+      "sequence_id": "ATTCTACTCATCGCTC-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYC",
+      "native": "AYGTGIAASYDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 12,
+      "infill_range": [
+        96,
+        108
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYCAYGTGIAASYDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:CAAGATCTCTTAGAGC-1_contig_1",
+      "source_index": 43955,
+      "sequence_id": "CAAGATCTCTTAGAGC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYC",
+      "native": "ARRPGGAYYGMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 13,
+      "infill_range": [
+        96,
+        109
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYCARRPGGAYYGMDVWGQGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:CACACAATCGTCTGCT-1_contig_2",
+      "source_index": 44100,
+      "sequence_id": "CACACAATCGTCTGCT-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGRIIPILGIANYAQKFQGRVTITADKSTSTAYMELSSLRSEDTAVYYC",
+      "native": "ARVEVTTNYYYYYMDV",
+      "pt2": "WGKGTTVTVSS",
+      "native_length": 16,
+      "infill_range": [
+        96,
+        112
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGRIIPILGIANYAQKFQGRVTITADKSTSTAYMELSSLRSEDTAVYYCARVEVTTNYYYYYMDVWGKGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:CACCAGGAGGTGTTAA-1_contig_2",
+      "source_index": 44428,
+      "sequence_id": "CACCAGGAGGTGTTAA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKVLLWFGKNYYGMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 16,
+      "infill_range": [
+        96,
+        112
+      ],
+      "parent_sequence": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKVLLWFGKNYYGMDVWGQGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:CATCAAGTCGTACGGC-1_contig_1",
+      "source_index": 45211,
+      "sequence_id": "CATCAAGTCGTACGGC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGGYYWSWIRQHPGKGLEWIGYIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARGSYCSGGSCYPQYFQH",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 18,
+      "infill_range": [
+        97,
+        115
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGGYYWSWIRQHPGKGLEWIGYIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARGSYCSGGSCYPQYFQHWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:CCACCTAAGGGTTCCC-1_contig_2",
+      "source_index": 45692,
+      "sequence_id": "CCACCTAAGGGTTCCC-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKDGGSSWYRGKGYYFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 18,
+      "infill_range": [
+        96,
+        114
+      ],
+      "parent_sequence": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKDGGSSWYRGKGYYFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:CCACCTAAGTTAACGA-1_contig_1",
+      "source_index": 45697,
+      "sequence_id": "CCACCTAAGTTAACGA-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYC",
+      "native": "ATRSIDSSGYPPEVHFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 18,
+      "infill_range": [
+        96,
+        114
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYCATRSIDSSGYPPEVHFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:CCACCTATCTGGTGTA-1_contig_2",
+      "source_index": 45730,
+      "sequence_id": "CCACCTATCTGGTGTA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKSIMSVVRGVTAFPVDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 18,
+      "infill_range": [
+        96,
+        114
+      ],
+      "parent_sequence": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKSIMSVVRGVTAFPVDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:CGGAGCTAGCACACAG-1_contig_1",
+      "source_index": 47643,
+      "sequence_id": "CGGAGCTAGCACACAG-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTGYYMHWVRQAPGQGLEWMGWINPNSGGTNYAQKFQGRVTMTRDTSISTAYMELSRLRSDDTAVYYC",
+      "native": "ARGSAVAGSPGVDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 14,
+      "infill_range": [
+        96,
+        110
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTGYYMHWVRQAPGQGLEWMGWINPNSGGTNYAQKFQGRVTMTRDTSISTAYMELSRLRSDDTAVYYCARGSAVAGSPGVDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:CGTGTAAGTTGGACCC-1_contig_1",
+      "source_index": 48177,
+      "sequence_id": "CGTGTAAGTTGGACCC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGGYYWSWIRQHPGKGLEWIGYIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARGGDYYDSSGWENFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 17,
+      "infill_range": [
+        97,
+        114
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGGYYWSWIRQHPGKGLEWIGYIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARGGDYYDSSGWENFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:GATTCAGAGCGTCTAT-1_contig_1",
+      "source_index": 51452,
+      "sequence_id": "GATTCAGAGCGTCTAT-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVKPGGSLRLSCAASGFTFSSYSMNWVRQAPGKGLEWVSSISSSSSYIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYC",
+      "native": "ARGGYSGYETYYYYYYGMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 20,
+      "infill_range": [
+        96,
+        116
+      ],
+      "parent_sequence": "EVQLVESGGGLVKPGGSLRLSCAASGFTFSSYSMNWVRQAPGKGLEWVSSISSSSSYIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYCARGGYSGYETYYYYYYGMDVWGQGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:GCACATAGTTGTCGCG-1_contig_1",
+      "source_index": 51615,
+      "sequence_id": "GCACATAGTTGTCGCG-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYYMHWVRQAPGQGLEWMGIINPSGGSTSYAQKFQGRVTMTRDTSTSTVYMELSSLRSEDTAVYYC",
+      "native": "ARDRQNQRWFDP",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 12,
+      "infill_range": [
+        96,
+        108
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYYMHWVRQAPGQGLEWMGIINPSGGSTSYAQKFQGRVTMTRDTSTSTVYMELSSLRSEDTAVYYCARDRQNQRWFDPWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:GGATTACAGCGATGAC-1_contig_1",
+      "source_index": 53080,
+      "sequence_id": "GGATTACAGCGATGAC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYYMHWVRQAPGQGLEWMGIINPSGGSTSYAQKFQGRVTMTRDTSTSTVYMELSSLRSEDTAVYYC",
+      "native": "ARDPEGRDGYNGGAPGGWFDP",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 21,
+      "infill_range": [
+        96,
+        117
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYYMHWVRQAPGQGLEWMGIINPSGGSTSYAQKFQGRVTMTRDTSTSTVYMELSSLRSEDTAVYYCARDPEGRDGYNGGAPGGWFDPWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:GTGTTAGTCCTTGGTC-1_contig_1",
+      "source_index": 54984,
+      "sequence_id": "GTGTTAGTCCTTGGTC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYSMNWVRQAPGKGLEWVSYISSSSSTIYYADSVKGRFTISRDNAKNSLYLQMNSLRDEDTAVYYC",
+      "native": "ARDRQWLVPFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 12,
+      "infill_range": [
+        96,
+        108
+      ],
+      "parent_sequence": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYSMNWVRQAPGKGLEWVSYISSSSSTIYYADSVKGRFTISRDNAKNSLYLQMNSLRDEDTAVYYCARDRQWLVPFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:TACGGATTCGCAAACT-1_contig_2",
+      "source_index": 55632,
+      "sequence_id": "TACGGATTCGCAAACT-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQQWGAGLLKPSETLSLTCAVYGGSFSGYYWSWIRQPPGKGLEWIGEINHSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARGRSSVRGEVMDV",
+      "pt2": "WGKGTTVTVSS",
+      "native_length": 14,
+      "infill_range": [
+        95,
+        109
+      ],
+      "parent_sequence": "QVQLQQWGAGLLKPSETLSLTCAVYGGSFSGYYWSWIRQPPGKGLEWIGEINHSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARGRSSVRGEVMDVWGKGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:TATCTCATCGGTCTAA-1_contig_1",
+      "source_index": 56253,
+      "sequence_id": "TATCTCATCGGTCTAA-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVQSGAEVKKPGESLKISCKGSGYSFTSYWIGWVRQMPGKGLEWMGIIYPGDSDTRYSPSFQGQVTISADKSISTAYLQWSSLKASDTAMYYC",
+      "native": "ARHQGQGCSGGSCYSGWYFDL",
+      "pt2": "WGRGTLVTVSS",
+      "native_length": 21,
+      "infill_range": [
+        96,
+        117
+      ],
+      "parent_sequence": "EVQLVQSGAEVKKPGESLKISCKGSGYSFTSYWIGWVRQMPGKGLEWMGIIYPGDSDTRYSPSFQGQVTISADKSISTAYLQWSSLKASDTAMYYCARHQGQGCSGGSCYSGWYFDLWGRGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:TGAGGGAGTAAACCTC-1_contig_1",
+      "source_index": 57885,
+      "sequence_id": "TGAGGGAGTAAACCTC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QLQLQESGPGLVKPSETLSLTCTVSGGSISSSSYYWGWIRQPPGKGLEWIGSIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "AIANKYSSSPQNWFDP",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 16,
+      "infill_range": [
+        97,
+        113
+      ],
+      "parent_sequence": "QLQLQESGPGLVKPSETLSLTCTVSGGSISSSSYYWGWIRQPPGKGLEWIGSIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCAIANKYSSSPQNWFDPWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:TGGCTGGGTACCGTTA-1_contig_2",
+      "source_index": 58494,
+      "sequence_id": "TGGCTGGGTACCGTTA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QITLKESGPTLVKPTQTLTLTCTFSGFSLSTSGVGVGWIRQPPGKALEWLALIYWNDDKRYSPSLKSRLTITKDTSKNQVVLTMTNMDPVDTATYYC",
+      "native": "AHSYTYDSSGYFLEARRARFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 22,
+      "infill_range": [
+        97,
+        119
+      ],
+      "parent_sequence": "QITLKESGPTLVKPTQTLTLTCTFSGFSLSTSGVGVGWIRQPPGKALEWLALIYWNDDKRYSPSLKSRLTITKDTSKNQVVLTMTNMDPVDTATYYCAHSYTYDSSGYFLEARRARFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:TTAGTTCTCTCATTCA-1_contig_1",
+      "source_index": 59067,
+      "sequence_id": "TTAGTTCTCTCATTCA-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAVIWYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "ARSELWFGDYAFDI",
+      "pt2": "WGQGTMVTVSS",
+      "native_length": 14,
+      "infill_range": [
+        96,
+        110
+      ],
+      "parent_sequence": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAVIWYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCARSELWFGDYAFDIWGQGTMVTVSS"
+    },
+    {
+      "example_id": "oas:1287169:TTGTAGGTCAGCGATT-1_contig_1",
+      "source_index": 59687,
+      "sequence_id": "TTGTAGGTCAGCGATT-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKVSGYTLTELSMHWVRQAPGKGLEWMGGFDPEDGETIYAQKFQGRVTMTEDTSTDTAYMELSSLRSEDTAVYYC",
+      "native": "ATDLTRPFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 10,
+      "infill_range": [
+        96,
+        106
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKVSGYTLTELSMHWVRQAPGKGLEWMGGFDPEDGETIYAQKFQGRVTMTEDTSTDTAYMELSSLRSEDTAVYYCATDLTRPFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287171:AACCATGTCAACGGGA-1_contig_2",
+      "source_index": 60335,
+      "sequence_id": "AACCATGTCAACGGGA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSETLSLTCTVSGGSVSSGSYYWSWIRQPPGKGLEWIGYIYYSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARDGPCSGGSCYFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 15,
+      "infill_range": [
+        97,
+        112
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSETLSLTCTVSGGSVSSGSYYWSWIRQPPGKGLEWIGYIYYSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARDGPCSGGSCYFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287171:ACGAGGATCTTGACGA-1_contig_2",
+      "source_index": 61688,
+      "sequence_id": "ACGAGGATCTTGACGA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYGISWVRQAPGQGLEWMGWISAYNGNTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYC",
+      "native": "ARDGPAYCGGDCYNFQH",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 17,
+      "infill_range": [
+        96,
+        113
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYGISWVRQAPGQGLEWMGWISAYNGNTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYCARDGPAYCGGDCYNFQHWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287171:ACGCCGAAGCGATAGC-1_contig_2",
+      "source_index": 61898,
+      "sequence_id": "ACGCCGAAGCGATAGC-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYEMNWVRQAPGKGLEWVSYISSSGSTIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYC",
+      "native": "ARDYDSSGYYGDHDAFDI",
+      "pt2": "WGQGTMVTVSS",
+      "native_length": 18,
+      "infill_range": [
+        96,
+        114
+      ],
+      "parent_sequence": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYEMNWVRQAPGKGLEWVSYISSSGSTIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYCARDYDSSGYYGDHDAFDIWGQGTMVTVSS"
+    },
+    {
+      "example_id": "oas:1287171:ACGGCCACAATCGGTT-1_contig_1",
+      "source_index": 61997,
+      "sequence_id": "ACGGCCACAATCGGTT-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSGTLSLTCAVSGGSISSSNWWSWVRQPPGKGLEWIGEIYHSGSTNYNPSLKSRVTISVDKSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARTIRYCSSTSCPNMDV",
+      "pt2": "WGKGTTVTVSS",
+      "native_length": 17,
+      "infill_range": [
+        96,
+        113
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSGTLSLTCAVSGGSISSSNWWSWVRQPPGKGLEWIGEIYHSGSTNYNPSLKSRVTISVDKSKNQFSLKLSSVTAADTAVYYCARTIRYCSSTSCPNMDVWGKGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287171:ACGGGCTAGCTAAGAT-1_contig_1",
+      "source_index": 62033,
+      "sequence_id": "ACGGGCTAGCTAAGAT-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSETLSLTCTVSGGSISSYYWSWIRQPPGKGLEWIGYIYYSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARDLIQHDAFDI",
+      "pt2": "WGQGTMVTVSS",
+      "native_length": 12,
+      "infill_range": [
+        95,
+        107
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSETLSLTCTVSGGSISSYYWSWIRQPPGKGLEWIGYIYYSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARDLIQHDAFDIWGQGTMVTVSS"
+    },
+    {
+      "example_id": "oas:1287171:ATGCGATCAGCTCGAC-1_contig_2",
+      "source_index": 64448,
+      "sequence_id": "ATGCGATCAGCTCGAC-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAVIWYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "ARVYYDYVWGSWNGYMDV",
+      "pt2": "WGKGTTVTVSS",
+      "native_length": 18,
+      "infill_range": [
+        96,
+        114
+      ],
+      "parent_sequence": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAVIWYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCARVYYDYVWGSWNGYMDVWGKGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287171:CACACTCTCAGGTTCA-1_contig_1",
+      "source_index": 65328,
+      "sequence_id": "CACACTCTCAGGTTCA-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYGISWVRQAPGQGLEWMGWISAYNGNTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYC",
+      "native": "ARDLGYCSSTSCAAHDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 17,
+      "infill_range": [
+        96,
+        113
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYGISWVRQAPGQGLEWMGWISAYNGNTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYCARDLGYCSSTSCAAHDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287171:CGCGGTATCCGCGCAA-1_contig_2",
+      "source_index": 68462,
+      "sequence_id": "CGCGGTATCCGCGCAA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVKPGGSLRLSCAASGFTFSNAWMSWVRQAPGKGLEWVGRIKSKTDGGTTDYAAPVKGRFTISRDDSKNTLYLQMNSLKTEDTAVYYC",
+      "native": "TTVTHCSSTSCYKLVGY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 17,
+      "infill_range": [
+        98,
+        115
+      ],
+      "parent_sequence": "EVQLVESGGGLVKPGGSLRLSCAASGFTFSNAWMSWVRQAPGKGLEWVGRIKSKTDGGTTDYAAPVKGRFTISRDDSKNTLYLQMNSLKTEDTAVYYCTTVTHCSSTSCYKLVGYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287171:CGGCTAGAGCCCAGCT-1_contig_2",
+      "source_index": 68875,
+      "sequence_id": "CGGCTAGAGCCCAGCT-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYC",
+      "native": "ARVLGCSGGSCPPLWAFDI",
+      "pt2": "WGQGTMVTVSS",
+      "native_length": 19,
+      "infill_range": [
+        96,
+        115
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYCARVLGCSGGSCPPLWAFDIWGQGTMVTVSS"
+    },
+    {
+      "example_id": "oas:1287171:CGTAGCGAGGCGATAC-1_contig_1",
+      "source_index": 69010,
+      "sequence_id": "CGTAGCGAGGCGATAC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAVISYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKEEQQLVPPYYYYGMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 18,
+      "infill_range": [
+        96,
+        114
+      ],
+      "parent_sequence": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAVISYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKEEQQLVPPYYYYGMDVWGQGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287171:GCGACCAAGCGGCTTC-1_contig_1",
+      "source_index": 73235,
+      "sequence_id": "GCGACCAAGCGGCTTC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSETLSLTCTVSGGSISSYYWSWIRQPPGKGLEWIGYIYYSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARQRYYYDSSGYYMYYFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 19,
+      "infill_range": [
+        95,
+        114
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSETLSLTCTVSGGSISSYYWSWIRQPPGKGLEWIGYIYYSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARQRYYYDSSGYYMYYFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287171:GCTTGAATCCGCAAGC-1_contig_1",
+      "source_index": 73897,
+      "sequence_id": "GCTTGAATCCGCAAGC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVQSGAEVKKPGESLKISCKGSGYSFTSYWIGWVRQMPGKGLEWMGIIYPGDSDTRYSPSFQGQVTISADKSISTAYLQWSSLKASDTAMYYC",
+      "native": "ARRADADDYGDPFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 15,
+      "infill_range": [
+        96,
+        111
+      ],
+      "parent_sequence": "EVQLVQSGAEVKKPGESLKISCKGSGYSFTSYWIGWVRQMPGKGLEWMGIIYPGDSDTRYSPSFQGQVTISADKSISTAYLQWSSLKASDTAMYYCARRADADDYGDPFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287171:GGGAGATCAAGAGTCG-1_contig_2",
+      "source_index": 74735,
+      "sequence_id": "GGGAGATCAAGAGTCG-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKVSGYTLTELSMHWVRQAPGKGLEWMGGFDPEDGETIYAQKFQGRVTMTEDTSTDTAYMELSSLRSEDTAVYYC",
+      "native": "ATGVVPGLLDGYNSADCCYWYFDL",
+      "pt2": "WGRGTLVTVSS",
+      "native_length": 24,
+      "infill_range": [
+        96,
+        120
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKVSGYTLTELSMHWVRQAPGKGLEWMGGFDPEDGETIYAQKFQGRVTMTEDTSTDTAYMELSSLRSEDTAVYYCATGVVPGLLDGYNSADCCYWYFDLWGRGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287171:GGGCACTAGTTGCAGG-1_contig_1",
+      "source_index": 74831,
+      "sequence_id": "GGGCACTAGTTGCAGG-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAVIWYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "ARDAFPRGDYYYYYYMDV",
+      "pt2": "WGKGTTVTVSS",
+      "native_length": 18,
+      "infill_range": [
+        96,
+        114
+      ],
+      "parent_sequence": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAVIWYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCARDAFPRGDYYYYYYMDVWGKGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287171:GTAACTGCAATGAATG-1_contig_2",
+      "source_index": 75269,
+      "sequence_id": "GTAACTGCAATGAATG-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVTLKESGPVLVKPTETLTLTCTVSGFSLSNARMGVSWIRQPPGKALEWLAHIFSNDEKSYSTSLKSRLTISKDTSKSQVVLTMTNMDPVDTATYYC",
+      "native": "ARIGWLSYYYYGMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 15,
+      "infill_range": [
+        97,
+        112
+      ],
+      "parent_sequence": "QVTLKESGPVLVKPTETLTLTCTVSGFSLSNARMGVSWIRQPPGKALEWLAHIFSNDEKSYSTSLKSRLTISKDTSKSQVVLTMTNMDPVDTATYYCARIGWLSYYYYGMDVWGQGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287186:AAACCTGAGCCACGCT-1_contig_1",
+      "source_index": 81406,
+      "sequence_id": "AAACCTGAGCCACGCT-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQQSGPGLVKPSQTLSLTCAISGDSVSSNSAAWNWIRQSPSRGLEWLGRTYYRSKWYNDYAVSVKSRITINPDTSKNQFSLQLNSVTPEDTAVYYC",
+      "native": "ARDDIVYGRYSPLDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 15,
+      "infill_range": [
+        99,
+        114
+      ],
+      "parent_sequence": "QVQLQQSGPGLVKPSQTLSLTCAISGDSVSSNSAAWNWIRQSPSRGLEWLGRTYYRSKWYNDYAVSVKSRITINPDTSKNQFSLQLNSVTPEDTAVYYCARDDIVYGRYSPLDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287186:ACACCGGCATGCTAGT-1_contig_2",
+      "source_index": 82422,
+      "sequence_id": "ACACCGGCATGCTAGT-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKDRAATPSY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 10,
+      "infill_range": [
+        96,
+        106
+      ],
+      "parent_sequence": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKDRAATPSYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287186:CATCAGAAGATGCGAC-1_contig_2",
+      "source_index": 86977,
+      "sequence_id": "CATCAGAAGATGCGAC-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKGPFGGVIATDFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 15,
+      "infill_range": [
+        96,
+        111
+      ],
+      "parent_sequence": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKGPFGGVIATDFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287186:CCAATCCAGACAGGCT-1_contig_1",
+      "source_index": 87312,
+      "sequence_id": "CCAATCCAGACAGGCT-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYGISWVRQAPGQGLEWMGWISAYNGNTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYC",
+      "native": "ARDSIIVVVPHDAFDI",
+      "pt2": "WGQGTMVTVSS",
+      "native_length": 16,
+      "infill_range": [
+        96,
+        112
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYGISWVRQAPGQGLEWMGWISAYNGNTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYCARDSIIVVVPHDAFDIWGQGTMVTVSS"
+    },
+    {
+      "example_id": "oas:1287186:CGCTGGAGTGATGTCT-1_contig_1",
+      "source_index": 88791,
+      "sequence_id": "CGCTGGAGTGATGTCT-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGGYYWSWIRQHPGKGLEWIGYIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARDRGEYYYDSSGYYSHYYYGMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 24,
+      "infill_range": [
+        97,
+        121
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGGYYWSWIRQHPGKGLEWIGYIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARDRGEYYYDSSGYYSHYYYGMDVWGQGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287186:CGGACGTGTGAACCTT-1_contig_1",
+      "source_index": 88906,
+      "sequence_id": "CGGACGTGTGAACCTT-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSGTLSLTCAVSGGSISSSNWWSWVRQPPGKGLEWIGEIYHSGSTNYNPSLKSRVTISVDKSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARGWELLPAYFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 13,
+      "infill_range": [
+        96,
+        109
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSGTLSLTCAVSGGSISSSNWWSWVRQPPGKGLEWIGEIYHSGSTNYNPSLKSRVTISVDKSKNQFSLKLSSVTAADTAVYYCARGWELLPAYFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287186:CTCGAAAAGTTGTAGA-1_contig_2",
+      "source_index": 90088,
+      "sequence_id": "CTCGAAAAGTTGTAGA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QLQLQESGPGLVKPSETLSLTCTVSGGSISSSSYYWGWIRQPPGKGLEWIGSIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ASSLYYYDSSPVAFDI",
+      "pt2": "WGQGTMVTVSS",
+      "native_length": 16,
+      "infill_range": [
+        97,
+        113
+      ],
+      "parent_sequence": "QLQLQESGPGLVKPSETLSLTCTVSGGSISSSSYYWGWIRQPPGKGLEWIGSIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCASSLYYYDSSPVAFDIWGQGTMVTVSS"
+    },
+    {
+      "example_id": "oas:1287186:CTTACCGTCTCGATGA-1_contig_1",
+      "source_index": 90828,
+      "sequence_id": "CTTACCGTCTCGATGA-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSETLSLTCTVSGGSISSYYWSWIRQPAGKGLEWIGRIYTSGSTNYNPSLKSRVTMSVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARDSGSYSPFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 12,
+      "infill_range": [
+        95,
+        107
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSETLSLTCTVSGGSISSYYWSWIRQPAGKGLEWIGRIYTSGSTNYNPSLKSRVTMSVDTSKNQFSLKLSSVTAADTAVYYCARDSGSYSPFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287186:GACGTGCGTAGCCTCG-1_contig_2",
+      "source_index": 91468,
+      "sequence_id": "GACGTGCGTAGCCTCG-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVKPGGSLRLSCAASGFTFSNAWMSWVRQAPGKGLEWVGRIKSKTDGGTTDYAAPVKGRFTISRDDSKNTLYLQMNSLKTEDTAVYYC",
+      "native": "TTDSGWLDAYFQH",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 13,
+      "infill_range": [
+        98,
+        111
+      ],
+      "parent_sequence": "EVQLVESGGGLVKPGGSLRLSCAASGFTFSNAWMSWVRQAPGKGLEWVGRIKSKTDGGTTDYAAPVKGRFTISRDDSKNTLYLQMNSLKTEDTAVYYCTTDSGWLDAYFQHWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287186:GCATGTAGTGCACCAC-1_contig_1",
+      "source_index": 92397,
+      "sequence_id": "GCATGTAGTGCACCAC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSETLSLTCTVSGGSISSYYWSWIRQPPGKGLEWIGYIYYSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARDIQLWANWYFDL",
+      "pt2": "WGRGTLVTVSS",
+      "native_length": 14,
+      "infill_range": [
+        95,
+        109
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSETLSLTCTVSGGSISSYYWSWIRQPPGKGLEWIGYIYYSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARDIQLWANWYFDLWGRGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287186:GTATCTTAGCCAGTTT-1_contig_1",
+      "source_index": 94179,
+      "sequence_id": "GTATCTTAGCCAGTTT-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSETLSLTCTVSGGSISSYYWSWIRQPPGKGLEWIGYIYYSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARVLDFWSGPTDRTYYYYGMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 22,
+      "infill_range": [
+        95,
+        117
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSETLSLTCTVSGGSISSYYWSWIRQPPGKGLEWIGYIYYSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARVLDFWSGPTDRTYYYYGMDVWGQGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287186:TCAGGTACACGAAGCA-1_contig_1",
+      "source_index": 96041,
+      "sequence_id": "TCAGGTACACGAAGCA-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYGISWVRQAPGQGLEWMGWISAYNGNTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYC",
+      "native": "ARDRPQYCSSTSCYGKDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 18,
+      "infill_range": [
+        96,
+        114
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYGISWVRQAPGQGLEWMGWISAYNGNTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYCARDRPQYCSSTSCYGKDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287186:TCGAGGCGTCCAGTGC-1_contig_1",
+      "source_index": 96205,
+      "sequence_id": "TCGAGGCGTCCAGTGC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVQPGRSLRLSCAASGFTFDDYAMHWVRQAPGKGLEWVSGISWNSGSIGYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTALYYC",
+      "native": "AKGQDCSGGSCYSFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 16,
+      "infill_range": [
+        96,
+        112
+      ],
+      "parent_sequence": "EVQLVESGGGLVQPGRSLRLSCAASGFTFDDYAMHWVRQAPGKGLEWVSGISWNSGSIGYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTALYYCAKGQDCSGGSCYSFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287186:TTTGCGCGTTCCACAA-1_contig_1",
+      "source_index": 98258,
+      "sequence_id": "TTTGCGCGTTCCACAA-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYEMNWVRQAPGKGLEWVSYISSSGSTIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYC",
+      "native": "ARDQVRAVAGRYYYYYYGMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 21,
+      "infill_range": [
+        96,
+        117
+      ],
+      "parent_sequence": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYEMNWVRQAPGKGLEWVSYISSSGSTIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYCARDQVRAVAGRYYYYYYGMDVWGQGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287187:AACGTTGAGAGGTTGC-1_contig_1",
+      "source_index": 98621,
+      "sequence_id": "AACGTTGAGAGGTTGC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QITLKESGPTLVKPTQTLTLTCTFSGFSLSTSGVGVGWIRQPPGKALEWLALIYWNDDKRYSPSLKSRLTITKDTSKNQVVLTMTNMDPVDTATYYC",
+      "native": "AHLGYCSSTSCYKNWFDP",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 18,
+      "infill_range": [
+        97,
+        115
+      ],
+      "parent_sequence": "QITLKESGPTLVKPTQTLTLTCTFSGFSLSTSGVGVGWIRQPPGKALEWLALIYWNDDKRYSPSLKSRLTITKDTSKNQVVLTMTNMDPVDTATYYCAHLGYCSSTSCYKNWFDPWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287187:ACGAGCCCAGTCAGCC-1_contig_1",
+      "source_index": 99584,
+      "sequence_id": "ACGAGCCCAGTCAGCC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKTSGYTFTGYYMHWVRQAPGQGLEWMGRINPNSGGTNYAQKFQGRVTMTRDTSISTAYMELSRLRSDDTAVYYC",
+      "native": "ARDRFSFRAVAGRGYYYGMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 21,
+      "infill_range": [
+        96,
+        117
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKTSGYTFTGYYMHWVRQAPGQGLEWMGRINPNSGGTNYAQKFQGRVTMTRDTSISTAYMELSRLRSDDTAVYYCARDRFSFRAVAGRGYYYGMDVWGQGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287187:ATAAGAGAGGGTGTTG-1_contig_2",
+      "source_index": 101269,
+      "sequence_id": "ATAAGAGAGGGTGTTG-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYGISWVRQAPGQGLEWMGWISAYNGNTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYC",
+      "native": "AREAGGDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 8,
+      "infill_range": [
+        96,
+        104
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYGISWVRQAPGQGLEWMGWISAYNGNTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYCAREAGGDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287187:CATATGGCATCCTAGA-1_contig_2",
+      "source_index": 102996,
+      "sequence_id": "CATATGGCATCCTAGA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGSYYWSWIRQPAGKGLEWIGRIYTSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARFMVRGENYYYGMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 16,
+      "infill_range": [
+        97,
+        113
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGSYYWSWIRQPAGKGLEWIGRIYTSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARFMVRGENYYYGMDVWGQGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287187:CCTAGCTGTTTGTTGG-1_contig_2",
+      "source_index": 104027,
+      "sequence_id": "CCTAGCTGTTTGTTGG-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYSMNWVRQAPGKGLEWVSYISSSSSTIYYADSVKGRFTISRDNAKNSLYLQMNSLRDEDTAVYYC",
+      "native": "ARVDEMATGGYPGYFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 17,
+      "infill_range": [
+        96,
+        113
+      ],
+      "parent_sequence": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYSMNWVRQAPGKGLEWVSYISSSSSTIYYADSVKGRFTISRDNAKNSLYLQMNSLRDEDTAVYYCARVDEMATGGYPGYFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287187:CCTTACGGTCCGTTAA-1_contig_1",
+      "source_index": 104163,
+      "sequence_id": "CCTTACGGTCCGTTAA-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYYMHWVRQAPGQGLEWMGIINPSGGSTSYAQKFQGRVTMTRDTSTSTVYMELSSLRSEDTAVYYC",
+      "native": "ARDLQLVEHGWFDP",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 14,
+      "infill_range": [
+        96,
+        110
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYYMHWVRQAPGQGLEWMGIINPSGGSTSYAQKFQGRVTMTRDTSTSTVYMELSSLRSEDTAVYYCARDLQLVEHGWFDPWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287187:CGCGGTATCTGGAGCC-1_contig_1",
+      "source_index": 104743,
+      "sequence_id": "CGCGGTATCTGGAGCC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QITLKESGPTLVKPTQTLTLTCTFSGFSLSTSGVGVGWIRQPPGKALEWLALIYWDDDKRYSPSLKSRLTITKDTSKNQVVLTMTNMDPVDTATYYC",
+      "native": "AHRQGKTYYDFWSGYYDNWFDP",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 22,
+      "infill_range": [
+        97,
+        119
+      ],
+      "parent_sequence": "QITLKESGPTLVKPTQTLTLTCTFSGFSLSTSGVGVGWIRQPPGKALEWLALIYWDDDKRYSPSLKSRLTITKDTSKNQVVLTMTNMDPVDTATYYCAHRQGKTYYDFWSGYYDNWFDPWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287187:CGCTGGACATCACGTA-1_contig_2",
+      "source_index": 104822,
+      "sequence_id": "CGCTGGACATCACGTA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSSYAMHWVRQAPGKGLEWVAVISYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "ARGGGYCSGGSCYSHYYYGMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 22,
+      "infill_range": [
+        96,
+        118
+      ],
+      "parent_sequence": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSSYAMHWVRQAPGKGLEWVAVISYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCARGGGYCSGGSCYSHYYYGMDVWGQGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287187:CGTCACTCACAACGCC-1_contig_1",
+      "source_index": 105244,
+      "sequence_id": "CGTCACTCACAACGCC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYYMHWVRQAPGQGLEWMGIINPSGGSTSYAQKFQGRVTMTRDTSTSTVYMELSSLRSEDTAVYYC",
+      "native": "ATTPSFGVVIYADPNGMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 19,
+      "infill_range": [
+        96,
+        115
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYYMHWVRQAPGQGLEWMGIINPSGGSTSYAQKFQGRVTMTRDTSTSTVYMELSSLRSEDTAVYYCATTPSFGVVIYADPNGMDVWGQGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287187:CTCGGAGAGGAATGGA-1_contig_2",
+      "source_index": 106125,
+      "sequence_id": "CTCGGAGAGGAATGGA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVQPGGSLRLSCAASGFTVSSNYMSWVRQAPGKGLEWVSVIYSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "ARDSYCSSTSCYDPGTLDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 19,
+      "infill_range": [
+        95,
+        114
+      ],
+      "parent_sequence": "EVQLVESGGGLVQPGGSLRLSCAASGFTVSSNYMSWVRQAPGKGLEWVSVIYSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCARDSYCSSTSCYDPGTLDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287187:CTGAAGTTCACTCCTG-1_contig_2",
+      "source_index": 106410,
+      "sequence_id": "CTGAAGTTCACTCCTG-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKDDERTMIVGAVDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 15,
+      "infill_range": [
+        96,
+        111
+      ],
+      "parent_sequence": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKDDERTMIVGAVDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287187:GACCAATCATCAGTCA-1_contig_2",
+      "source_index": 107284,
+      "sequence_id": "GACCAATCATCAGTCA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QLQLQESGPGLVKPSETLSLTCTVSGGSISSSSYYWGWIRQPPGKGLEWIGSIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARDLEMATIGGGYYFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 17,
+      "infill_range": [
+        97,
+        114
+      ],
+      "parent_sequence": "QLQLQESGPGLVKPSETLSLTCTVSGGSISSSSYYWGWIRQPPGKGLEWIGSIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARDLEMATIGGGYYFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287187:GCATGCGTCAGCTTAG-1_contig_2",
+      "source_index": 108269,
+      "sequence_id": "GCATGCGTCAGCTTAG-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSSYAMHWVRQAPGKGLEWVAVISYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "ARVYCGGDCPFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 13,
+      "infill_range": [
+        96,
+        109
+      ],
+      "parent_sequence": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSSYAMHWVRQAPGKGLEWVAVISYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCARVYCGGDCPFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287187:GGTGTTATCAACGAAA-1_contig_1",
+      "source_index": 109808,
+      "sequence_id": "GGTGTTATCAACGAAA-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGGYYWSWIRQHPGKGLEWIGYIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARARGPPGYCTNGVCPFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 19,
+      "infill_range": [
+        97,
+        116
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGGYYWSWIRQHPGKGLEWIGYIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARARGPPGYCTNGVCPFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287187:GTTCTCGCATTATCTC-1_contig_2",
+      "source_index": 110881,
+      "sequence_id": "GTTCTCGCATTATCTC-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKATMVRGAVPFDP",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 14,
+      "infill_range": [
+        96,
+        110
+      ],
+      "parent_sequence": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKATMVRGAVPFDPWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287187:TCAGATGCATTGTGCA-1_contig_2",
+      "source_index": 111910,
+      "sequence_id": "TCAGATGCATTGTGCA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGSYYWSWIRQPAGKGLEWIGRIYTSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARGYYDSSGFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 12,
+      "infill_range": [
+        97,
+        109
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGSYYWSWIRQPAGKGLEWIGRIYTSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARGYYDSSGFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287187:TCATTACCACTACAGT-1_contig_1",
+      "source_index": 112101,
+      "sequence_id": "TCATTACCACTACAGT-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGGYYWSWIRQHPGKGLEWIGYIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARELITMVRGVIIAGDAFDI",
+      "pt2": "WGQGTMVTVSS",
+      "native_length": 20,
+      "infill_range": [
+        97,
+        117
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGGYYWSWIRQHPGKGLEWIGYIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARELITMVRGVIIAGDAFDIWGQGTMVTVSS"
+    },
+    {
+      "example_id": "oas:1287187:TCTTCGGTCATTGCGA-1_contig_2",
+      "source_index": 112687,
+      "sequence_id": "TCTTCGGTCATTGCGA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVQPGRSLRLSCAASGFTFDDYAMHWVRQAPGKGLEWVSGISWNSGSIGYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTALYYC",
+      "native": "AKDSASSIAIQSFFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 16,
+      "infill_range": [
+        96,
+        112
+      ],
+      "parent_sequence": "EVQLVESGGGLVQPGRSLRLSCAASGFTFDDYAMHWVRQAPGKGLEWVSGISWNSGSIGYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTALYYCAKDSASSIAIQSFFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287187:TTTCCTCCACAAGACG-1_contig_3",
+      "source_index": 114546,
+      "sequence_id": "TTTCCTCCACAAGACG-1_contig_3",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYGISWVRQAPGQGLEWMGWISAYNGNTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYC",
+      "native": "ARVSQCGFGELLCAFDI",
+      "pt2": "WGQGTMVTVSS",
+      "native_length": 17,
+      "infill_range": [
+        96,
+        113
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYGISWVRQAPGQGLEWMGWISAYNGNTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYCARVSQCGFGELLCAFDIWGQGTMVTVSS"
+    },
+    {
+      "example_id": "oas:1287201:AACTCAGTCAGAGCTT-1_contig_2",
+      "source_index": 115076,
+      "sequence_id": "AACTCAGTCAGAGCTT-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGGYYWSWIRQHPGKGLEWIGYIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARDSEYSTIWGMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 14,
+      "infill_range": [
+        97,
+        111
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGGYYWSWIRQHPGKGLEWIGYIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARDSEYSTIWGMDVWGQGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287201:AACTCTTCAAGTACCT-1_contig_2",
+      "source_index": 115123,
+      "sequence_id": "AACTCTTCAAGTACCT-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGSYYWSWIRQPAGKGLEWIGRIYTSGSTNYNPSLKSRVTISVDTSKNQLSLKLSSVTAADTAVYYC",
+      "native": "ARDQTDSSGYPTWYFDL",
+      "pt2": "WGRGTLVTVSS",
+      "native_length": 17,
+      "infill_range": [
+        97,
+        114
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGSYYWSWIRQPAGKGLEWIGRIYTSGSTNYNPSLKSRVTISVDTSKNQLSLKLSSVTAADTAVYYCARDQTDSSGYPTWYFDLWGRGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287201:ACACTGAAGAAGGACA-1_contig_2",
+      "source_index": 115674,
+      "sequence_id": "ACACTGAAGAAGGACA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVQSGAEVKKPGESLKISCKGSGYSFTSYWIGWVRQMPGKGLEWMGIIYPGDSDTRYSPSFQGQVTISADKSISTAYLQWSSLKASDTAMYYC",
+      "native": "ARLGDYPISAHYYYYYGMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 20,
+      "infill_range": [
+        96,
+        116
+      ],
+      "parent_sequence": "EVQLVQSGAEVKKPGESLKISCKGSGYSFTSYWIGWVRQMPGKGLEWMGIIYPGDSDTRYSPSFQGQVTISADKSISTAYLQWSSLKASDTAMYYCARLGDYPISAHYYYYYGMDVWGQGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287201:AGCTCTCAGGGCATGT-1_contig_1",
+      "source_index": 117508,
+      "sequence_id": "AGCTCTCAGGGCATGT-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSETLSLTCTVSGGSISSYYWSWIRQPPGKGLEWIGYIYYSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARADPEWGDAFDI",
+      "pt2": "WGQGTMVTVSS",
+      "native_length": 13,
+      "infill_range": [
+        95,
+        108
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSETLSLTCTVSGGSISSYYWSWIRQPPGKGLEWIGYIYYSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARADPEWGDAFDIWGQGTMVTVSS"
+    },
+    {
+      "example_id": "oas:1287201:AGGGTGATCAACACGT-1_contig_1",
+      "source_index": 117769,
+      "sequence_id": "AGGGTGATCAACACGT-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYWMSWVRQAPGKGLEWVANIKQDGSEKYYVDSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYC",
+      "native": "ARGRVVVTATRSGYYGMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 19,
+      "infill_range": [
+        96,
+        115
+      ],
+      "parent_sequence": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYWMSWVRQAPGKGLEWVANIKQDGSEKYYVDSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYCARGRVVVTATRSGYYGMDVWGQGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287201:CACCACTAGCTAGTTC-1_contig_2",
+      "source_index": 119532,
+      "sequence_id": "CACCACTAGCTAGTTC-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYWMNWVRQAPGKGLVWVSRINSDGRSTSYADSVKGRFTISRDNAKNTLYLQMNSLRAEDTAVYYC",
+      "native": "TRVTTSVDYFDS",
+      "pt2": "WGLGTLVTVSS",
+      "native_length": 12,
+      "infill_range": [
+        96,
+        108
+      ],
+      "parent_sequence": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYWMNWVRQAPGKGLVWVSRINSDGRSTSYADSVKGRFTISRDNAKNTLYLQMNSLRAEDTAVYYCTRVTTSVDYFDSWGLGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287201:CACCTTGAGGAATTAC-1_contig_1",
+      "source_index": 119602,
+      "sequence_id": "CACCTTGAGGAATTAC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVQPGRSLRLSCAASGFTFDDYAMHWVRQAPGKGLEWVSGISWNSGSIGYADSVKGRFTISRDNAKNSLYLQMNSLRVEDTALYYC",
+      "native": "AKNAGWFDP",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 9,
+      "infill_range": [
+        96,
+        105
+      ],
+      "parent_sequence": "EVQLVESGGGLVQPGRSLRLSCAASGFTFDDYAMHWVRQAPGKGLEWVSGISWNSGSIGYADSVKGRFTISRDNAKNSLYLQMNSLRVEDTALYYCAKNAGWFDPWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287201:CCACGGACAATGGATA-1_contig_2",
+      "source_index": 120744,
+      "sequence_id": "CCACGGACAATGGATA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLLESGGGLVQPGGSLRLSCAASGFTFNSYAMNWVRQAPGKGLEWVSAISGSSGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKSGGIAVAVSDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 13,
+      "infill_range": [
+        96,
+        109
+      ],
+      "parent_sequence": "EVQLLESGGGLVQPGGSLRLSCAASGFTFNSYAMNWVRQAPGKGLEWVSAISGSSGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKSGGIAVAVSDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287201:CCTATTAGTGCGGTAA-1_contig_1",
+      "source_index": 121496,
+      "sequence_id": "CCTATTAGTGCGGTAA-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVQSGAEVKKPGESLKISCKGSGYSFTSYWIGWVRQMPGKGLEWMGIIYPGDSDTRYSPSFQGQVTISADKSISTAYLQWSSLKASDTAMYYC",
+      "native": "ARRGAVQLERRSANSYYYYYGMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 24,
+      "infill_range": [
+        96,
+        120
+      ],
+      "parent_sequence": "EVQLVQSGAEVKKPGESLKISCKGSGYSFTSYWIGWVRQMPGKGLEWMGIIYPGDSDTRYSPSFQGQVTISADKSISTAYLQWSSLKASDTAMYYCARRGAVQLERRSANSYYYYYGMDVWGQGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287201:CCTTCCCAGAGACTTA-1_contig_2",
+      "source_index": 121617,
+      "sequence_id": "CCTTCCCAGAGACTTA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAVISYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKGRGGGDSDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 11,
+      "infill_range": [
+        96,
+        107
+      ],
+      "parent_sequence": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAVISYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKGRGGGDSDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287201:CTTCTCTAGTGCAAGC-1_contig_2",
+      "source_index": 124553,
+      "sequence_id": "CTTCTCTAGTGCAAGC-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSCGMSWVRQAPGEGLEWVSSISGSDGSTYADSVKGRFTISRDNSKNTMFLQMSSLRAEDTAIYYC",
+      "native": "VKEDCKSKLTTFDY",
+      "pt2": "WGHGTLVTVSS",
+      "native_length": 14,
+      "infill_range": [
+        95,
+        109
+      ],
+      "parent_sequence": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSCGMSWVRQAPGEGLEWVSSISGSDGSTYADSVKGRFTISRDNSKNTMFLQMSSLRAEDTAIYYCVKEDCKSKLTTFDYWGHGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287201:GACTGCGGTCTCTCTG-1_contig_1",
+      "source_index": 125341,
+      "sequence_id": "GACTGCGGTCTCTCTG-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGSYYWSWIRQPAGKGLEWIGRIYTSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARERESRAPYYYGSGSYHYYYGMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 25,
+      "infill_range": [
+        97,
+        122
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSQTLSLTCTVSGGSISSGSYYWSWIRQPAGKGLEWIGRIYTSGSTNYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARERESRAPYYYGSGSYHYYYGMDVWGQGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287201:GCACTCTCATGGGAAC-1_contig_1",
+      "source_index": 125942,
+      "sequence_id": "GCACTCTCATGGGAAC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLIQPGGSLRLSCAASGFTVSSNYMSWVRQAPGKGLEWVSVIYSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "ARQLPYSSSWYGGVGGYGMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 21,
+      "infill_range": [
+        95,
+        116
+      ],
+      "parent_sequence": "EVQLVESGGGLIQPGGSLRLSCAASGFTVSSNYMSWVRQAPGKGLEWVSVIYSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCARQLPYSSSWYGGVGGYGMDVWGQGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287201:GCTCTGTTCATGCAAC-1_contig_2",
+      "source_index": 126647,
+      "sequence_id": "GCTCTGTTCATGCAAC-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKDLVAATGLFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 13,
+      "infill_range": [
+        96,
+        109
+      ],
+      "parent_sequence": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKDLVAATGLFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287201:GGACGTCTCTTAGAGC-1_contig_2",
+      "source_index": 127178,
+      "sequence_id": "GGACGTCTCTTAGAGC-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYGISWVRQAPGQGLEWMGWISAYNGNTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYC",
+      "native": "ARGVATVMPYYMDV",
+      "pt2": "WGKGTTVTVSS",
+      "native_length": 14,
+      "infill_range": [
+        96,
+        110
+      ],
+      "parent_sequence": "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYGISWVRQAPGQGLEWMGWISAYNGNTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYCARGVATVMPYYMDVWGKGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287201:TGCCAAATCTGCTGCT-1_contig_1",
+      "source_index": 131822,
+      "sequence_id": "TGCCAAATCTGCTGCT-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QLQLQESGPGLVKPSETLSLTCTVSGGSISSSSYYWGWIRQPPGKGLEWIGSIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "native": "ARRGSWRIAVAGGSFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 17,
+      "infill_range": [
+        97,
+        114
+      ],
+      "parent_sequence": "QLQLQESGPGLVKPSETLSLTCTVSGGSISSSSYYWGWIRQPPGKGLEWIGSIYYSGSTYYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYCARRGSWRIAVAGGSFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287201:TGCGGGTGTCTAAACC-1_contig_1",
+      "source_index": 131965,
+      "sequence_id": "TGCGGGTGTCTAAACC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSETLSLTCTVSGGSISNYYWSWIRQPPGKGLEWIGYIYYSGSTNYNPSLKSRITISVDTSKNQFSLKLTSVTAGDTAMYYC",
+      "native": "ARGGSTCFN",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 9,
+      "infill_range": [
+        95,
+        104
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSETLSLTCTVSGGSISNYYWSWIRQPPGKGLEWIGYIYYSGSTNYNPSLKSRITISVDTSKNQFSLKLTSVTAGDTAMYYCARGGSTCFNWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287201:TGGCTGGGTCTCTTAT-1_contig_2",
+      "source_index": 132226,
+      "sequence_id": "TGGCTGGGTCTCTTAT-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLAESGGGLVQPGRSLRLSCVASGFTFGDYGMHWVRQAPGKGLEWVSGISWNSGSVGYADSVKGRFTISRDNANNSLYLQMNSLRLDDTAVYYC",
+      "native": "AKWGSGFGS",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 9,
+      "infill_range": [
+        96,
+        105
+      ],
+      "parent_sequence": "EVQLAESGGGLVQPGRSLRLSCVASGFTFGDYGMHWVRQAPGKGLEWVSGISWNSGSVGYADSVKGRFTISRDNANNSLYLQMNSLRLDDTAVYYCAKWGSGFGSWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287201:TGTGGTATCTCGTATT-1_contig_2",
+      "source_index": 132544,
+      "sequence_id": "TGTGGTATCTCGTATT-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVKPGGSLRLSCAASGFTFSNAWMSWVRQAPGKGLEWVGRIKSKTDGGTTDYAAPVKGRFTISRDDSKNTLYLQMNSLKTEDTAVYYC",
+      "native": "TTDAIATRMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 11,
+      "infill_range": [
+        98,
+        109
+      ],
+      "parent_sequence": "EVQLVESGGGLVKPGGSLRLSCAASGFTFSNAWMSWVRQAPGKGLEWVGRIKSKTDGGTTDYAAPVKGRFTISRDDSKNTLYLQMNSLKTEDTAVYYCTTDAIATRMDVWGQGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287203:ACATACGCACAGAGGT-1_contig_2",
+      "source_index": 134722,
+      "sequence_id": "ACATACGCACAGAGGT-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QLQLQESGPGLVKPSETLSLTCIVSGGSISSGTYYWGWIRQPPGKKLEWIGSMYHSGSTYHNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAIYYC",
+      "native": "ARHILSMDAFDI",
+      "pt2": "WGQGTMVTVSS",
+      "native_length": 12,
+      "infill_range": [
+        97,
+        109
+      ],
+      "parent_sequence": "QLQLQESGPGLVKPSETLSLTCIVSGGSISSGTYYWGWIRQPPGKKLEWIGSMYHSGSTYHNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAIYYCARHILSMDAFDIWGQGTMVTVSS"
+    },
+    {
+      "example_id": "oas:1287203:AGACGTTTCGTAGATC-1_contig_2",
+      "source_index": 135960,
+      "sequence_id": "AGACGTTTCGTAGATC-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVQPGRSLRLSCAASGFTFDDYAMHWVRQAPGKGLEWVSGISWNSGSIGYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTALYYC",
+      "native": "AKTNDILTGYLTE",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 13,
+      "infill_range": [
+        96,
+        109
+      ],
+      "parent_sequence": "EVQLVESGGGLVQPGRSLRLSCAASGFTFDDYAMHWVRQAPGKGLEWVSGISWNSGSIGYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTALYYCAKTNDILTGYLTEWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287203:AGTAGTCAGACCTTTG-1_contig_1",
+      "source_index": 136778,
+      "sequence_id": "AGTAGTCAGACCTTTG-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSGYGMHWVRQAPGKGLEWVAVISYDGTYKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKARAAVGTGENYWYFDL",
+      "pt2": "WGRGTLVTVSS",
+      "native_length": 18,
+      "infill_range": [
+        96,
+        114
+      ],
+      "parent_sequence": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSGYGMHWVRQAPGKGLEWVAVISYDGTYKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKARAAVGTGENYWYFDLWGRGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287203:CACACCTAGTAGGCCA-1_contig_1",
+      "source_index": 138190,
+      "sequence_id": "CACACCTAGTAGGCCA-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLQESGPGLVKPSQTLSLTCTVSSGSISGGSCYWSWVRQPAGKGLVWIGRIYNSGSTNYNPSLESRLTISRDTSKSQCSLKLNSVTAADTAIYYC",
+      "native": "TRGCSNSSPFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 12,
+      "infill_range": [
+        97,
+        109
+      ],
+      "parent_sequence": "QVQLQESGPGLVKPSQTLSLTCTVSSGSISGGSCYWSWVRQPAGKGLVWIGRIYNSGSTNYNPSLESRLTISRDTSKSQCSLKLNSVTAADTAIYYCTRGCSNSSPFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287203:CAGCCGAAGCTAGGCA-1_contig_2",
+      "source_index": 138804,
+      "sequence_id": "CAGCCGAAGCTAGGCA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLSESGGGLIQPGGSLRLSCAVSGFTFSNYAMTWVRQAPGKGLEWVSTISGGGSNTYYADSVKGRFTISRDISRNTQYLEMNSLRAEDTAVYYC",
+      "native": "ARQRGSSSGDFDY",
+      "pt2": "WGQGTLVIVSS",
+      "native_length": 13,
+      "infill_range": [
+        96,
+        109
+      ],
+      "parent_sequence": "EVQLSESGGGLIQPGGSLRLSCAVSGFTFSNYAMTWVRQAPGKGLEWVSTISGGGSNTYYADSVKGRFTISRDISRNTQYLEMNSLRAEDTAVYYCARQRGSSSGDFDYWGQGTLVIVSS"
+    },
+    {
+      "example_id": "oas:1287203:CCTAAAGAGACCTAGG-1_contig_2",
+      "source_index": 140146,
+      "sequence_id": "CCTAAAGAGACCTAGG-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVHLVESGGGVVQPGRSLRLSCAASGFVFSNSIMHWVRQAPGKGLEWVAVISSDGSTKYYADSVKGRFTISRDNSKNTLYLQMNSLSAEDTAVYYC",
+      "native": "AREGIAVPGDAFDI",
+      "pt2": "WGQGTMVTVSS",
+      "native_length": 14,
+      "infill_range": [
+        96,
+        110
+      ],
+      "parent_sequence": "QVHLVESGGGVVQPGRSLRLSCAASGFVFSNSIMHWVRQAPGKGLEWVAVISSDGSTKYYADSVKGRFTISRDNSKNTLYLQMNSLSAEDTAVYYCAREGIAVPGDAFDIWGQGTMVTVSS"
+    },
+    {
+      "example_id": "oas:1287203:CGCTATCAGGGCTTCC-1_contig_2",
+      "source_index": 141207,
+      "sequence_id": "CGCTATCAGGGCTTCC-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "ARQLWSYFDY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 10,
+      "infill_range": [
+        96,
+        106
+      ],
+      "parent_sequence": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCARQLWSYFDYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287203:CGTTAGACAGAAGCAC-1_contig_1",
+      "source_index": 142014,
+      "sequence_id": "CGTTAGACAGAAGCAC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGSELKKPGASVKLSCKASGYTFNRYAMNWVRQAPGQGLEWMGWINTNTGNPTYAQDFTGRFVFSLDTSVSTAYLQISSLRAEDTAVYYC",
+      "native": "ARCAPGLDTAVDPLGY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 16,
+      "infill_range": [
+        96,
+        112
+      ],
+      "parent_sequence": "QVQLVQSGSELKKPGASVKLSCKASGYTFNRYAMNWVRQAPGQGLEWMGWINTNTGNPTYAQDFTGRFVFSLDTSVSTAYLQISSLRAEDTAVYYCARCAPGLDTAVDPLGYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287203:CTACCCAAGACCTTTG-1_contig_2",
+      "source_index": 142326,
+      "sequence_id": "CTACCCAAGACCTTTG-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKLPQQPKHPWRVEVVSTCY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 20,
+      "infill_range": [
+        96,
+        116
+      ],
+      "parent_sequence": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKLPQQPKHPWRVEVVSTCYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287203:CTTCTCTCACATCCAA-1_contig_2",
+      "source_index": 143501,
+      "sequence_id": "CTTCTCTCACATCCAA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVESGGGLVQPGGSLRLSCAASGFRFSDYYMSWIRQAPGKGLEWVSYISSSSSDTSYANSVKGRFTISRDNGKNSLSLQMSSLRAEDTAVYYC",
+      "native": "ASVLIDRLGLLY",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 12,
+      "infill_range": [
+        96,
+        108
+      ],
+      "parent_sequence": "QVQLVESGGGLVQPGGSLRLSCAASGFRFSDYYMSWIRQAPGKGLEWVSYISSSSSDTSYANSVKGRFTISRDNGKNSLSLQMSSLRAEDTAVYYCASVLIDRLGLLYWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287203:GATCGTACAAAGGTGC-1_contig_1",
+      "source_index": 144664,
+      "sequence_id": "GATCGTACAAAGGTGC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVQPGGSLRLSCAASGFTVSSNYMSWVRQAPGKGLEWVSVIYSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "ARGTDYYGSGSYYIYYYYYGMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 23,
+      "infill_range": [
+        95,
+        118
+      ],
+      "parent_sequence": "EVQLVESGGGLVQPGGSLRLSCAASGFTVSSNYMSWVRQAPGKGLEWVSVIYSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCARGTDYYGSGSYYIYYYYYGMDVWGQGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287203:GATGAAATCTTGCAAG-1_contig_2",
+      "source_index": 144780,
+      "sequence_id": "GATGAAATCTTGCAAG-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSSFAMHWVRQAPGKGLEWVAVISYDKINEYYADSMKGRLSISRDNSKNMLYLQMNSLRPEDTAVYYC",
+      "native": "AGGFGELSWFDP",
+      "pt2": "WGQGILVTVSS",
+      "native_length": 12,
+      "infill_range": [
+        96,
+        108
+      ],
+      "parent_sequence": "QVQLVESGGGVVQPGRSLRLSCAASGFTFSSFAMHWVRQAPGKGLEWVAVISYDKINEYYADSMKGRLSISRDNSKNMLYLQMNSLRPEDTAVYYCAGGFGELSWFDPWGQGILVTVSS"
+    },
+    {
+      "example_id": "oas:1287203:GCTTGAACATCCCATC-1_contig_1",
+      "source_index": 145981,
+      "sequence_id": "GCTTGAACATCCCATC-1_contig_1",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVHLVESGGTVVQPGRSLRLSCAASGFTFKNYGMHWVRQAPGKALEWVAAISYDGSDTYYADSVKGRFTFSRDNSENTLYLQLNSLRTEDTALYYC",
+      "native": "AKQAQAFAQAGWSHLDF",
+      "pt2": "WGQGTLLTVSS",
+      "native_length": 17,
+      "infill_range": [
+        96,
+        113
+      ],
+      "parent_sequence": "QVHLVESGGTVVQPGRSLRLSCAASGFTFKNYGMHWVRQAPGKALEWVAAISYDGSDTYYADSVKGRFTFSRDNSENTLYLQLNSLRTEDTALYYCAKQAQAFAQAGWSHLDFWGQGTLLTVSS"
+    },
+    {
+      "example_id": "oas:1287203:TATGCCCGTGCGAAAC-1_contig_2",
+      "source_index": 149401,
+      "sequence_id": "TATGCCCGTGCGAAAC-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVESGGGLVKPGGSLRLSCAASGFTFSSYSMNWVRQAPGKGLEWVSSISSSSSYIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYC",
+      "native": "ASSGWYMEDWFDP",
+      "pt2": "WGQGTLVTVSS",
+      "native_length": 13,
+      "infill_range": [
+        96,
+        109
+      ],
+      "parent_sequence": "EVQLVESGGGLVKPGGSLRLSCAASGFTFSSYSMNWVRQAPGKGLEWVSSISSSSSYIYYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYCASSGWYMEDWFDPWGQGTLVTVSS"
+    },
+    {
+      "example_id": "oas:1287203:TCAGGATCAGTATAAG-1_contig_2",
+      "source_index": 149758,
+      "sequence_id": "TCAGGATCAGTATAAG-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLVQSGAEVKKPGESLKISCKGSTYSFTGYWIGWVRQMPGKGLEWMGIIYPGDSDTRYSPSFQGQVTISADKSISTAYLQWSSLKASDTAVYYC",
+      "native": "ARQRVTMVRGNYYYYYMDV",
+      "pt2": "WGKGTTVTVSS",
+      "native_length": 19,
+      "infill_range": [
+        96,
+        115
+      ],
+      "parent_sequence": "EVQLVQSGAEVKKPGESLKISCKGSTYSFTGYWIGWVRQMPGKGLEWMGIIYPGDSDTRYSPSFQGQVTISADKSISTAYLQWSSLKASDTAVYYCARQRVTMVRGNYYYYYMDVWGKGTTVTVSS"
+    },
+    {
+      "example_id": "oas:1287203:TGCGCAGTCACCACCT-1_contig_2",
+      "source_index": 151067,
+      "sequence_id": "TGCGCAGTCACCACCT-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "QVQLVQSGTEVKMPGASVKVSCKASGYTFNNYGISWVRQAPGQGPEWMGWISGNNDLTDYAQKVQGRVSMTTDASTNTAYMELRSLRSDDTAVYYC",
+      "native": "ARIYNYYDSSGSITTPGFFDH",
+      "pt2": "WGQGTLVAVPS",
+      "native_length": 21,
+      "infill_range": [
+        96,
+        117
+      ],
+      "parent_sequence": "QVQLVQSGTEVKMPGASVKVSCKASGYTFNNYGISWVRQAPGQGPEWMGWISGNNDLTDYAQKVQGRVSMTTDASTNTAYMELRSLRSDDTAVYYCARIYNYYDSSGSITTPGFFDHWGQGTLVAVPS"
+    },
+    {
+      "example_id": "oas:1287203:TGTATTCAGCGCTCCA-1_contig_2",
+      "source_index": 151546,
+      "sequence_id": "TGTATTCAGCGCTCCA-1_contig_2",
+      "split": "validation",
+      "chain": "heavy",
+      "species": "human",
+      "chain_token": "[HEAVY]",
+      "species_token": "[HUMAN]",
+      "pt1": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "native": "AKEEAQQLVGYGMDV",
+      "pt2": "WGQGTTVTVSS",
+      "native_length": 15,
+      "infill_range": [
+        96,
+        111
+      ],
+      "parent_sequence": "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKEEAQQLVGYGMDVWGQGTTVTVSS"
+    }
+  ]
+}

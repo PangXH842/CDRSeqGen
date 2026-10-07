@@ -72,6 +72,20 @@ class GenerationArguments(BaseGenerationArguments):
                           "the cap is incomplete and is dropped rather than scored as a loop."})
 
 
+def validate_inference_args(args):
+    """Validate saved-checkpoint decoder/length options and set args.decoding.
+
+    Called by eval_cli.prepare_evaluation and gen_cli.prepare_generation.
+    """
+    if args.decoding not in (None, 'seq2seq'):
+        raise ValueError('s2s checkpoints require seq2seq decoding')
+    if args.min_length is not None or args.max_length is not None:
+        raise ValueError('s2s chooses length via EOS; bounded/fixed length is unsupported')
+    if args.length_temperature != 1.0:
+        raise ValueError('s2s has no separate length-temperature control')
+    args.decoding = 'seq2seq'
+
+
 def validate_args(model_args, data_args, gen_args):
     """Validate seq2seq-only limits in addition to the shared method contract."""
     validate_common_args(model_args, data_args, gen_args, expected_method="s2s")

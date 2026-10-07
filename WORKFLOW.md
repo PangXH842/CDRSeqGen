@@ -135,7 +135,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py configs/ar/h3_ar_scratch.json    # autore
 > **One entrypoint, three methods.** `train.py` dispatches on the config's `"method"` key — absent
 > means `mlm`, so all 49 pre-existing configs are untouched. `--method ar` overrides it, for running
 > a config through the other pipeline deliberately. Each method owns its own parser and
-> `main()` in `cdrseqgen/methods/<method>/entrypoint.py`; `train.py` only routes.
+> `main()` in `cdrseqgen/methods/<method>/train_cli.py`; `train.py` only routes.
 >
 > Both write the *same* files to the *same* place — `epoch_metrics.csv`, the four curve PNGs,
 > `run_config.json`, `train.log`, `generation_eval.json` — so every plotter and table generator in

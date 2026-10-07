@@ -1,24 +1,30 @@
 # MLM partner-context controls — 2026-10-07
 
-Prepared for the user to launch after the S2S ESM-2 confirmation, now complete.
-No training or generation was launched during preparation. These two stages use
+Stage 1 is complete: both no-partner controls passed the [completion audit](../../results/reviews/20261007-mlm-no-partner-controls.md).
+Stage 2 is also complete: all four partner-trained MLM dropout trials passed the [completion audit](../../results/reviews/20261007-mlm-dropout-screen.md). No completion rerun is needed.
+No training or generation was launched by the assistant. These two stages use
 scratch MLM to complete method coverage without repeating the historical MLM
 backbone, loss or decoding sweeps. ESM-2 MLM is a separate, optional extension.
 
 Here, “no context” means no partner light chain and no antigen. The heavy-chain
 flanks and its other CDRs remain available around the masked H3.
 
-## Smallest useful next batch
+<a id="smallest-useful-next-batch"></a>
+
+## Two-stage matched comparison
 
 [`20261007_mlm_no_partner_controls.json`](20261007_mlm_no_partner_controls.json)
-trains two no-partner models at seeds 42/43. This fills the missing MLM rows in
-the October no-partner control table. Each model fits its own length head and
-writes one `generation_eval.json` without generator partner context.
+trained both no-partner models at seeds 42/43. Their audited outputs fill the MLM
+rows in the October no-partner control table. Each model has its own fitted
+length head and one scored `generation_eval.json` without generator partner context.
+The batch is `results/runs/20261007_144639_381443_mlm_no_partner_controls`; no rerun is needed.
+Edit similarities are 0.3880/0.3906, length match is 7.57%/6.43%, and conditional
+core recovery is 0.2006/0.1950 (114/94 frameworks). All 6,000 returned candidates
+are nonempty with full judge coverage; attempt-validity accounting is absent.
 
-If the paper also compares robustness to partner removal across all three
-methods, follow with
+The completed matched MLM partner-context comparison uses
 [`20261007_mlm_dropout_screen.json`](20261007_mlm_dropout_screen.json).
-It trains four partner-enabled models: dropout 0/0.5 at the same seeds 42/43.
+It trained four partner-enabled models: dropout 0/0.5 at the same seeds 42/43.
 Each checkpoint is evaluated both with and without its partner, giving eight
 generation files. Within each seed pair, only training dropout changes.
 
@@ -83,9 +89,9 @@ yet establish this six-cell, two-seed, length-free protocol. Preserve those
 results; do not relabel them as these new matched runs. The August backbone,
 loss and decoding matrices need no rerun for their existing historical claims.
 
-No executable-source edits are needed. Keep the same code and environment
-through both stages so the new MLM contrast is internally matched. Comparisons
-with earlier AR/S2S screens retain their recorded source/runtime differences.
+The batch froze source fingerprint `66adbd7ee4dd…` and the same runtime as the MLM controls/ESM-2 confirmation. During stage 2, MLM annotations changed and the identical loss-config construction/logging moved after model loading. All other executable AST nodes match the reconstructed frozen source. The command-interface refactor happened after completion. The audit retains archived source, unchanged plan/ledger hashes and the limitation that launch-time source identity does not prove byte-identical files at every trial start. Comparisons with earlier AR/S2S screens retain their own source/runtime differences.
+
+**Observed contrast:** dropout improves partner-absent edit similarity by +0.2332/+0.2526 at seeds 42/43, restoring it close to the no-partner-trained controls (0.3907/0.3915 versus 0.3880/0.3906). Partner-present changes are −0.0017/+0.0013. These are descriptive validation effects, not significance or equivalence. Eight outputs contain 24,000 returned nonempty canonical candidates with full judge coverage; no attempt-validity rate is recorded. All six models across both stages have checked selected weights and fitted length heads.
 
 Initial preparation passed 17 CPU-only spec/context tests, parsing all six MLM trials
 and verifying that only the intended context policy and training seed change.
@@ -99,33 +105,17 @@ resume with missing artifacts or changed recipes/data/source.
 
 ## Commands
 
-All four confirmation trials now pass the batch runner's completion checks.
-Start fresh timestamped directories for the MLM stages;
-do not reuse the frozen S2S confirmation directory.
+Both stages are audited complete. These commands inspect the existing batches without starting experiments:
 
 ```bash
 cd /mnt/hdd/pang/CDRSeqGen
 conda activate cdrprj
-unset EXPERIMENT_DIR SWEEP_DIR SEED FREEZE_ENCODER ENCODER_INIT DATA_PATH DRY_RUN
-HF_HUB_OFFLINE=1 ./scripts/run.sh plan mlm_no_partner_controls --gpus 0
-HF_HUB_OFFLINE=1 ./scripts/run.sh run mlm_no_partner_controls --gpus 0
+./scripts/run.sh status results/runs/20261007_144639_381443_mlm_no_partner_controls
+./scripts/run.sh status results/runs/20261007_163535_226387_mlm_dropout_screen
 ```
 
-After stage 1 completes, run stage 2 if cross-method partner-removal robustness
-is in scope:
+Stage 1 has two completed rows, two generation outputs and two length-head/config pairs. Stage 2 has four completed rows, eight generation outputs and four length-head/config pairs. No missing config needs rerunning.
 
-```bash
-HF_HUB_OFFLINE=1 ./scripts/run.sh plan mlm_dropout_screen --gpus 0
-HF_HUB_OFFLINE=1 ./scripts/run.sh run mlm_dropout_screen --gpus 0
-```
+The recipes remain available for intentional new, source-versioned experiments, not completion repair. Do not resume these completed batches after the command refactor: strict source identity remains enforced. Preserve their original plans and outputs.
 
-For stage 1, check two completed `runs.tsv` rows, two generation outputs and two
-length-head/config pairs. For stage 2, check four completed rows, eight generation
-outputs and four length-head/config pairs. Check framework identities and the
-fixed judge context before combining either batch into a table.
-
-Inspect a batch with `./scripts/run.sh status results/runs/<batch>` and resume
-with `./scripts/run.sh resume results/runs/<batch> --gpus 0`. Resume reads the
-frozen settings and requires unchanged code/runtime and corpus contents. The
-launcher skips completed trials but restarts unfinished training from scratch;
-checkpoint recovery is a separate operation, as in the current S2S recovery.
+Next priority is the [matched framework/external comparison](../../RESULTS.md#next-run-order), after freezing endpoints/populations, deciding leakage limitations and preparing uncertainty analysis. Additional MLM seeds/repeats are a targeted confirmation option if the dropout effect becomes a central claim. Training and generation remain user-run.

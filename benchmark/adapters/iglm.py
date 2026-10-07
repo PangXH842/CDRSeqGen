@@ -25,6 +25,7 @@ from benchmark._common import (
     AMINO_ACIDS,
     assert_resume_compatible,
     atomic_write_json,
+    execution_source_identity,
     repository_commit,
     sha256_file,
     stable_example_seed,
@@ -53,6 +54,8 @@ def extract_infilled_loop(generated: str, pt1: str, pt2: str) -> str:
     if end < len(pt1):
         raise InvalidGeneration("overlapping_flanks", "generated sequence is shorter than its flanks")
     loop = generated[len(pt1):end]
+    if not loop:
+        raise InvalidGeneration('empty_generation', 'infilled loop is empty')
     invalid = sorted(set(loop) - AMINO_ACIDS)
     if invalid:
         raise InvalidGeneration(
@@ -64,7 +67,8 @@ def extract_infilled_loop(generated: str, pt1: str, pt2: str) -> str:
 class IgLMSampler:
     """One-draw wrapper around IgLM internals; unlike IgLM.infill, it never deduplicates or loops."""
 
-    def __init__(self, model_name: str, device: str, max_length: int, length_policy: str):
+    def __init__(self, model_name: str, device: str, max_length: int, length_policy: str,
+                 max_new_tokens: int | None = None):
         import numpy as np
         import torch
         from iglm import IgLM
@@ -79,6 +83,7 @@ class IgLMSampler:
         self.validate_generated_seq = validate_generated_seq
         self.max_length = max_length
         self.length_policy = length_policy
+        self.max_new_tokens = max_new_tokens
 
         self.iglm = IgLM(model_name=model_name)
         if device != "auto":
@@ -116,6 +121,11 @@ class IgLMSampler:
         """Validate and cache one example's prompt before its attempt loop."""
         self.starting_tokens = self._starting_tokens(record)
         self.target_total_length = None
+        self.decode_max_length = self.max_length
+        if self.max_new_tokens is not None:
+            self.decode_max_length = self.starting_tokens.shape[-1] + self.max_new_tokens
+            if self.decode_max_length > self.max_length:
+                raise ValueError(f"{record['example_id']} prompt plus decode cap exceeds --max-length")
         if self.length_policy == "constrain":
             self.target_total_length = self.starting_tokens.shape[-1] + record["native_length"] + 1
             if self.target_total_length > self.max_length:
@@ -133,13 +143,15 @@ class IgLMSampler:
                     "max_length": self.target_total_length,
                 }
                 if self.length_policy == "constrain"
-                else {"max_length": self.max_length}
+                else {"max_length": self.decode_max_length}
             )
             ids = self.iglm.model.generate(
                 self.starting_tokens,
                 pad_token_id=self.iglm.tokenizer.pad_token_id,
                 eos_token_id=self.iglm.tokenizer.cls_token_id,
-                forced_eos_token_id=self.iglm.tokenizer.cls_token_id,
+                # Natural/filter draws must actually emit EOS; the cap cannot fabricate it.
+                forced_eos_token_id=(self.iglm.tokenizer.cls_token_id
+                                     if self.length_policy == 'constrain' else None),
                 bad_words_ids=self.bad_word_ids,
                 do_sample=True,
                 top_p=top_p,
@@ -277,6 +289,7 @@ def build_payload(args, manifest: dict[str, Any], manifest_hash: str, sampler) -
             "checkpoint_file": str(checkpoint),
             "checkpoint_sha256": sha256_file(checkpoint),
             "device": sampler.device,
+            "execution_source": execution_source_identity(),
         }
     except Exception as exc:
         raise RuntimeError(f"could not collect IgLM provenance: {exc}") from exc
@@ -300,6 +313,8 @@ def build_payload(args, manifest: dict[str, Any], manifest_hash: str, sampler) -
             "temperature": args.temperature,
             "top_p": args.top_p,
             "max_length": args.max_length,
+            "max_new_tokens": args.max_new_tokens,
+            "forced_eos_at_cap": args.length_policy == 'constrain',
             "base_seed": args.seed,
             "record_limit": args.limit,
             "duplicates_preserved": True,
@@ -321,6 +336,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--top-p", type=float, default=0.9)
     parser.add_argument("--max-length", type=int, default=150)
+    parser.add_argument('--max-new-tokens', type=int, default=None,
+                        help='Natural/filter decode cap including EOS, after the prompt')
     parser.add_argument(
         "--length-policy",
         choices=("constrain", "filter", "natural"),
@@ -347,6 +364,10 @@ def main() -> None:
         raise ValueError("IgLM sampling requires --temperature > 0")
     if not 0 < args.top_p <= 1:
         raise ValueError("--top-p must be in (0, 1]")
+    if args.max_new_tokens is not None and args.max_new_tokens <= 0:
+        raise ValueError('--max-new-tokens must be positive')
+    if args.max_new_tokens is not None and args.length_policy == 'constrain':
+        raise ValueError('--max-new-tokens is for natural/filter decoding')
 
     manifest_hash = sha256_file(args.manifest)
     with args.manifest.open() as handle:
@@ -366,7 +387,8 @@ def main() -> None:
     if not records:
         raise ValueError("manifest contains no selected records")
 
-    sampler = IgLMSampler(args.model_name, args.device, args.max_length, args.length_policy)
+    sampler = IgLMSampler(args.model_name, args.device, args.max_length, args.length_policy,
+                        args.max_new_tokens)
     expected = build_payload(args, manifest, manifest_hash, sampler)
     if args.output.exists():
         if not args.resume:

@@ -9,7 +9,7 @@ A batch can appear in several categories. Hyperparameter sweeps are excluded fro
 their summaries remain in `results/runs/*sweep*/`. This is an inventory, not a claim that
 experiments within a category used identical protocols.
 
-The October 7 control-category links are available. Full catalog regeneration
+The October 7 control and MLM dropout category links are available. Full catalog regeneration
 still needs the historical `results/diagnostics/20260914_igbert` and
 `results/diagnostics/20260915_igbert_summary` folders restored; their catalog
 entries are preserved.
@@ -18,15 +18,15 @@ entries are preserved.
 | --- | --- | --- |
 | Scratch baseline | [validation OAS matrix](results/by_experiment/scratch_baseline/validation_oas_matrix/batch_tables.md), [AR length-corrected](results/by_experiment/scratch_baseline/ar_length_corrected/batch_tables.md), [S2S pair](results/by_experiment/scratch_baseline/s2s_scratch_pair/batch_tables.md), [three-method comparison](results/by_experiment/scratch_baseline/three_method_comparison/batch_tables.md) | Completed exploratory MLM/AR/S2S runs. The earliest 07-24 and 07-29 matrices and pre-validation 08-17 matrix are also indexed, but selected on the test partition or predate the validation-safe OAS rerun. |
 | Pretrained models | [S2S encoder matrix](results/by_experiment/pretrained_models/s2s_encoder_matrix/batch_tables.md), [validation OAS matrix](results/by_experiment/pretrained_models/validation_oas_matrix/batch_tables.md) | ESM-2/IgBert/ProtBert S2S encoders and older MLM ESM-2; no pretrained AR arm. These are system comparisons, not an isolated pretraining effect. |
-| Partner context | [three-method comparison](results/by_experiment/partner_context/three_method_comparison/batch_tables.md), [S2S encoder matrix](results/by_experiment/partner_context/s2s_encoder_matrix/batch_tables.md), [six no-partner controls](results/reviews/20261007-no-partner-controls.md), [context review](results/reviews/0915-0917-review.md) | Six no-partner training controls completed October 6: scratch AR, scratch S2S and ESM-2 S2S at seeds 42/43. The September partner-trained screen uses earlier source/runtime versions. |
-| Context dropout | [AR/S2S screen](results/by_experiment/context_dropout/ar_s2s_screen/batch_tables.md), [October confirmation audit](results/reviews/20261007-esm2-confirmation.md) | Screen at seeds 42/43 plus four audited ESM-2 trials at seeds 44/45, each evaluated in both regimes. Historical and new batches retain their distinct source/runtime provenance. |
+| Partner context | [three-method comparison](results/by_experiment/partner_context/three_method_comparison/batch_tables.md), [S2S encoder matrix](results/by_experiment/partner_context/s2s_encoder_matrix/batch_tables.md), [six AR/S2S no-partner controls](results/reviews/20261007-no-partner-controls.md), [two MLM controls](results/reviews/20261007-mlm-no-partner-controls.md), [context review](results/reviews/0915-0917-review.md) | Eight no-partner training controls are audited: scratch MLM, scratch AR, scratch S2S and ESM-2 S2S at seeds 42/43. MLM returns 6,000 candidates without an attempt-validity ledger. The new MLM dropout comparison completes six matched checkpoints and ten evaluations; [audit](results/reviews/20261007-mlm-dropout-screen.md). The September AR/S2S screen uses earlier source/runtime versions. |
+| Context dropout | [AR/S2S screen](results/by_experiment/context_dropout/ar_s2s_screen/batch_tables.md), [October confirmation audit](results/reviews/20261007-esm2-confirmation.md) | AR/S2S screen at seeds 42/43, four audited ESM-2 trials at seeds 44/45, and the [completed four-run MLM screen](results/reviews/20261007-mlm-dropout-screen.md), each evaluated in both regimes. Historical and new batches retain their distinct source/runtime provenance. |
 | Pretrained vs random initialization | — | No same-architecture control yet. |
 | Frozen encoder | [IgBert diagnostic](results/by_experiment/frozen_encoder/igbert_three_arm_diagnostic/batch_tables.md) | Three-epoch frozen/trainable diagnostic at one seed; generation from the saved checkpoints is pending. |
 | Conditioning/collapse diagnostics | [collapse report](results/by_experiment/conditioning_diagnostics/igbert_collapse_report/REPORT.md), [diagnostic summary](results/by_experiment/conditioning_diagnostics/igbert_diagnostic_summary/REPORT.md) | One collapse and one same-seed non-reproduction; incidence and a preventive intervention are unknown. |
 | Length-free generation | [three-method comparison](results/by_experiment/length_free_generation/three_method_comparison/batch_tables.md), [S2S encoder matrix](results/by_experiment/length_free_generation/s2s_encoder_matrix/batch_tables.md) | EOS/inferred-length results and length analysis. The assembled three-method comparison is explicitly marked as spliced in its `PROVENANCE.md`; use the fresh comparison for headline analysis. |
 | Decoding/sampling | [validation OAS matrix](results/by_experiment/decoding_sampling/validation_oas_matrix/batch_tables.md) | Historical MLM decoding analyses are documented in the README. A controlled S2S sampling screen is pending. |
 | Matched external IgLM | [fixed-length pilot](results/by_experiment/external_iglm_benchmark/fixed_length_pilot/scores/), [length-free pilot](results/by_experiment/external_iglm_benchmark/length_free_pilot/scores/) | Frozen 25-framework validation pilots, not a final held-out comparison. Scores need clean-tree regeneration before quotation. |
-| Additional seeds | [early MLM check](results/by_experiment/additional_seeds/early_mlm_seed_check/), [dropout screen](results/by_experiment/additional_seeds/context_dropout_two_seeds/), [ESM-2 confirmation](results/by_experiment/additional_seeds/esm2_dropout_confirmation/) | ESM-2 dropout seeds 44/45 are complete. Other selected contrasts and fixed-seed repeat variability remain pending. |
+| Additional seeds | [early MLM check](results/by_experiment/additional_seeds/early_mlm_seed_check/), [dropout screen](results/by_experiment/additional_seeds/context_dropout_two_seeds/), [ESM-2 confirmation](results/by_experiment/additional_seeds/esm2_dropout_confirmation/) | MLM context pairs at seeds 42/43 and ESM-2 dropout seeds 44/45 are complete. Further selected seeds and fixed-seed repeat variability remain pending. |
 | Light-chain loops | [validation OAS matrix](results/by_experiment/light_chain/validation_oas_matrix/batch_tables.md) | Historical runs only. Target-loop-specific splitting is needed before generalization claims. |
 | Final frozen protocol/test | — | No final held-out experiment yet. |
 
@@ -60,45 +60,24 @@ preserved early-stopping state. Missing-partner edit gains are +0.0838/+0.0616;
 partner-present changes are −0.0042/−0.0039. **No rerun is needed for completion.**
 Dirty-checkout and source/runtime provenance remain explicit; cluster-aware
 uncertainty and final held-out evaluation are still pending.
-Next, [two scratch MLM no-partner controls are prepared](configs/experiments/20261007_mlm_context.md)
-at seeds 42/43. A separate four-run MLM dropout screen is prepared if the paper
-compares partner-removal robustness across all three methods. Neither MLM
-stage has been launched; 17 CPU config/context tests and both prospective plans
-passed. Historical MLM sweeps remain usable for their existing exploratory claims.
+Both [scratch MLM no-partner controls passed their audit](results/reviews/20261007-mlm-no-partner-controls.md):
+6,000 returned nonempty canonical candidates, complete judge coverage, reproduced
+summaries and selected weights/length-head artifacts checked. No rerun is needed.
+MLM attempt validity is unrecorded.
+All four partner-trained MLM dropout trials also passed their [completion audit](results/reviews/20261007-mlm-dropout-screen.md): eight evaluations, 24,000 returned candidates and complete judge coverage. Missing-partner edit gains are +0.2332/+0.2526, with small mixed partner-present changes (−0.0017/+0.0013). Dropout-0.5 absent scores are close to the no-partner-trained controls, without an equivalence claim. Source edits during training and the post-completion command refactor are explicitly audited. **No completion rerun is needed for any of these batches.** Historical MLM sweeps remain useful for their scoped exploratory claims.
 
 ## Next run order
 
-1. **Freeze a validation protocol before more comparative training.** Specify example IDs,
-   length policy, candidate/attempt budget, context for generator and judge, endpoints,
-   checkpoint selection, and how failures/length-matched subsets are reported. Settle whether
-   IgBert judge perplexity can be supporting only, given model-family and OAS overlap. Keep the
-   final test split untouched. The protocol decision and leakage audit gate final claims.
-2. **Evaluate the three saved IgBert diagnostic checkpoints.** This needs no training. Use the
-   exact command in [the diagnostic recipe](configs/experiments/20260915_context_dropout.md#evaluate-the-completed-igbert-diagnostic-checkpoints-first), after the judge cache works.
-3. **Reuse the completed no-partner training controls.** All six trials in the
-   [spec](configs/experiments/20261006_no_partner_controls.json) are complete: scratch AR,
-   scratch S2S and ESM-2 S2S at seeds 42/43, trained and generated without partner context
-   while the judge retains it. Read the [completion review](results/reviews/20261007-no-partner-controls.md)
-   rather than rerunning them. Preserve historical failed attempts and source/runtime provenance.
-4. **Use the completed dropout confirmation, then isolate ESM-2 pretraining.** The
-   [four-run confirmation batch](results/reviews/20261007-esm2-confirmation.md)
-   compares ESM-2 dropout 0/0.5 at seeds 44/45 in both generator context regimes.
-   All four trials passed the full artifact audit; these configurations
-   need no rerun. Additional
-   seed 46 and fixed-seed repeats remain pending time and results. Compare trainable pretrained,
-   randomly initialized, and frozen pretrained encoders separately with matched architecture
-   and context policy before attributing a gain to pretraining.
-5. **Fill the missing MLM no-partner rows, then extend context robustness if needed.**
-   The [MLM recipe](configs/experiments/20261007_mlm_context.md) separates two scratch
-   no-partner controls from four partner-enabled dropout 0/0.5 trials, all at seeds
-   42/43. Both stages explicitly use inferred lengths, 150 validation frameworks,
-   20 draws and a partner-present judge. Together they produce six checkpoints and
-   ten evaluations. Pretrained MLM extensions and the older backbone/loss/decoding
-   sweeps are outside this minimum method-coverage batch.
-6. **Complete the external comparison and held-out evaluation.** Audit OAS overlap with IgLM and
-   PLM pretraining data, repair the fixed-length population mismatch, rescore the validation pilot
-   on a clean tree, then freeze settings and run the final test once.
+1. **Freeze the matched validation benchmark protocol.** Record the common framework manifest, generator/judge inputs, length policies, candidate/attempt budgets, decoder limits, checkpoint selection and scoring populations. Use edit similarity as the primary native-referenced endpoint and IgBert perplexity as supporting evidence. Prepare paired cluster-aware uncertainty separately from training-seed/repeat variability.
+2. **Finish the leakage/split decision before final comparative work.** Reuse the existing audits; resolve nearest-neighbour and pretraining-overlap limitations. Keep final test evaluation pending until models and reporting are frozen.
+3. **Prepare the matched MLM/AR/S2S plus IgLM validation comparison.** Reuse compatible saved checkpoints and fitted heads; add a cheap empirical/retrieval baseline. Verify adapter input/length/attempt contracts and common scored populations. The older 25-framework IgLM pilot cannot supply the OAS4 final table. Record parameter counts, training exposure and compute.
+   The [inference-only recipe and commands](benchmark/recipes/oas4_h3_length_free.md) are now prepared:
+   start with `./scripts/run.sh benchmark smoke --gpu 0`. It reuses the exact 150 validation
+   framework membership, with a five-framework integration subset first. The full scratch
+   comparison is seven arms/21,000 requested attempts; neither stage has been launched by the
+   assistant. Judge context is heavy-chain only, so prior context-study judge scores are not copied.
+4. **Reuse the completed context evidence.** Eight no-partner controls, four ESM-2 confirmations and four MLM dropout trials need no completion rerun. The [MLM study](configs/experiments/20261007_mlm_context.md) is six checkpoints/ten evaluations. Preserve source/runtime differences and the audited during-batch source transition. If dropout becomes a headline empirical claim, choose additional shared seeds/repeats to meet the intended precision rather than repeating completed runs indiscriminately.
+5. **Keep claim-dependent extensions lower priority.** The [saved IgBert diagnostic checkpoints](configs/experiments/20260915_context_dropout.md#evaluate-the-completed-igbert-diagnostic-checkpoints-first) can be evaluated without training if conditioning is a central claim. Same-architecture pretrained/random/frozen controls are needed for an isolated pretraining claim; they are not required merely to demonstrate the unified framework. Further LR, decoder and backbone sweeps remain optional.
+6. **Freeze and run final held-out evaluation once.** The present validation evidence does not fill that table. Complete release documentation, authors/licences and manuscript formatting alongside this work.
 
-Do not infer an AR/S2S winner from the current one-seed comparisons: capacity, tuning exposure,
-length-matched populations and run-to-run variance still differ. The [README coverage table](README.md#experiment-coverage-across-methods)
-remains the status summary; this page gives each cell a concrete path and the next-run dependencies.
+Do not infer an architecture winner from unequal capacities, tuning exposure, length-matched populations or two-seed screening evidence. The [README coverage table](README.md#experiment-coverage-across-methods) remains the status summary; this page identifies completed evidence and next dependencies. Experiment scripts remain user-run.

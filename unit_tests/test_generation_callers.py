@@ -6,7 +6,7 @@ import torch
 
 import generate
 from cdrseqgen.datasets.dataset_mlm import AntibodyTokenizer, TokenizerAdapter
-from cdrseqgen.methods.mlm import cli as mlm_cli
+from cdrseqgen.methods.mlm import gen_cli as mlm_gen_cli
 from cdrseqgen.methods.mlm.evaluation import run_generative_eval
 
 
@@ -39,7 +39,7 @@ class SharedGenerationCallerTests(unittest.TestCase):
             seed=42,
         )
 
-        record = mlm_cli.generate_case(
+        record = mlm_gen_cli.generate_case(
             FakeModel(),
             self.tokenizer,
             torch.device("cpu"),

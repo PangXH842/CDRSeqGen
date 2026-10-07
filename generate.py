@@ -1,5 +1,9 @@
 """Candidate-generation showcase for antibody frameworks and optional context.
 
+Method calls:
+  generate.py -> methods.registry -> <method>/gen_cli.py
+  prepare_generation -> generation_state -> generate_case (per case)
+
 Usage:
   Select a trained model, provide the protein framework before (pt1) and after (pt2) the selected loop,
   and it will generate a sample library of candidate loops, with corresponding eval metrics.
@@ -257,7 +261,7 @@ def main(args):
     print(f"🧬 Checkpoint: {args.model_path}")
     configs = get_configs(args)
     method = checkpoint_method(configs)
-    cli = method.module('cli')
+    gen_cli = method.module('gen_cli')
     if getattr(args, 'max_len', None) is None:
         args.max_len = configs.get('max_len', 256)
     test_cases = get_test_case(args)
@@ -279,7 +283,7 @@ def main(args):
 
     # Validate method-specific options before loading any checkpoint weights.
     try:
-        policies = cli.prepare_generation(args, test_cases, configs)
+        policies = gen_cli.prepare_generation(args, test_cases, configs)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
 
@@ -299,8 +303,8 @@ def main(args):
     generator = torch.Generator(device=device)
     generator.manual_seed(args.seed)
 
-    state = cli.generation_state(args, policies, device)
-    results = [cli.generate_case(model, tokenizer, device, args, generator, case, state, _print_case)
+    state = gen_cli.generation_state(args, policies, device)
+    results = [gen_cli.generate_case(model, tokenizer, device, args, generator, case, state, _print_case)
                for case in test_cases]
 
     # Persist samples + metrics for downstream analysis (mirrors train.py's per-run CSV habit).
