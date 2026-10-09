@@ -1,0 +1,48 @@
+{
+  "name": "oas4_h3_igcraft_t1",
+  "manifest": "benchmark/manifests/oas4_h3_validation_length_free_v1.json",
+  "smoke_manifest": "benchmark/manifests/oas4_h3_validation_length_free_smoke_v1.json",
+  "sampling": {
+    "num_samples": 20,
+    "smoke_num_samples": 5,
+    "temperature": 1.0,
+    "top_k": 0,
+    "top_p": 0.9,
+    "length_temperature": 1.0,
+    "seed": 42,
+    "max_new_tokens": 97
+  },
+  "externals": [
+    {
+      "label": "igcraft_t1",
+      "adapter": "igcraft",
+      "options": {
+        "checkpoint": "../IgCraft/igcraft-model/checkpoints/final.ckpt",
+        "config": "../IgCraft/igcraft-model/.hydra/config.yaml",
+        "flank_regions": "benchmark/manifests/oas4_h3_validation_length_free_v1_regions.json",
+        "hf_revision": "18eba7ff1f14389733be9b7a76c2a3e17f424d67",
+        "sha256": {
+          "checkpoint": "b7c4dcdd31be676d70fd1467f58feab3aab1cc955771e90468edb5b523274311",
+          "config": "c8f70ab82b7c11c3b2af9931e84cb44c872d989767e9f1187fbe6d0190d99b58",
+          "flank_regions": "841c222f149750fbd5f96fd49081bd838cb944011e002bdc5f18ffac2dd16893"
+        },
+        "num_steps": 20,
+        "num_particles": 32,
+        "temperature": 1.0,
+        "batch_size": 20,
+        "compile": true
+      }
+    }
+  ],
+  "judge": {
+    "name": "Exscientia/IgBert",
+    "max_len": 384
+  },
+  "endpoint": "Framework-averaged native edit similarity; length, diversity, conditional recovery and judge scores are supporting.",
+  "limits": [
+    "Sensitivity analysis of the IgCraft arm: identical to oas4_h3_igcraft except that IgCraft's temperature is 1.0, the value the neural arms use, instead of its documented inpainting default of 0.1. Reported descriptively; it is not part of the planned contrast family.",
+    "IgCraft receives heavy-chain IMGT flank regions only: CDR3 and the whole light chain are masked, pads included (fix_length false). Its step, particle and temperature settings are its documented inpainting defaults, not the matched neural sampling budget.",
+    "IgCraft has about 300M parameters and its pretraining exposure to these OAS donors is unverified; its CDR3 slot holds 30 residues.",
+    "Judge sees heavy chain only in every arm; scores are reused from the finished eight-arm comparison only if the judge revision and policy match."
+  ]
+}

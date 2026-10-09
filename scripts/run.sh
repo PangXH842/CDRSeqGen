@@ -7,6 +7,11 @@
 #   ./scripts/run.sh resume results/runs/<batch> --gpus 0
 #   ./scripts/run.sh benchmark plan --stage smoke
 #   ./scripts/run.sh benchmark smoke --gpu 0
+#   ./scripts/run.sh benchmark followup plan
+#   ./scripts/run.sh benchmark followup run --gpu 0
+#   ./scripts/run.sh benchmark extend plan --added results/benchmark/<batch of added externals>
+#   ./scripts/run.sh benchmark leakage plan
+#   ./scripts/run.sh benchmark leakage run --output results/benchmark/<audit>
 # See --help and configs/experiments/README.md.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -17,6 +22,18 @@ fi
 case "${1:-}" in
     benchmark)
         shift
+        if [[ "${1:-}" == "followup" ]]; then
+            shift
+            exec "${PYTHON:-python}" benchmark/followup.py "$@"
+        fi
+        if [[ "${1:-}" == "extend" ]]; then
+            shift
+            exec "${PYTHON:-python}" benchmark/extend.py "$@"
+        fi
+        if [[ "${1:-}" == "leakage" ]]; then
+            shift
+            exec "${PYTHON:-python}" benchmark/leakage.py "$@"
+        fi
         exec "${PYTHON:-python}" benchmark/run.py "$@"
         ;;
     list|plan|run|status|resume|--help|-h|"")

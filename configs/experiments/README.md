@@ -5,10 +5,17 @@ names come from each top-level JSON's `name`; there is no separate registry to
 keep in sync. Paths inside configs and relative command arguments resolve from
 the repository root, even when the launcher is invoked elsewhere.
 
-The next inference-only comparison uses the same launcher through
+The completed OAS4 inference-only comparison uses the same launcher through
 `run.sh benchmark plan|smoke|run|status|resume`; its scientific recipe lives in
 [benchmark/recipes](../../benchmark/recipes/oas4_h3_length_free.md). It reuses completed
-checkpoints and has a separate benchmark plan/output contract from training batches.
+checkpoints and has a separate benchmark plan/output contract from training batches. Its seven-arm validation audit passed: 21,000 valid candidates and full judge coverage; no completion rerun is needed.
+
+The completed empirical/paired follow-up uses `run.sh benchmark followup plan|smoke|run|status|resume` and the
+[empirical/paired-analysis recipe](../../benchmark/recipes/oas4_h3_followup.md). It reuses scored
+neural candidates, generates/judges only a training-only empirical reference, verifies original
+H3 groups and exports uncertainty and saved capacity/compute. The follow-up passed its artifact
+audit: eight arms, 24,000 valid/judge-scored candidates and 13 fixed-pool primary contrasts. No
+completion rerun is needed; leakage decisions and final held-out testing remain pending.
 
 ```bash
 ./scripts/run.sh list

@@ -1,0 +1,65 @@
+{
+  "name": "mlm_capacity",
+  "base_config": "configs/experiments/bases/h3_mlm_scratch.json",
+  "overrides": {
+    "include_partner_chain": false,
+    "context_dropout": 0.0,
+    "gen_eval_context_ablation": false
+  },
+  "trials": [
+    {
+      "name": "mlm_scratch_no_partner_M_s42",
+      "overrides": {
+        "seed": 42,
+        "data_seed": 42,
+        "hidden_size": 256,
+        "num_layers": 6
+      }
+    },
+    {
+      "name": "mlm_scratch_no_partner_M_s43",
+      "overrides": {
+        "seed": 43,
+        "data_seed": 43,
+        "hidden_size": 256,
+        "num_layers": 6
+      }
+    },
+    {
+      "name": "mlm_scratch_no_partner_L_s42",
+      "overrides": {
+        "seed": 42,
+        "data_seed": 42,
+        "hidden_size": 384,
+        "num_layers": 6
+      }
+    },
+    {
+      "name": "mlm_scratch_no_partner_L_s43",
+      "overrides": {
+        "seed": 43,
+        "data_seed": 43,
+        "hidden_size": 384,
+        "num_layers": 6
+      }
+    },
+    {
+      "name": "mlm_scratch_no_partner_XL_s42",
+      "overrides": {
+        "seed": 42,
+        "data_seed": 42,
+        "hidden_size": 512,
+        "num_layers": 8
+      }
+    },
+    {
+      "name": "mlm_scratch_no_partner_XL_s43",
+      "overrides": {
+        "seed": 43,
+        "data_seed": 43,
+        "hidden_size": 512,
+        "num_layers": 8
+      }
+    }
+  ]
+}

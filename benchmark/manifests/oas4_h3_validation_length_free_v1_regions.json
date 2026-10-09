@@ -1,0 +1,1218 @@
+{
+  "schema_version": "cdrseqgen.flank_regions.v1",
+  "benchmark_id": "oas4_h3_validation_length_free_v1",
+  "source": {
+    "processed_file": "processed_oas_multi.json",
+    "processed_file_sha256": "bd854ae32de886bc9b4466edf5d1aa3ade6c09847b622ceaa60cba395bbd5ad8"
+  },
+  "regions": [
+    "fwr1",
+    "cdr1",
+    "fwr2",
+    "cdr2",
+    "fwr3",
+    "fwr4"
+  ],
+  "records": {
+    "oas:1287154:ACACCGGGTCAGAAGC-1_contig_2": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKAS",
+      "cdr1": "GYTFTGYY",
+      "fwr2": "MHWVRQAPGQGLEWMGR",
+      "cdr2": "INPNSGGT",
+      "fwr3": "NYAQKFQGRVTMTRDTSISTAYMELSRLRSDDTAVYYC",
+      "fwr4": "WGKGTTVTVSS"
+    },
+    "oas:1287154:ATCCACCGTTCCATGA-1_contig_2": {
+      "fwr1": "QVTLRESGPALVKPTQTLTLTCTFS",
+      "cdr1": "GFSLSTSGMC",
+      "fwr2": "VSWIRQPPGKALEWLAL",
+      "cdr2": "IDWDDDK",
+      "fwr3": "YYSTSLKTRLTISKDTSKNQVVLTMTNMDPVDTATYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287154:ATGCGATGTGTTTGGT-1_contig_2": {
+      "fwr1": "QVQLQESGPGLVKPSETLSLTCAVS",
+      "cdr1": "GYSISSGYY",
+      "fwr2": "WGWIRQPPGKGLEWIGS",
+      "cdr2": "IYHSGST",
+      "fwr3": "YYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287154:CAAGTTGGTTCAGGCC-1_contig_2": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKAS",
+      "cdr1": "GYTFTSYG",
+      "fwr2": "ISWVRQAPGQGLEWMGW",
+      "cdr2": "ISAYNGNT",
+      "fwr3": "NYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287154:CACAGTATCTTCCTTC-1_contig_1": {
+      "fwr1": "QVQLVESGGGVVQPGRSLRLSCAAS",
+      "cdr1": "GFTFSSYG",
+      "fwr2": "MHWVRQAPGKGLEWVAV",
+      "cdr2": "ISYDGSNK",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287154:CACATAGTCACATAGC-1_contig_2": {
+      "fwr1": "EVQLLESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GITFSSYA",
+      "fwr2": "MSWVRQAPGKGLEWVSA",
+      "cdr2": "ISGSGGST",
+      "fwr3": "YDADSVKGRFTISRDNSKNMLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287154:CCTAAAGGTAAATACG-1_contig_2": {
+      "fwr1": "QVQLQESGPGLVKPSETLSLTCAVS",
+      "cdr1": "GYSISSGYY",
+      "fwr2": "WGWIRQPPGKGLEWIGS",
+      "cdr2": "IYHSGST",
+      "fwr3": "YYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287154:CCTTCGAGTCGAATCT-1_contig_2": {
+      "fwr1": "QVQLVQSGAEVKKPGSSVKVSCKAS",
+      "cdr1": "GGTFSSYA",
+      "fwr2": "ISWVRQAPGQGLEWMGG",
+      "cdr2": "IIPIFGTA",
+      "fwr3": "NYAQKFQGRVTITTDESTSTAYMELSSLRSEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287154:CTAGAGTAGATCCCGC-1_contig_2": {
+      "fwr1": "EVQLVESGGGLVKPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYS",
+      "fwr2": "MNWVRQAPGKGLEWVSS",
+      "cdr2": "ISSSSSYI",
+      "fwr3": "YYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287154:GAATAAGAGATCGGGT-1_contig_2": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKAS",
+      "cdr1": "GYTFTSYG",
+      "fwr2": "ISWVRQAPGQGLEWMGW",
+      "cdr2": "ISAYNGNT",
+      "fwr3": "NYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287154:GATCAGTCAAAGTCAA-1_contig_2": {
+      "fwr1": "EVQLVESGGGLVKPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYS",
+      "fwr2": "MNWVRQAPGKGLEWVSS",
+      "cdr2": "ISSSSSYI",
+      "fwr3": "YYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGKGTTVTVSS"
+    },
+    "oas:1287154:GATGCTACAAGTTAAG-1_contig_1": {
+      "fwr1": "QVQLQESGPGLVKPSQTLSLTCTVS",
+      "cdr1": "GGSISSGSYY",
+      "fwr2": "WSWIRQPAGKGLEWIGR",
+      "cdr2": "IYTSGST",
+      "fwr3": "NYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTMVTVSS"
+    },
+    "oas:1287154:GGAAAGCAGGCCGAAT-1_contig_1": {
+      "fwr1": "QVQLVESGGGVVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYG",
+      "fwr2": "MHWVRQAPGKGLEWVAF",
+      "cdr2": "IRYDGSNK",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGKGTTVTVSS"
+    },
+    "oas:1287154:GGACAGAAGTAAGTAC-1_contig_1": {
+      "fwr1": "QVQLQESGPGLVKPSETLSLTCTVS",
+      "cdr1": "GGSISSYY",
+      "fwr2": "WSWIRQPPGKGLEWIGY",
+      "cdr2": "IYYSGST",
+      "fwr3": "NYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGKGTTVTVSS"
+    },
+    "oas:1287154:GTAGGCCGTCTGGTCG-1_contig_1": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKAS",
+      "cdr1": "GYTFTSYY",
+      "fwr2": "MHWVRQAPGQGLEWMGI",
+      "cdr2": "INPSGGST",
+      "fwr3": "SYAQKFQGRVTMTRDTSTSTVYMELSSLRSEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287154:GTTCATTTCCAACCAA-1_contig_1": {
+      "fwr1": "QVQLVQSGAEVKKPGSSVKVSCKAS",
+      "cdr1": "GGTFSSYA",
+      "fwr2": "ISWVRQAPGQGLEWMGG",
+      "cdr2": "IIPIFGTA",
+      "fwr3": "NYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287154:TAAACCGTCCAGTATG-1_contig_1": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKAS",
+      "cdr1": "GYTFTSYG",
+      "fwr2": "ISWVRQAPGQGLEWMGW",
+      "cdr2": "ISAYNGNT",
+      "fwr3": "NYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYC",
+      "fwr4": "WGKGTTVTVSS"
+    },
+    "oas:1287154:TACGGGCCACTAAGTC-1_contig_1": {
+      "fwr1": "QVQLVQSGAEVKKPGSSVKVSCKAS",
+      "cdr1": "GGTFSSYA",
+      "fwr2": "ISWVRQAPGQGLEWMGG",
+      "cdr2": "IIPIFGTA",
+      "fwr3": "NYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYC",
+      "fwr4": "WGQGTMVTVSS"
+    },
+    "oas:1287154:TATTACCTCGAACTGT-1_contig_2": {
+      "fwr1": "EVQLLESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYA",
+      "fwr2": "MSWVRQAPGKGLEWVSA",
+      "cdr2": "ISGSGGST",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTMVTVSS"
+    },
+    "oas:1287154:TCACAAGTCTTCGAGA-1_contig_1": {
+      "fwr1": "EVQLVESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSHW",
+      "fwr2": "MAWVRHAPGKGLEWVAN",
+      "cdr2": "IKQGASQK",
+      "fwr3": "FHVDSVKGRFTISRDDAKNSLFLQMNSLRSDDTAVYYC",
+      "fwr4": "WGQGALVTVSS"
+    },
+    "oas:1287154:TCACGAATCTGATACG-1_contig_1": {
+      "fwr1": "QVQLVESGGGVVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYG",
+      "fwr2": "MHWVRQAPGKGLEWVAF",
+      "cdr2": "IRYDGSNK",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287154:TGCCCTACAGGAACGT-1_contig_1": {
+      "fwr1": "QVQLVQSGAEVKKPGSSVKVSCKAS",
+      "cdr1": "GGTFSSYA",
+      "fwr2": "ISWVRQAPGQGLEWMGG",
+      "cdr2": "IIPIFGTA",
+      "fwr3": "NYAQKFQGRVTITTDESTSTAYMELSSLRSEDTAVYYC",
+      "fwr4": "WGQGTMVTVSS"
+    },
+    "oas:1287155:AACCATGCAAACAACA-1_contig_2": {
+      "fwr1": "QVQLVESGGGLVKPGGSLRLSCAAS",
+      "cdr1": "GFTFSDYY",
+      "fwr2": "MSWIRQAPGKGLEWVSY",
+      "cdr2": "ISSSGSTI",
+      "fwr3": "YYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287155:AGCGTATAGAACAATC-1_contig_2": {
+      "fwr1": "QLQLQESGPGLVKPSETLSLTCTVS",
+      "cdr1": "GGSISSSSYY",
+      "fwr2": "WGWIRQPPGKGLEWIGS",
+      "cdr2": "IYYSGST",
+      "fwr3": "YYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287155:AGTGTCAAGACTCGGA-1_contig_1": {
+      "fwr1": "QVQLQESGPGLVKPSGTLSLTCAVS",
+      "cdr1": "GGSISSSNW",
+      "fwr2": "WSWIRQPPGKGLEWIGE",
+      "cdr2": "IYHSGST",
+      "fwr3": "NYNPSLKSRVTISVDKSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGKGTTVTVSS"
+    },
+    "oas:1287155:CAGTCCTCATAGTAAG-1_contig_1": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKAS",
+      "cdr1": "GYTFTSYY",
+      "fwr2": "MHWVRQAPGQGLEWMGI",
+      "cdr2": "INPSGGST",
+      "fwr3": "SYAQKFQGRVTMTRDTSTSTVYMELSSLRSEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287155:CATTCGCCATATGAGA-1_contig_2": {
+      "fwr1": "QVQLVQSGAEVKKPGSSVKVSCKAS",
+      "cdr1": "GGTFSSYA",
+      "fwr2": "ISWVRQAPGQGLEWMGG",
+      "cdr2": "IIPIFGTA",
+      "fwr3": "NYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287155:CCGGGATGTCAAACTC-1_contig_1": {
+      "fwr1": "EVQLVQSGAEVKKPGESLKISCKGS",
+      "cdr1": "GYSFTSYW",
+      "fwr2": "IGWVRQMPGKGLEWMGI",
+      "cdr2": "IYPGDSDT",
+      "fwr3": "RYSPSFQGQVTISADKSISTAYLQWSSLKASDTAMYYC",
+      "fwr4": "WGQGTMVTVSS"
+    },
+    "oas:1287155:CCGTACTTCGTCCAGG-1_contig_2": {
+      "fwr1": "QVQLQQSGPGLVKPSQTLSLTCAIS",
+      "cdr1": "GDSVSSNSAA",
+      "fwr2": "WNWIRQSPSRGLEWLGR",
+      "cdr2": "TYYRSKWYN",
+      "fwr3": "DYAVSVKSRITINPDTSKNQFSLQLNSVTPEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287155:CGGACGTAGACTTGAA-1_contig_2": {
+      "fwr1": "QVQLQQWGAGLLKPSETLSLTCAVY",
+      "cdr1": "GGSFSGYY",
+      "fwr2": "WSWIRQPPGKGLEWIGE",
+      "cdr2": "INHSGST",
+      "fwr3": "NYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287155:GCAATCAGTAGAGGAA-1_contig_1": {
+      "fwr1": "QVQLQQWGAGLLKPSETLSLTCAVY",
+      "cdr1": "GGSFSGYY",
+      "fwr2": "WSWIRQPPGKGLEWIGE",
+      "cdr2": "INHSGST",
+      "fwr3": "NYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287155:GGACAAGCAAATCCGT-1_contig_1": {
+      "fwr1": "QVQLQESGPGLLKPSQTLSLTCTVS",
+      "cdr1": "GDSVSSGFYY",
+      "fwr2": "WSWIRQPAGKGLEWIGR",
+      "cdr2": "IYTSGRT",
+      "fwr3": "NYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287155:GTGGGTCTCTTGAGGT-1_contig_1": {
+      "fwr1": "QVQLVQSGSELKKPGASVKVSCKAS",
+      "cdr1": "GYTFTSYA",
+      "fwr2": "MNWVRQAPGQGLEWMGW",
+      "cdr2": "INTNTGNP",
+      "fwr3": "TYAQGFTGRFVFSLDTSVSTAYLQISSLKAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287155:GTTCTCGGTGTTCGAT-1_contig_1": {
+      "fwr1": "QVQLQESGPGLVKPSQTLSLTCTVS",
+      "cdr1": "GGSISSGSYY",
+      "fwr2": "WSWIRQPAGKGLEWIGR",
+      "cdr2": "IYTSGST",
+      "fwr3": "NYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287155:TACACGATCACCGTAA-1_contig_2": {
+      "fwr1": "QVQLVQSGAEVKKPGSSVKVSCKAS",
+      "cdr1": "GGTFSSYA",
+      "fwr2": "ISWVRQAPGQGLEWMGG",
+      "cdr2": "IIPIFGTA",
+      "fwr3": "NYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287155:TAGAGCTTCTTCGGTC-1_contig_1": {
+      "fwr1": "EVQLLESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYA",
+      "fwr2": "MSWVRQAPGKGLEWVSA",
+      "cdr2": "ISGSGGST",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287155:TCAGCTCCACAGAGGT-1_contig_1": {
+      "fwr1": "EVQLVESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYE",
+      "fwr2": "MNWVRQAPGKGLEWVSY",
+      "cdr2": "ISSSGSTI",
+      "fwr3": "YYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287155:TCATTACGTCCTCTTG-1_contig_1": {
+      "fwr1": "EVQLVESGGGLVKPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYS",
+      "fwr2": "MNWVRQAPGKGLEWVSS",
+      "cdr2": "ISSSSSYI",
+      "fwr3": "YYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGKGTTVTVSS"
+    },
+    "oas:1287155:TCCACACTCTACCAGA-1_contig_2": {
+      "fwr1": "EVQLVESGGGLVQPGRSLRLSCAAS",
+      "cdr1": "GFTFDDYA",
+      "fwr2": "MHWVRQAPGKGLEWVSG",
+      "cdr2": "ISWNSGSI",
+      "fwr3": "GYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTALYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287155:TCTTCGGGTTACGACT-1_contig_2": {
+      "fwr1": "EVQLLESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYA",
+      "fwr2": "MSWVRQAPGKGLEWVSA",
+      "cdr2": "ISGSGGST",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTMVTVSS"
+    },
+    "oas:1287155:TGCGGGTAGACAATAC-1_contig_2": {
+      "fwr1": "QVQLVESGGGVVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYG",
+      "fwr2": "MHWVRQAPGKGLEWVAF",
+      "cdr2": "IRYDGSNK",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287155:TGGACGCAGGGAGTAA-1_contig_1": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKAS",
+      "cdr1": "GYTFTGYY",
+      "fwr2": "MHWVRQAPGQGLEWMGW",
+      "cdr2": "INPNSGGT",
+      "fwr3": "NYAQKFQGRVTMTRDTSISTAYMELSRLRSDDTAVYYC",
+      "fwr4": "WGQGTMVTVSS"
+    },
+    "oas:1287155:TTAGTTCGTAAACACA-1_contig_2": {
+      "fwr1": "QVQLVQSGAEVKKPGSSVKVSCKAS",
+      "cdr1": "GGTFSSYA",
+      "fwr2": "ISWVRQAPGQGLEWMGG",
+      "cdr2": "IIPIFGTA",
+      "fwr3": "NYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYC",
+      "fwr4": "WGQGTMVTVSS"
+    },
+    "oas:1287155:TTAGTTCTCCTAGTGA-1_contig_1": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKAS",
+      "cdr1": "GYTFTSYA",
+      "fwr2": "MHWVRQAPGQRLEWMGW",
+      "cdr2": "INAGNGNT",
+      "fwr3": "KYSQKFQGRVTITRDTSASTAYMELSSLRSEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287169:AATCGGTGTAGGCATG-1_contig_1": {
+      "fwr1": "EVQLVESGGGLVKPGGSLRLSCAAS",
+      "cdr1": "GFTFSNAW",
+      "fwr2": "MSWVRQAPGKGLEWVGR",
+      "cdr2": "IKSKTDGGTT",
+      "fwr3": "DYAAPVKGRFTISRDDSKNTLYLQMNSLKTEDTAVYYC",
+      "fwr4": "WGQGTMVTVSS"
+    },
+    "oas:1287169:AATCGGTGTTCGTTGA-1_contig_1": {
+      "fwr1": "QVQLQQWGAGLLKPSETLSLTCAVY",
+      "cdr1": "GGSFSGYY",
+      "fwr2": "WSWIRQPPGKGLEWIGE",
+      "cdr2": "INHSGST",
+      "fwr3": "NYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287169:ATTCTACTCATCGCTC-1_contig_2": {
+      "fwr1": "QVQLVQSGAEVKKPGSSVKVSCKAS",
+      "cdr1": "GGTFSSYA",
+      "fwr2": "ISWVRQAPGQGLEWMGG",
+      "cdr2": "IIPIFGTA",
+      "fwr3": "NYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287169:CAAGATCTCTTAGAGC-1_contig_1": {
+      "fwr1": "QVQLVQSGAEVKKPGSSVKVSCKAS",
+      "cdr1": "GGTFSSYA",
+      "fwr2": "ISWVRQAPGQGLEWMGG",
+      "cdr2": "IIPIFGTA",
+      "fwr3": "NYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYC",
+      "fwr4": "WGQGTTVTVSS"
+    },
+    "oas:1287169:CACACAATCGTCTGCT-1_contig_2": {
+      "fwr1": "QVQLVQSGAEVKKPGSSVKVSCKAS",
+      "cdr1": "GGTFSSYA",
+      "fwr2": "ISWVRQAPGQGLEWMGR",
+      "cdr2": "IIPILGIA",
+      "fwr3": "NYAQKFQGRVTITADKSTSTAYMELSSLRSEDTAVYYC",
+      "fwr4": "WGKGTTVTVSS"
+    },
+    "oas:1287169:CACCAGGAGGTGTTAA-1_contig_2": {
+      "fwr1": "EVQLLESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYA",
+      "fwr2": "MSWVRQAPGKGLEWVSA",
+      "cdr2": "ISGSGGST",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTTVTVSS"
+    },
+    "oas:1287169:CATCAAGTCGTACGGC-1_contig_1": {
+      "fwr1": "QVQLQESGPGLVKPSQTLSLTCTVS",
+      "cdr1": "GGSISSGGYY",
+      "fwr2": "WSWIRQHPGKGLEWIGY",
+      "cdr2": "IYYSGST",
+      "fwr3": "YYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287169:CCACCTAAGGGTTCCC-1_contig_2": {
+      "fwr1": "EVQLLESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYA",
+      "fwr2": "MSWVRQAPGKGLEWVSA",
+      "cdr2": "ISGSGGST",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287169:CCACCTAAGTTAACGA-1_contig_1": {
+      "fwr1": "QVQLVQSGAEVKKPGSSVKVSCKAS",
+      "cdr1": "GGTFSSYA",
+      "fwr2": "ISWVRQAPGQGLEWMGG",
+      "cdr2": "IIPIFGTA",
+      "fwr3": "NYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287169:CCACCTATCTGGTGTA-1_contig_2": {
+      "fwr1": "EVQLVESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYA",
+      "fwr2": "MSWVRQAPGKGLEWVSA",
+      "cdr2": "ISGSGGST",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287169:CGGAGCTAGCACACAG-1_contig_1": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKAS",
+      "cdr1": "GYTFTGYY",
+      "fwr2": "MHWVRQAPGQGLEWMGW",
+      "cdr2": "INPNSGGT",
+      "fwr3": "NYAQKFQGRVTMTRDTSISTAYMELSRLRSDDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287169:CGTGTAAGTTGGACCC-1_contig_1": {
+      "fwr1": "QVQLQESGPGLVKPSQTLSLTCTVS",
+      "cdr1": "GGSISSGGYY",
+      "fwr2": "WSWIRQHPGKGLEWIGY",
+      "cdr2": "IYYSGST",
+      "fwr3": "YYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287169:GATTCAGAGCGTCTAT-1_contig_1": {
+      "fwr1": "EVQLVESGGGLVKPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYS",
+      "fwr2": "MNWVRQAPGKGLEWVSS",
+      "cdr2": "ISSSSSYI",
+      "fwr3": "YYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTTVTVSS"
+    },
+    "oas:1287169:GCACATAGTTGTCGCG-1_contig_1": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKAS",
+      "cdr1": "GYTFTSYY",
+      "fwr2": "MHWVRQAPGQGLEWMGI",
+      "cdr2": "INPSGGST",
+      "fwr3": "SYAQKFQGRVTMTRDTSTSTVYMELSSLRSEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287169:GGATTACAGCGATGAC-1_contig_1": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKAS",
+      "cdr1": "GYTFTSYY",
+      "fwr2": "MHWVRQAPGQGLEWMGI",
+      "cdr2": "INPSGGST",
+      "fwr3": "SYAQKFQGRVTMTRDTSTSTVYMELSSLRSEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287169:GTGTTAGTCCTTGGTC-1_contig_1": {
+      "fwr1": "EVQLVESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYS",
+      "fwr2": "MNWVRQAPGKGLEWVSY",
+      "cdr2": "ISSSSSTI",
+      "fwr3": "YYADSVKGRFTISRDNAKNSLYLQMNSLRDEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287169:TACGGATTCGCAAACT-1_contig_2": {
+      "fwr1": "QVQLQQWGAGLLKPSETLSLTCAVY",
+      "cdr1": "GGSFSGYY",
+      "fwr2": "WSWIRQPPGKGLEWIGE",
+      "cdr2": "INHSGST",
+      "fwr3": "NYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGKGTTVTVSS"
+    },
+    "oas:1287169:TATCTCATCGGTCTAA-1_contig_1": {
+      "fwr1": "EVQLVQSGAEVKKPGESLKISCKGS",
+      "cdr1": "GYSFTSYW",
+      "fwr2": "IGWVRQMPGKGLEWMGI",
+      "cdr2": "IYPGDSDT",
+      "fwr3": "RYSPSFQGQVTISADKSISTAYLQWSSLKASDTAMYYC",
+      "fwr4": "WGRGTLVTVSS"
+    },
+    "oas:1287169:TGAGGGAGTAAACCTC-1_contig_1": {
+      "fwr1": "QLQLQESGPGLVKPSETLSLTCTVS",
+      "cdr1": "GGSISSSSYY",
+      "fwr2": "WGWIRQPPGKGLEWIGS",
+      "cdr2": "IYYSGST",
+      "fwr3": "YYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287169:TGGCTGGGTACCGTTA-1_contig_2": {
+      "fwr1": "QITLKESGPTLVKPTQTLTLTCTFS",
+      "cdr1": "GFSLSTSGVG",
+      "fwr2": "VGWIRQPPGKALEWLAL",
+      "cdr2": "IYWNDDK",
+      "fwr3": "RYSPSLKSRLTITKDTSKNQVVLTMTNMDPVDTATYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287169:TTAGTTCTCTCATTCA-1_contig_1": {
+      "fwr1": "QVQLVESGGGVVQPGRSLRLSCAAS",
+      "cdr1": "GFTFSSYG",
+      "fwr2": "MHWVRQAPGKGLEWVAV",
+      "cdr2": "IWYDGSNK",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTMVTVSS"
+    },
+    "oas:1287169:TTGTAGGTCAGCGATT-1_contig_1": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKVS",
+      "cdr1": "GYTLTELS",
+      "fwr2": "MHWVRQAPGKGLEWMGG",
+      "cdr2": "FDPEDGET",
+      "fwr3": "IYAQKFQGRVTMTEDTSTDTAYMELSSLRSEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287171:AACCATGTCAACGGGA-1_contig_2": {
+      "fwr1": "QVQLQESGPGLVKPSETLSLTCTVS",
+      "cdr1": "GGSVSSGSYY",
+      "fwr2": "WSWIRQPPGKGLEWIGY",
+      "cdr2": "IYYSGST",
+      "fwr3": "NYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287171:ACGAGGATCTTGACGA-1_contig_2": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKAS",
+      "cdr1": "GYTFTSYG",
+      "fwr2": "ISWVRQAPGQGLEWMGW",
+      "cdr2": "ISAYNGNT",
+      "fwr3": "NYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287171:ACGCCGAAGCGATAGC-1_contig_2": {
+      "fwr1": "EVQLVESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYE",
+      "fwr2": "MNWVRQAPGKGLEWVSY",
+      "cdr2": "ISSSGSTI",
+      "fwr3": "YYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTMVTVSS"
+    },
+    "oas:1287171:ACGGCCACAATCGGTT-1_contig_1": {
+      "fwr1": "QVQLQESGPGLVKPSGTLSLTCAVS",
+      "cdr1": "GGSISSSNW",
+      "fwr2": "WSWVRQPPGKGLEWIGE",
+      "cdr2": "IYHSGST",
+      "fwr3": "NYNPSLKSRVTISVDKSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGKGTTVTVSS"
+    },
+    "oas:1287171:ACGGGCTAGCTAAGAT-1_contig_1": {
+      "fwr1": "QVQLQESGPGLVKPSETLSLTCTVS",
+      "cdr1": "GGSISSYY",
+      "fwr2": "WSWIRQPPGKGLEWIGY",
+      "cdr2": "IYYSGST",
+      "fwr3": "NYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTMVTVSS"
+    },
+    "oas:1287171:ATGCGATCAGCTCGAC-1_contig_2": {
+      "fwr1": "QVQLVESGGGVVQPGRSLRLSCAAS",
+      "cdr1": "GFTFSSYG",
+      "fwr2": "MHWVRQAPGKGLEWVAV",
+      "cdr2": "IWYDGSNK",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGKGTTVTVSS"
+    },
+    "oas:1287171:CACACTCTCAGGTTCA-1_contig_1": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKAS",
+      "cdr1": "GYTFTSYG",
+      "fwr2": "ISWVRQAPGQGLEWMGW",
+      "cdr2": "ISAYNGNT",
+      "fwr3": "NYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287171:CGCGGTATCCGCGCAA-1_contig_2": {
+      "fwr1": "EVQLVESGGGLVKPGGSLRLSCAAS",
+      "cdr1": "GFTFSNAW",
+      "fwr2": "MSWVRQAPGKGLEWVGR",
+      "cdr2": "IKSKTDGGTT",
+      "fwr3": "DYAAPVKGRFTISRDDSKNTLYLQMNSLKTEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287171:CGGCTAGAGCCCAGCT-1_contig_2": {
+      "fwr1": "QVQLVQSGAEVKKPGSSVKVSCKAS",
+      "cdr1": "GGTFSSYA",
+      "fwr2": "ISWVRQAPGQGLEWMGG",
+      "cdr2": "IIPIFGTA",
+      "fwr3": "NYAQKFQGRVTITADESTSTAYMELSSLRSEDTAVYYC",
+      "fwr4": "WGQGTMVTVSS"
+    },
+    "oas:1287171:CGTAGCGAGGCGATAC-1_contig_1": {
+      "fwr1": "QVQLVESGGGVVQPGRSLRLSCAAS",
+      "cdr1": "GFTFSSYG",
+      "fwr2": "MHWVRQAPGKGLEWVAV",
+      "cdr2": "ISYDGSNK",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTTVTVSS"
+    },
+    "oas:1287171:GCGACCAAGCGGCTTC-1_contig_1": {
+      "fwr1": "QVQLQESGPGLVKPSETLSLTCTVS",
+      "cdr1": "GGSISSYY",
+      "fwr2": "WSWIRQPPGKGLEWIGY",
+      "cdr2": "IYYSGST",
+      "fwr3": "NYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287171:GCTTGAATCCGCAAGC-1_contig_1": {
+      "fwr1": "EVQLVQSGAEVKKPGESLKISCKGS",
+      "cdr1": "GYSFTSYW",
+      "fwr2": "IGWVRQMPGKGLEWMGI",
+      "cdr2": "IYPGDSDT",
+      "fwr3": "RYSPSFQGQVTISADKSISTAYLQWSSLKASDTAMYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287171:GGGAGATCAAGAGTCG-1_contig_2": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKVS",
+      "cdr1": "GYTLTELS",
+      "fwr2": "MHWVRQAPGKGLEWMGG",
+      "cdr2": "FDPEDGET",
+      "fwr3": "IYAQKFQGRVTMTEDTSTDTAYMELSSLRSEDTAVYYC",
+      "fwr4": "WGRGTLVTVSS"
+    },
+    "oas:1287171:GGGCACTAGTTGCAGG-1_contig_1": {
+      "fwr1": "QVQLVESGGGVVQPGRSLRLSCAAS",
+      "cdr1": "GFTFSSYG",
+      "fwr2": "MHWVRQAPGKGLEWVAV",
+      "cdr2": "IWYDGSNK",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGKGTTVTVSS"
+    },
+    "oas:1287171:GTAACTGCAATGAATG-1_contig_2": {
+      "fwr1": "QVTLKESGPVLVKPTETLTLTCTVS",
+      "cdr1": "GFSLSNARMG",
+      "fwr2": "VSWIRQPPGKALEWLAH",
+      "cdr2": "IFSNDEK",
+      "fwr3": "SYSTSLKSRLTISKDTSKSQVVLTMTNMDPVDTATYYC",
+      "fwr4": "WGQGTTVTVSS"
+    },
+    "oas:1287186:AAACCTGAGCCACGCT-1_contig_1": {
+      "fwr1": "QVQLQQSGPGLVKPSQTLSLTCAIS",
+      "cdr1": "GDSVSSNSAA",
+      "fwr2": "WNWIRQSPSRGLEWLGR",
+      "cdr2": "TYYRSKWYN",
+      "fwr3": "DYAVSVKSRITINPDTSKNQFSLQLNSVTPEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287186:ACACCGGCATGCTAGT-1_contig_2": {
+      "fwr1": "EVQLLESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYA",
+      "fwr2": "MSWVRQAPGKGLEWVSA",
+      "cdr2": "ISGSGGST",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287186:CATCAGAAGATGCGAC-1_contig_2": {
+      "fwr1": "EVQLLESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYA",
+      "fwr2": "MSWVRQAPGKGLEWVSA",
+      "cdr2": "ISGSGGST",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287186:CCAATCCAGACAGGCT-1_contig_1": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKAS",
+      "cdr1": "GYTFTSYG",
+      "fwr2": "ISWVRQAPGQGLEWMGW",
+      "cdr2": "ISAYNGNT",
+      "fwr3": "NYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYC",
+      "fwr4": "WGQGTMVTVSS"
+    },
+    "oas:1287186:CGCTGGAGTGATGTCT-1_contig_1": {
+      "fwr1": "QVQLQESGPGLVKPSQTLSLTCTVS",
+      "cdr1": "GGSISSGGYY",
+      "fwr2": "WSWIRQHPGKGLEWIGY",
+      "cdr2": "IYYSGST",
+      "fwr3": "YYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTTVTVSS"
+    },
+    "oas:1287186:CGGACGTGTGAACCTT-1_contig_1": {
+      "fwr1": "QVQLQESGPGLVKPSGTLSLTCAVS",
+      "cdr1": "GGSISSSNW",
+      "fwr2": "WSWVRQPPGKGLEWIGE",
+      "cdr2": "IYHSGST",
+      "fwr3": "NYNPSLKSRVTISVDKSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287186:CTCGAAAAGTTGTAGA-1_contig_2": {
+      "fwr1": "QLQLQESGPGLVKPSETLSLTCTVS",
+      "cdr1": "GGSISSSSYY",
+      "fwr2": "WGWIRQPPGKGLEWIGS",
+      "cdr2": "IYYSGST",
+      "fwr3": "YYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTMVTVSS"
+    },
+    "oas:1287186:CTTACCGTCTCGATGA-1_contig_1": {
+      "fwr1": "QVQLQESGPGLVKPSETLSLTCTVS",
+      "cdr1": "GGSISSYY",
+      "fwr2": "WSWIRQPAGKGLEWIGR",
+      "cdr2": "IYTSGST",
+      "fwr3": "NYNPSLKSRVTMSVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287186:GACGTGCGTAGCCTCG-1_contig_2": {
+      "fwr1": "EVQLVESGGGLVKPGGSLRLSCAAS",
+      "cdr1": "GFTFSNAW",
+      "fwr2": "MSWVRQAPGKGLEWVGR",
+      "cdr2": "IKSKTDGGTT",
+      "fwr3": "DYAAPVKGRFTISRDDSKNTLYLQMNSLKTEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287186:GCATGTAGTGCACCAC-1_contig_1": {
+      "fwr1": "QVQLQESGPGLVKPSETLSLTCTVS",
+      "cdr1": "GGSISSYY",
+      "fwr2": "WSWIRQPPGKGLEWIGY",
+      "cdr2": "IYYSGST",
+      "fwr3": "NYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGRGTLVTVSS"
+    },
+    "oas:1287186:GTATCTTAGCCAGTTT-1_contig_1": {
+      "fwr1": "QVQLQESGPGLVKPSETLSLTCTVS",
+      "cdr1": "GGSISSYY",
+      "fwr2": "WSWIRQPPGKGLEWIGY",
+      "cdr2": "IYYSGST",
+      "fwr3": "NYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTTVTVSS"
+    },
+    "oas:1287186:TCAGGTACACGAAGCA-1_contig_1": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKAS",
+      "cdr1": "GYTFTSYG",
+      "fwr2": "ISWVRQAPGQGLEWMGW",
+      "cdr2": "ISAYNGNT",
+      "fwr3": "NYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287186:TCGAGGCGTCCAGTGC-1_contig_1": {
+      "fwr1": "EVQLVESGGGLVQPGRSLRLSCAAS",
+      "cdr1": "GFTFDDYA",
+      "fwr2": "MHWVRQAPGKGLEWVSG",
+      "cdr2": "ISWNSGSI",
+      "fwr3": "GYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTALYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287186:TTTGCGCGTTCCACAA-1_contig_1": {
+      "fwr1": "EVQLVESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYE",
+      "fwr2": "MNWVRQAPGKGLEWVSY",
+      "cdr2": "ISSSGSTI",
+      "fwr3": "YYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTTVTVSS"
+    },
+    "oas:1287187:AACGTTGAGAGGTTGC-1_contig_1": {
+      "fwr1": "QITLKESGPTLVKPTQTLTLTCTFS",
+      "cdr1": "GFSLSTSGVG",
+      "fwr2": "VGWIRQPPGKALEWLAL",
+      "cdr2": "IYWNDDK",
+      "fwr3": "RYSPSLKSRLTITKDTSKNQVVLTMTNMDPVDTATYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287187:ACGAGCCCAGTCAGCC-1_contig_1": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKTS",
+      "cdr1": "GYTFTGYY",
+      "fwr2": "MHWVRQAPGQGLEWMGR",
+      "cdr2": "INPNSGGT",
+      "fwr3": "NYAQKFQGRVTMTRDTSISTAYMELSRLRSDDTAVYYC",
+      "fwr4": "WGQGTTVTVSS"
+    },
+    "oas:1287187:ATAAGAGAGGGTGTTG-1_contig_2": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKAS",
+      "cdr1": "GYTFTSYG",
+      "fwr2": "ISWVRQAPGQGLEWMGW",
+      "cdr2": "ISAYNGNT",
+      "fwr3": "NYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287187:CATATGGCATCCTAGA-1_contig_2": {
+      "fwr1": "QVQLQESGPGLVKPSQTLSLTCTVS",
+      "cdr1": "GGSISSGSYY",
+      "fwr2": "WSWIRQPAGKGLEWIGR",
+      "cdr2": "IYTSGST",
+      "fwr3": "NYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTTVTVSS"
+    },
+    "oas:1287187:CCTAGCTGTTTGTTGG-1_contig_2": {
+      "fwr1": "EVQLVESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYS",
+      "fwr2": "MNWVRQAPGKGLEWVSY",
+      "cdr2": "ISSSSSTI",
+      "fwr3": "YYADSVKGRFTISRDNAKNSLYLQMNSLRDEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287187:CCTTACGGTCCGTTAA-1_contig_1": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKAS",
+      "cdr1": "GYTFTSYY",
+      "fwr2": "MHWVRQAPGQGLEWMGI",
+      "cdr2": "INPSGGST",
+      "fwr3": "SYAQKFQGRVTMTRDTSTSTVYMELSSLRSEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287187:CGCGGTATCTGGAGCC-1_contig_1": {
+      "fwr1": "QITLKESGPTLVKPTQTLTLTCTFS",
+      "cdr1": "GFSLSTSGVG",
+      "fwr2": "VGWIRQPPGKALEWLAL",
+      "cdr2": "IYWDDDK",
+      "fwr3": "RYSPSLKSRLTITKDTSKNQVVLTMTNMDPVDTATYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287187:CGCTGGACATCACGTA-1_contig_2": {
+      "fwr1": "QVQLVESGGGVVQPGRSLRLSCAAS",
+      "cdr1": "GFTFSSYA",
+      "fwr2": "MHWVRQAPGKGLEWVAV",
+      "cdr2": "ISYDGSNK",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTTVTVSS"
+    },
+    "oas:1287187:CGTCACTCACAACGCC-1_contig_1": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKAS",
+      "cdr1": "GYTFTSYY",
+      "fwr2": "MHWVRQAPGQGLEWMGI",
+      "cdr2": "INPSGGST",
+      "fwr3": "SYAQKFQGRVTMTRDTSTSTVYMELSSLRSEDTAVYYC",
+      "fwr4": "WGQGTTVTVSS"
+    },
+    "oas:1287187:CTCGGAGAGGAATGGA-1_contig_2": {
+      "fwr1": "EVQLVESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTVSSNY",
+      "fwr2": "MSWVRQAPGKGLEWVSV",
+      "cdr2": "IYSGGST",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287187:CTGAAGTTCACTCCTG-1_contig_2": {
+      "fwr1": "EVQLLESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYA",
+      "fwr2": "MSWVRQAPGKGLEWVSA",
+      "cdr2": "ISGSGGST",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287187:GACCAATCATCAGTCA-1_contig_2": {
+      "fwr1": "QLQLQESGPGLVKPSETLSLTCTVS",
+      "cdr1": "GGSISSSSYY",
+      "fwr2": "WGWIRQPPGKGLEWIGS",
+      "cdr2": "IYYSGST",
+      "fwr3": "YYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287187:GCATGCGTCAGCTTAG-1_contig_2": {
+      "fwr1": "QVQLVESGGGVVQPGRSLRLSCAAS",
+      "cdr1": "GFTFSSYA",
+      "fwr2": "MHWVRQAPGKGLEWVAV",
+      "cdr2": "ISYDGSNK",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287187:GGTGTTATCAACGAAA-1_contig_1": {
+      "fwr1": "QVQLQESGPGLVKPSQTLSLTCTVS",
+      "cdr1": "GGSISSGGYY",
+      "fwr2": "WSWIRQHPGKGLEWIGY",
+      "cdr2": "IYYSGST",
+      "fwr3": "YYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287187:GTTCTCGCATTATCTC-1_contig_2": {
+      "fwr1": "EVQLLESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYA",
+      "fwr2": "MSWVRQAPGKGLEWVSA",
+      "cdr2": "ISGSGGST",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287187:TCAGATGCATTGTGCA-1_contig_2": {
+      "fwr1": "QVQLQESGPGLVKPSQTLSLTCTVS",
+      "cdr1": "GGSISSGSYY",
+      "fwr2": "WSWIRQPAGKGLEWIGR",
+      "cdr2": "IYTSGST",
+      "fwr3": "NYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287187:TCATTACCACTACAGT-1_contig_1": {
+      "fwr1": "QVQLQESGPGLVKPSQTLSLTCTVS",
+      "cdr1": "GGSISSGGYY",
+      "fwr2": "WSWIRQHPGKGLEWIGY",
+      "cdr2": "IYYSGST",
+      "fwr3": "YYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTMVTVSS"
+    },
+    "oas:1287187:TCTTCGGTCATTGCGA-1_contig_2": {
+      "fwr1": "EVQLVESGGGLVQPGRSLRLSCAAS",
+      "cdr1": "GFTFDDYA",
+      "fwr2": "MHWVRQAPGKGLEWVSG",
+      "cdr2": "ISWNSGSI",
+      "fwr3": "GYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTALYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287187:TTTCCTCCACAAGACG-1_contig_3": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKAS",
+      "cdr1": "GYTFTSYG",
+      "fwr2": "ISWVRQAPGQGLEWMGW",
+      "cdr2": "ISAYNGNT",
+      "fwr3": "NYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYC",
+      "fwr4": "WGQGTMVTVSS"
+    },
+    "oas:1287201:AACTCAGTCAGAGCTT-1_contig_2": {
+      "fwr1": "QVQLQESGPGLVKPSQTLSLTCTVS",
+      "cdr1": "GGSISSGGYY",
+      "fwr2": "WSWIRQHPGKGLEWIGY",
+      "cdr2": "IYYSGST",
+      "fwr3": "YYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTTVTVSS"
+    },
+    "oas:1287201:AACTCTTCAAGTACCT-1_contig_2": {
+      "fwr1": "QVQLQESGPGLVKPSQTLSLTCTVS",
+      "cdr1": "GGSISSGSYY",
+      "fwr2": "WSWIRQPAGKGLEWIGR",
+      "cdr2": "IYTSGST",
+      "fwr3": "NYNPSLKSRVTISVDTSKNQLSLKLSSVTAADTAVYYC",
+      "fwr4": "WGRGTLVTVSS"
+    },
+    "oas:1287201:ACACTGAAGAAGGACA-1_contig_2": {
+      "fwr1": "EVQLVQSGAEVKKPGESLKISCKGS",
+      "cdr1": "GYSFTSYW",
+      "fwr2": "IGWVRQMPGKGLEWMGI",
+      "cdr2": "IYPGDSDT",
+      "fwr3": "RYSPSFQGQVTISADKSISTAYLQWSSLKASDTAMYYC",
+      "fwr4": "WGQGTTVTVSS"
+    },
+    "oas:1287201:AGCTCTCAGGGCATGT-1_contig_1": {
+      "fwr1": "QVQLQESGPGLVKPSETLSLTCTVS",
+      "cdr1": "GGSISSYY",
+      "fwr2": "WSWIRQPPGKGLEWIGY",
+      "cdr2": "IYYSGST",
+      "fwr3": "NYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTMVTVSS"
+    },
+    "oas:1287201:AGGGTGATCAACACGT-1_contig_1": {
+      "fwr1": "EVQLVESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYW",
+      "fwr2": "MSWVRQAPGKGLEWVAN",
+      "cdr2": "IKQDGSEK",
+      "fwr3": "YYVDSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTTVTVSS"
+    },
+    "oas:1287201:CACCACTAGCTAGTTC-1_contig_2": {
+      "fwr1": "EVQLVESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYW",
+      "fwr2": "MNWVRQAPGKGLVWVSR",
+      "cdr2": "INSDGRST",
+      "fwr3": "SYADSVKGRFTISRDNAKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGLGTLVTVSS"
+    },
+    "oas:1287201:CACCTTGAGGAATTAC-1_contig_1": {
+      "fwr1": "EVQLVESGGGLVQPGRSLRLSCAAS",
+      "cdr1": "GFTFDDYA",
+      "fwr2": "MHWVRQAPGKGLEWVSG",
+      "cdr2": "ISWNSGSI",
+      "fwr3": "GYADSVKGRFTISRDNAKNSLYLQMNSLRVEDTALYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287201:CCACGGACAATGGATA-1_contig_2": {
+      "fwr1": "EVQLLESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFNSYA",
+      "fwr2": "MNWVRQAPGKGLEWVSA",
+      "cdr2": "ISGSSGST",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287201:CCTATTAGTGCGGTAA-1_contig_1": {
+      "fwr1": "EVQLVQSGAEVKKPGESLKISCKGS",
+      "cdr1": "GYSFTSYW",
+      "fwr2": "IGWVRQMPGKGLEWMGI",
+      "cdr2": "IYPGDSDT",
+      "fwr3": "RYSPSFQGQVTISADKSISTAYLQWSSLKASDTAMYYC",
+      "fwr4": "WGQGTTVTVSS"
+    },
+    "oas:1287201:CCTTCCCAGAGACTTA-1_contig_2": {
+      "fwr1": "QVQLVESGGGVVQPGRSLRLSCAAS",
+      "cdr1": "GFTFSSYG",
+      "fwr2": "MHWVRQAPGKGLEWVAV",
+      "cdr2": "ISYDGSNK",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287201:CTTCTCTAGTGCAAGC-1_contig_2": {
+      "fwr1": "EVQLLESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSCG",
+      "fwr2": "MSWVRQAPGEGLEWVSS",
+      "cdr2": "ISGSDGST",
+      "fwr3": "YADSVKGRFTISRDNSKNTMFLQMSSLRAEDTAIYYC",
+      "fwr4": "WGHGTLVTVSS"
+    },
+    "oas:1287201:GACTGCGGTCTCTCTG-1_contig_1": {
+      "fwr1": "QVQLQESGPGLVKPSQTLSLTCTVS",
+      "cdr1": "GGSISSGSYY",
+      "fwr2": "WSWIRQPAGKGLEWIGR",
+      "cdr2": "IYTSGST",
+      "fwr3": "NYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTTVTVSS"
+    },
+    "oas:1287201:GCACTCTCATGGGAAC-1_contig_1": {
+      "fwr1": "EVQLVESGGGLIQPGGSLRLSCAAS",
+      "cdr1": "GFTVSSNY",
+      "fwr2": "MSWVRQAPGKGLEWVSV",
+      "cdr2": "IYSGGST",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTTVTVSS"
+    },
+    "oas:1287201:GCTCTGTTCATGCAAC-1_contig_2": {
+      "fwr1": "EVQLLESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYA",
+      "fwr2": "MSWVRQAPGKGLEWVSA",
+      "cdr2": "ISGSGGST",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287201:GGACGTCTCTTAGAGC-1_contig_2": {
+      "fwr1": "QVQLVQSGAEVKKPGASVKVSCKAS",
+      "cdr1": "GYTFTSYG",
+      "fwr2": "ISWVRQAPGQGLEWMGW",
+      "cdr2": "ISAYNGNT",
+      "fwr3": "NYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYC",
+      "fwr4": "WGKGTTVTVSS"
+    },
+    "oas:1287201:TGCCAAATCTGCTGCT-1_contig_1": {
+      "fwr1": "QLQLQESGPGLVKPSETLSLTCTVS",
+      "cdr1": "GGSISSSSYY",
+      "fwr2": "WGWIRQPPGKGLEWIGS",
+      "cdr2": "IYYSGST",
+      "fwr3": "YYNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287201:TGCGGGTGTCTAAACC-1_contig_1": {
+      "fwr1": "QVQLQESGPGLVKPSETLSLTCTVS",
+      "cdr1": "GGSISNYY",
+      "fwr2": "WSWIRQPPGKGLEWIGY",
+      "cdr2": "IYYSGST",
+      "fwr3": "NYNPSLKSRITISVDTSKNQFSLKLTSVTAGDTAMYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287201:TGGCTGGGTCTCTTAT-1_contig_2": {
+      "fwr1": "EVQLAESGGGLVQPGRSLRLSCVAS",
+      "cdr1": "GFTFGDYG",
+      "fwr2": "MHWVRQAPGKGLEWVSG",
+      "cdr2": "ISWNSGSV",
+      "fwr3": "GYADSVKGRFTISRDNANNSLYLQMNSLRLDDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287201:TGTGGTATCTCGTATT-1_contig_2": {
+      "fwr1": "EVQLVESGGGLVKPGGSLRLSCAAS",
+      "cdr1": "GFTFSNAW",
+      "fwr2": "MSWVRQAPGKGLEWVGR",
+      "cdr2": "IKSKTDGGTT",
+      "fwr3": "DYAAPVKGRFTISRDDSKNTLYLQMNSLKTEDTAVYYC",
+      "fwr4": "WGQGTTVTVSS"
+    },
+    "oas:1287203:ACATACGCACAGAGGT-1_contig_2": {
+      "fwr1": "QLQLQESGPGLVKPSETLSLTCIVS",
+      "cdr1": "GGSISSGTYY",
+      "fwr2": "WGWIRQPPGKKLEWIGS",
+      "cdr2": "MYHSGST",
+      "fwr3": "YHNPSLKSRVTISVDTSKNQFSLKLSSVTAADTAIYYC",
+      "fwr4": "WGQGTMVTVSS"
+    },
+    "oas:1287203:AGACGTTTCGTAGATC-1_contig_2": {
+      "fwr1": "EVQLVESGGGLVQPGRSLRLSCAAS",
+      "cdr1": "GFTFDDYA",
+      "fwr2": "MHWVRQAPGKGLEWVSG",
+      "cdr2": "ISWNSGSI",
+      "fwr3": "GYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTALYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287203:AGTAGTCAGACCTTTG-1_contig_1": {
+      "fwr1": "QVQLVESGGGVVQPGRSLRLSCAAS",
+      "cdr1": "GFTFSGYG",
+      "fwr2": "MHWVRQAPGKGLEWVAV",
+      "cdr2": "ISYDGTYK",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGRGTLVTVSS"
+    },
+    "oas:1287203:CACACCTAGTAGGCCA-1_contig_1": {
+      "fwr1": "QVQLQESGPGLVKPSQTLSLTCTVS",
+      "cdr1": "SGSISGGSCY",
+      "fwr2": "WSWVRQPAGKGLVWIGR",
+      "cdr2": "IYNSGST",
+      "fwr3": "NYNPSLESRLTISRDTSKSQCSLKLNSVTAADTAIYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287203:CAGCCGAAGCTAGGCA-1_contig_2": {
+      "fwr1": "EVQLSESGGGLIQPGGSLRLSCAVS",
+      "cdr1": "GFTFSNYA",
+      "fwr2": "MTWVRQAPGKGLEWVST",
+      "cdr2": "ISGGGSNT",
+      "fwr3": "YYADSVKGRFTISRDISRNTQYLEMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVIVSS"
+    },
+    "oas:1287203:CCTAAAGAGACCTAGG-1_contig_2": {
+      "fwr1": "QVHLVESGGGVVQPGRSLRLSCAAS",
+      "cdr1": "GFVFSNSI",
+      "fwr2": "MHWVRQAPGKGLEWVAV",
+      "cdr2": "ISSDGSTK",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLSAEDTAVYYC",
+      "fwr4": "WGQGTMVTVSS"
+    },
+    "oas:1287203:CGCTATCAGGGCTTCC-1_contig_2": {
+      "fwr1": "EVQLLESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYA",
+      "fwr2": "MSWVRQAPGKGLEWVSA",
+      "cdr2": "ISGSGGST",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287203:CGTTAGACAGAAGCAC-1_contig_1": {
+      "fwr1": "QVQLVQSGSELKKPGASVKLSCKAS",
+      "cdr1": "GYTFNRYA",
+      "fwr2": "MNWVRQAPGQGLEWMGW",
+      "cdr2": "INTNTGNP",
+      "fwr3": "TYAQDFTGRFVFSLDTSVSTAYLQISSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287203:CTACCCAAGACCTTTG-1_contig_2": {
+      "fwr1": "EVQLLESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYA",
+      "fwr2": "MSWVRQAPGKGLEWVSA",
+      "cdr2": "ISGSGGST",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287203:CTTCTCTCACATCCAA-1_contig_2": {
+      "fwr1": "QVQLVESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFRFSDYY",
+      "fwr2": "MSWIRQAPGKGLEWVSY",
+      "cdr2": "ISSSSSDT",
+      "fwr3": "SYANSVKGRFTISRDNGKNSLSLQMSSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287203:GATCGTACAAAGGTGC-1_contig_1": {
+      "fwr1": "EVQLVESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTVSSNY",
+      "fwr2": "MSWVRQAPGKGLEWVSV",
+      "cdr2": "IYSGGST",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTTVTVSS"
+    },
+    "oas:1287203:GATGAAATCTTGCAAG-1_contig_2": {
+      "fwr1": "QVQLVESGGGVVQPGRSLRLSCAAS",
+      "cdr1": "GFTFSSFA",
+      "fwr2": "MHWVRQAPGKGLEWVAV",
+      "cdr2": "ISYDKINE",
+      "fwr3": "YYADSMKGRLSISRDNSKNMLYLQMNSLRPEDTAVYYC",
+      "fwr4": "WGQGILVTVSS"
+    },
+    "oas:1287203:GCTTGAACATCCCATC-1_contig_1": {
+      "fwr1": "QVHLVESGGTVVQPGRSLRLSCAAS",
+      "cdr1": "GFTFKNYG",
+      "fwr2": "MHWVRQAPGKALEWVAA",
+      "cdr2": "ISYDGSDT",
+      "fwr3": "YYADSVKGRFTFSRDNSENTLYLQLNSLRTEDTALYYC",
+      "fwr4": "WGQGTLLTVSS"
+    },
+    "oas:1287203:TATGCCCGTGCGAAAC-1_contig_2": {
+      "fwr1": "EVQLVESGGGLVKPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYS",
+      "fwr2": "MNWVRQAPGKGLEWVSS",
+      "cdr2": "ISSSSSYI",
+      "fwr3": "YYADSVKGRFTISRDNAKNSLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTLVTVSS"
+    },
+    "oas:1287203:TCAGGATCAGTATAAG-1_contig_2": {
+      "fwr1": "EVQLVQSGAEVKKPGESLKISCKGS",
+      "cdr1": "TYSFTGYW",
+      "fwr2": "IGWVRQMPGKGLEWMGI",
+      "cdr2": "IYPGDSDT",
+      "fwr3": "RYSPSFQGQVTISADKSISTAYLQWSSLKASDTAVYYC",
+      "fwr4": "WGKGTTVTVSS"
+    },
+    "oas:1287203:TGCGCAGTCACCACCT-1_contig_2": {
+      "fwr1": "QVQLVQSGTEVKMPGASVKVSCKAS",
+      "cdr1": "GYTFNNYG",
+      "fwr2": "ISWVRQAPGQGPEWMGW",
+      "cdr2": "ISGNNDLT",
+      "fwr3": "DYAQKVQGRVSMTTDASTNTAYMELRSLRSDDTAVYYC",
+      "fwr4": "WGQGTLVAVPS"
+    },
+    "oas:1287203:TGTATTCAGCGCTCCA-1_contig_2": {
+      "fwr1": "EVQLLESGGGLVQPGGSLRLSCAAS",
+      "cdr1": "GFTFSSYA",
+      "fwr2": "MSWVRQAPGKGLEWVSA",
+      "cdr2": "ISGSGGST",
+      "fwr3": "YYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYC",
+      "fwr4": "WGQGTTVTVSS"
+    }
+  }
+}

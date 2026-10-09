@@ -1,0 +1,24 @@
+{
+  "name": "oas4_h3_split_overlap",
+  "corpus": "data/processed/processed_oas_multi.json",
+  "corpus_sha256": "bd854ae32de886bc9b4466edf5d1aa3ade6c09847b622ceaa60cba395bbd5ad8",
+  "metadata": "data/processed/processed_oas_multi.metadata.json",
+  "clusters": "results/benchmark/oas4_h3_followup_20261008/clusters.json",
+  "manifest": "benchmark/manifests/oas4_h3_validation_length_free_v1.json",
+  "benchmark_frameworks": 150,
+  "expected_splits": {
+    "train": 122181,
+    "validation": 15273,
+    "test": 15273
+  },
+  "identity": 0.85,
+  "chunk_size": 256,
+  "query_tile": 16,
+  "reference_tile": 4096,
+  "smoke_queries_per_split": 5,
+  "expected_hashes": {
+    "metadata": "3ab174fc337748de6db3dd3889e8f6845a3e79552cb4430eb8bb108e2e065bd2",
+    "clusters": "70377ee3950cdf25ea000e303ffa97bc4ceffe66ee3dc0c95383d602101ba0a3",
+    "manifest": "b102fddb0de02c094a55fdc1aec7afde55144992bd56e461f5c3a599891bcc27"
+  }
+}

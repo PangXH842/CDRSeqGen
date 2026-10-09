@@ -4,41 +4,86 @@ The manifest is the frozen, model-independent input shared by CDRSeqGen and exte
 Model adapters may tokenize these strings differently, but must not reconstruct or reselect the
 examples themselves.
 
-## Next batch: OAS4 three-method validation comparison
+## Adding a generator
 
-The [current recipe](recipes/oas4_h3_length_free.json) and [commands/protocol](recipes/oas4_h3_length_free.md)
-reuse the completed scratch MLM/AR/S2S no-partner checkpoints. No retraining or length-head fitting
-is needed. The adapter now dispatches MLM, AR and S2S; EOS methods use the length-free track.
-The frozen 150-framework manifest has exactly the membership of the audited context study.
+External generators run in their own environments and meet the scorer only through adapter-output JSON.
+[`adapters/README.md`](adapters/README.md) specifies that contract and its information-budget rule;
+[`externals.py`](externals.py) registers an adapter so `run.py` can plan and launch it, and
+[`blind_check.py`](blind_check.py) tests that an adapter's candidates do not depend on the hidden native
+loop. Recipes name externals under `"externals"`; the completed batch's frozen recipe still uses the
+legacy `"iglm"` key, which the runner reads as one external. A batch may list externals without `arms`, and
+[`extend.py`](extend.py) merges such a batch into a finished comparison. The IgCraft protocol
+([recipe](recipes/oas4_h3_igcraft.json), [commands and checks](recipes/oas4_h3_igcraft.md)) is the worked example;
+it has completed and been audited (see its Completion section).
 
-Start with the five-framework, four-arm smoke batch:
+## Completed OAS4 three-method validation comparison
+
+The [current recipe](recipes/oas4_h3_length_free.json) and [protocol](recipes/oas4_h3_length_free.md)
+reuse six scratch MLM/AR/S2S no-partner checkpoints and fitted MLM length heads, with one frozen
+IgLM baseline. Both the four-arm smoke and seven-arm full batch passed their artifact audits.
+The full batch uses the same 150 validation frameworks and 20 attempts per arm: **21,000/21,000
+valid candidates with complete judge coverage**. [Full audit](../results/reviews/20261008-benchmark-full.md).
 
 ```bash
-./scripts/run.sh benchmark plan --stage smoke
-./scripts/run.sh benchmark smoke --gpu 0 \
-  --output results/benchmark/oas4_h3_length_free_smoke_20261007
+./scripts/run.sh benchmark status results/benchmark/oas4_h3_length_free_20261007
+python results/reviews/20261008-benchmark-full-audit.py
 ```
 
-Then review the smoke outputs before the full seven-arm batch (both training seeds plus IgLM).
-All generators receive heavy-chain flanks without partner/antigen or native length. The judge
-receives heavy-chain context only. This fixed judge policy differs from the partner-present judge
-in the context-dropout study: those older judge scores cannot be copied into this comparison.
-New inference/scoring results will retain the saved checkpoints' actual training provenance.
+All generators receive heavy-chain flanks without partner/antigen or native length. The shared
+IgBert judge receives heavy-chain context only; older partner-present judge values remain separate.
+MLM uses learned length classes; AR/S2S/IgLM terminate naturally within 97 new tokens. IgLM gets
+the same attempt budget, with no replenishment of invalid draws or forced EOS at the cap.
 
-The full validation budget is 150 frameworks × 20 requested attempts × seven arms = 21,000.
-IgLM gets the same attempt cap, without retrying invalid draws to replenish its retained pool.
-AR/S2S/IgLM have a 97-token EOS budget. IgLM natural/filter decoding no longer forces EOS at the
-cap; capped nonterminating and empty draws are failures. MLM uses its existing learned length
-classes. Edit similarity is primary; lengths, conditional recovery populations, diversity, validity
-and judge scores are supporting. This is a validation demonstration; final testing and cluster-aware
-uncertainty remain separate work.
+Mean edit similarity spans 0.3870–0.3919; IgLM has the lowest observed length MAE (3.707 residues).
+Conditional core recovery uses 102–117 frameworks and 205–291 matched candidates per arm.
+These descriptive validation values do not establish architecture superiority or significance.
+The [completed follow-up](recipes/oas4_h3_followup.md) passed its [artifact audit](../results/reviews/20261008-benchmark-followup.md):
+3,000 new training-only empirical H3 draws, all split labels verified, 13 primary paired contrasts
+and saved capacity/actual exposure. The combined eight-arm benchmark has 24,000 valid candidates
+with full recorded judge coverage. Original seven rows are unchanged. Empirical edit is 0.2817;
+all learned-system-versus-empirical family intervals are positive, while local-checkpoint-versus-
+IgLM intervals span zero. The 150 frameworks occupy 150 distinct recovered groups, so resampling
+reduces to paired frameworks. Fixed-pool exploratory intervals exclude training/generation variance.
+No completion rerun is needed; leakage decisions precede final testing.
 
-Plans read/hash inputs and check environments without loading model weights. Benchmark `smoke`,
-`run` and `resume` generate/score models and are user-run. Source/input/environment fingerprints
-remain fixed within a batch; avoid Python edits while it runs. `status` reads existing output files.
+```bash
+./scripts/run.sh benchmark followup status results/benchmark/oas4_h3_followup_20261008
+python results/reviews/20261008-benchmark-followup-audit.py
+```
 
-The older one-donor commands below remain historical examples, with their original manifests and
-source versions. Use the OAS4 recipe above for the next comparison.
+Reproduction has CPU group reconstruction/analysis and GPU judging of empirical draws only;
+existing neural rows are reused. See the protocol for fresh-output commands and reporting limits.
+
+## Completed local split-overlap audit
+
+The [audit recipe](recipes/oas4_h3_leakage.md) completed and passed its [artifact review](../results/reviews/20261008-leakage-audit.md). It searches
+every same-length reference H3 for all validation/test queries: validation→train,
+test→train and test→validation. It reuses verified groups, reports the current
+150-framework benchmark separately, and saves exact sequence/context overlaps and
+candidate test eligibility. Splits and earlier results remain unchanged.
+
+```bash
+./scripts/run.sh benchmark leakage status results/benchmark/oas4_h3_leakage_20261008
+python results/reviews/20261008-leakage-audit.py
+```
+
+This batch is CPU-only; no models are loaded. Resume reuses sealed 256-query chunks.
+No completion rerun is needed. The existing benchmark has 3/150 affected frameworks;
+the stated test rule retains 14,818/15,273 records (97.02%), preserving all donors and
+represented lengths. Review those counts before selecting the final cohort. The
+[external pretraining note](pretraining_overlap.md) records known OAS provenance
+and unverified membership; local separation cannot establish external independence.
+See [baseline coverage](baseline_scope.md) for the current references and one targeted
+external-generator feasibility check before freezing a broader final comparison.
+
+Plans validate inputs/environments without loading weights. `smoke`, `run` and `resume` execute
+models and are user-run; `status` reads saved outputs. Reproduction commands are in the recipe;
+choose a new output directory for a new batch. Source/input/environment fingerprints stay fixed
+within a running batch. Saved checkpoints retain their actual training provenance; the completed
+inference outputs record frozen source hashes and a dirty checkout.
+
+The one-donor commands below are historical examples with their original manifests and source
+versions. Their numbers are not pooled with the OAS4 comparison.
 
 ## Included manifests
 

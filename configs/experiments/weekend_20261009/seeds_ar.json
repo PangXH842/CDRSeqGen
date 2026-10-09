@@ -1,0 +1,87 @@
+{
+  "name": "ar_seed_expansion",
+  "overrides": {
+    "eval_split": "validation",
+    "include_partner_chain": false,
+    "context_dropout": 0.0,
+    "max_len": 384,
+    "anchor_trim": 2,
+    "num_train_epochs": 20,
+    "early_stopping_patience": 3,
+    "metric_for_best_model": "core_accuracy",
+    "gen_eval_context_ablation": false,
+    "run_generative_eval": true,
+    "gen_num_examples": 150,
+    "gen_num_samples": 20,
+    "gen_top_p": 0.9,
+    "gen_top_k": 0,
+    "gen_temperature": 1.0,
+    "gen_seed": 42,
+    "gen_stratify": false,
+    "gen_max_new_tokens": 97,
+    "gen_judge": "Exscientia/IgBert",
+    "gen_judge_partner_context": "with"
+  },
+  "trials": [
+    {
+      "name": "ar_scratch_no_partner_s44",
+      "base_config": "configs/ar/h3_ar_scratch_lc.json",
+      "overrides": {
+        "learning_rate": 0.0001,
+        "warmup_steps": 0,
+        "warmup_ratio": null,
+        "weight_decay": 0.0,
+        "seed": 44,
+        "data_seed": 44
+      }
+    },
+    {
+      "name": "ar_scratch_no_partner_s45",
+      "base_config": "configs/ar/h3_ar_scratch_lc.json",
+      "overrides": {
+        "learning_rate": 0.0001,
+        "warmup_steps": 0,
+        "warmup_ratio": null,
+        "weight_decay": 0.0,
+        "seed": 45,
+        "data_seed": 45
+      }
+    },
+    {
+      "name": "ar_scratch_no_partner_s46",
+      "base_config": "configs/ar/h3_ar_scratch_lc.json",
+      "overrides": {
+        "learning_rate": 0.0001,
+        "warmup_steps": 0,
+        "warmup_ratio": null,
+        "weight_decay": 0.0,
+        "seed": 46,
+        "data_seed": 46
+      }
+    },
+    {
+      "name": "ar_scratch_no_partner_s47",
+      "base_config": "configs/ar/h3_ar_scratch_lc.json",
+      "overrides": {
+        "learning_rate": 0.0001,
+        "warmup_steps": 0,
+        "warmup_ratio": null,
+        "weight_decay": 0.0,
+        "seed": 47,
+        "data_seed": 47
+      }
+    },
+    {
+      "name": "ar_scratch_no_partner_s48",
+      "base_config": "configs/ar/h3_ar_scratch_lc.json",
+      "overrides": {
+        "learning_rate": 0.0001,
+        "warmup_steps": 0,
+        "warmup_ratio": null,
+        "weight_decay": 0.0,
+        "seed": 48,
+        "data_seed": 48
+      }
+    }
+  ]
+}

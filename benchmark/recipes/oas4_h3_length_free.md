@@ -1,6 +1,6 @@
-# OAS4 length-free validation benchmark — prepared 2026-10-07
+# OAS4 length-free validation benchmark — audited complete 2026-10-08
 
-**Next experiment: inference and shared scoring only.** Reuse six completed scratch sequence
+**Completed user-run experiment: inference and shared scoring only.** Reuse six completed scratch sequence
 checkpoints (MLM/AR/S2S × training seeds 42/43) and both existing MLM length heads. IgLM is a frozen
 external baseline, not another local training seed. ESM-2 arms and new training sweeps are extensions.
 
@@ -36,11 +36,25 @@ demonstration, not an isolated architecture or pretraining effect. OAS overlap w
 pretraining remains unresolved. Older partner-present judge scores are not reused for this new
 heavy-only judge policy.
 
-## Run the smoke first
+## Completion
+
+The smoke and full batch passed their artifact audits. The full batch has seven arms, 150 shared
+frameworks and 21,000/21,000 valid candidates, all judge-scored. Mean edit similarity spans
+0.3870–0.3919; IgLM has the lowest observed length MAE (3.707 residues). Conditional recovery
+populations differ; no architecture ranking or significance is established.
+
+- [Full audit](../../results/reviews/20261008-benchmark-full.md)
+- [Scored results](../../results/benchmark/oas4_h3_length_free_20261007/scores/comparison.json)
+- [Comparison plot](../../results/benchmark/oas4_h3_length_free_20261007/comparison.png)
+
+No completion rerun is needed. Next work is cluster-aware paired analysis, an empirical/retrieval
+reference and leakage decisions before final testing. The commands below reproduce the completed
+stages; use a new output directory for a new run. Existing batch directories are preserved.
+
+## Smoke reproduction
 
 Preparation passed 52 CPU contract tests and real scratch-tokenizer/prompt checks on all 150
-frameworks. Both plans validate without loading weights. A live GPU smoke has not been run by
-the assistant.
+frameworks. Both user-run stages are now complete; the assistant performed artifact audits only.
 
 ```bash
 cd /mnt/hdd/pang/CDRSeqGen
@@ -61,7 +75,7 @@ invalid draws; their existence is not a reason to replenish a model's candidate 
 conditional-recovery populations separately. The tiny subset is an integration check, not a
 performance estimate.
 
-## Full validation batch after the smoke checks
+## Full validation reproduction
 
 ```bash
 ./scripts/run.sh benchmark plan --stage full

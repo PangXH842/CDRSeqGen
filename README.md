@@ -1,13 +1,12 @@
 <!-- Note to AI: Edits allowed OUTSIDE of MANUAL PROTECTION ZONES and INSIDE of AI ACCESS ZONES, and DO NOT COMMIT ON MY BEHALF -->
 # CDRSeqGen: Modular Antibody Infilling Framework
 
-**Date Updated:** 2026-10-07
-**Status:** Context-training batches and the four-arm benchmark smoke audited complete; the full matched validation benchmark is next.
+**Date Updated:** 2026-10-08
+**Status:** Context-training batches and the eight-arm matched validation benchmark/follow-up audited complete; 24,000 valid candidates with full judge coverage.
 
-**Next user-run batch:** [OAS4 MLM/AR/S2S + IgLM length-free benchmark](benchmark/recipes/oas4_h3_length_free.md),
-150 validation frameworks × 20 attempts × seven arms. It reuses saved checkpoints; no retraining is needed.
+**Next priority:** finalize framework documentation and [baseline coverage](benchmark/baseline_scope.md), then freeze the common final cohort/settings with external pretraining exposure stated. The empirical follow-up and [local split audit](results/reviews/20261008-leakage-audit.md) passed; no completion rerun is needed. Training/generation variability remains separate from the fixed-pool intervals.
 
-## End-of-day handoff — 2026-10-07
+## Current handoff — 2026-10-08
 
 **Ready to reuse; no completion rerun needed:**
 
@@ -17,29 +16,69 @@
 | Selected ESM-2 dropout confirmation | 4 trials, seeds 44/45, both inference context regimes | [Audit](results/reviews/20261007-esm2-confirmation.md) |
 | Scratch MLM dropout screen | 4 trials, seeds 42/43, 8 evaluations | [Audit](results/reviews/20261007-mlm-dropout-screen.md); manuscript tables updated |
 | Matched MLM/AR/S2S + IgLM smoke | 4 arms × 5 frameworks × 5 attempts; 100 valid candidates, all judge-scored | [Audit](results/reviews/20261007-benchmark-smoke.md), [comparison plot](results/benchmark/oas4_h3_length_free_smoke_20261007/comparison.png) |
+| Matched MLM/AR/S2S + IgLM full validation | 7 arms × 150 frameworks × 20 attempts; 21,000 valid candidates, all judge-scored | [Audit](results/reviews/20261008-benchmark-full.md), [comparison plot](results/benchmark/oas4_h3_length_free_20261007/comparison.png) |
+| Empirical baseline + paired analysis | 3,000 new training-only draws; 8-arm comparison totals 24,000 valid/judge-scored candidates; 13 primary contrasts and capacity export | [Follow-up audit](results/reviews/20261008-benchmark-followup.md), [paired intervals](results/benchmark/oas4_h3_followup_20261008/analysis.md) |
+| Local split-overlap audit | All validation/test queries, including test→validation; original 3/150 benchmark neighbours verified; 14,818/15,273 candidate test records retained | [Completion audit](results/reviews/20261008-leakage-audit.md), [saved summary](results/benchmark/oas4_h3_leakage_20261008/summary.md) |
 
 The smoke verifies integration; its length-stratified five-framework subset is not a performance
 estimate. IgLM has no native-length matches here, so its conditional recovery is undefined.
 Historical MLM training evaluations still lack attempt-validity accounting; the new benchmark
 adapter records every attempt.
 
-**Next terminal session:**
+**Completed batch — inspect or reproduce the audit:**
 
 ```bash
 cd /mnt/hdd/pang/CDRSeqGen
 conda activate cdrprj
-./scripts/run.sh benchmark plan --stage full
-./scripts/run.sh benchmark run --gpu 0 \
-  --output results/benchmark/oas4_h3_length_free_20261007
 ./scripts/run.sh benchmark status results/benchmark/oas4_h3_length_free_20261007
+python results/reviews/20261008-benchmark-full-audit.py
 ```
 
-This requests **21,000 attempts** from six scratch checkpoints (MLM/AR/S2S × seeds 42/43) and one
-frozen IgLM baseline. Generation and the shared IgBert judge use heavy-chain context only; older
-partner-present judge values do not populate this comparison. The reserved test split remains
-unused by this batch. Keep Python source unchanged while it runs; if interrupted, use
-`./scripts/run.sh benchmark resume results/benchmark/oas4_h3_length_free_20261007 --gpu 0`.
-Audit the full outputs before filling the manuscript's final comparison table.
+Six scratch checkpoints (MLM/AR/S2S × seeds 42/43) and one frozen IgLM baseline passed the audit.
+Generation and the shared IgBert judge use heavy-chain context only; older partner-present judge
+values are not copied into this comparison. The batch uses validation, leaving its reserved test
+partition unused. Mean edit similarities are close (0.3870–0.3919); IgLM has the lowest observed
+length MAE (3.707 residues). Conditional recovery populations differ, so retain their denominators.
+See [§16](#16-matched-oas4-length-free-validation-benchmark) for all seven rows.
+
+**Completed follow-up — inspect or reproduce the artifact audit:**
+
+```bash
+./scripts/run.sh benchmark followup status results/benchmark/oas4_h3_followup_20261008
+python results/reviews/20261008-benchmark-followup-audit.py
+```
+
+The follow-up completed **8 October at 13:37 Singapore time**. Empirical edit similarity is
+**0.2817**, versus **0.3870–0.3919** for the learned systems. All seven learned-system-versus-
+empirical primary contrasts have positive Bonferroni family intervals. All six local-checkpoint-
+versus-IgLM intervals span zero; this does not establish equivalence. The original seven rows are
+unchanged, and the 3,000 new loops all trace to training records with no native-length/framework
+conditioning. The shared judge revision and policy match the original benchmark.
+
+Recovered **145,172** representative H3 groups reproduce all **152,727** split labels. The benchmark
+contains **150 frameworks in 150 distinct groups**, so its group resampling reduces to paired
+framework resampling. Intervals fix candidate pools/checkpoints and exclude training/generation
+variance. Capacity and actual sequence-training exposure come from saved artifacts; historical GPU
+hardware and external pretraining compute are unavailable. See the [protocol](benchmark/recipes/oas4_h3_followup.md).
+
+The empirical reference, paired validation analysis and capacity export need no completion rerun.
+The [local split-overlap audit](benchmark/recipes/oas4_h3_leakage.md) completed **8 October at 14:58 Singapore time**
+and passed its [artifact review](results/reviews/20261008-leakage-audit.md). Inspect the saved outputs:
+
+```bash
+./scripts/run.sh benchmark leakage status results/benchmark/oas4_h3_leakage_20261008
+python results/reviews/20261008-leakage-audit.py
+```
+
+Of 15,273 queries per comparison, **429 validation→train**, **425 test→train** and **84 test→validation**
+have a same-length H3 neighbour at ≥85% positional identity. Exact H3/heavy/pair overlap is zero.
+The current benchmark has **3/150 affected frameworks**, confirming the historical recorded finding.
+The predeclared test exclusion rule retains **14,818/15,273 (97.02%)**, excluding 455; all four donors
+and originally represented test lengths retain records. These indices are a candidate cohort, not
+a frozen final manifest. Earlier benchmark results are unchanged; no completion rerun is needed.
+Different-length/gapped homology and [external pretraining membership](benchmark/pretraining_overlap.md)
+remain unresolved. Decide the common final cohort and [external baseline scope](benchmark/baseline_scope.md)
+before final inference; additional training follows the claims and any necessary split revision.
 
 **Code review resumes at:** [MLM training](cdrseqgen/methods/mlm/training.py), following the reviewed
 `train_cli.py` and `arguments.py`; trace its dataset setup and post-training generation, then
@@ -48,9 +87,11 @@ and [recovery](cdrseqgen/methods/mlm/recovery.py). The [workflow map](cdrseqgen/
 connects the stages. Manual reclamation checkboxes record your own review progress.
 
 **Paper handoff:** [manuscript PDF](../iAIM/main.pdf), [abstract PDF](../iAIM/abstract.pdf),
-[Overleaf archive](../iAIM/iaim-draft-20261007.zip). Current tables include the audited training
-results; the full external comparison, uncertainty analysis and final held-out evaluation remain
-pending. Deadlines: **1 November for abstracts; early December for posters**.
+[Overleaf archive](../iAIM/iaim-draft-20261008.zip). Current tables include audited training
+results and the eight-arm external validation comparison. Results §3.1 now includes the empirical
+reference and paired intervals; the appendix records paired populations and capacity/actual
+sequence-training exposure. Final held-out evaluation remains pending.
+Deadlines: **1 November for abstracts; early December for posters**.
 
 ## Project Overview
 CDRSeqGen is a computational immunology framework designed to predict antibody loop sequences given the surrounding framework context. 
@@ -83,6 +124,7 @@ Current implemented features include:
 - **Sequence metrics**: length-matched amino-acid recovery (AAR), core/anchor recovery, positional and globally aligned BLOSUM62, edit similarity, length error, diversity, uniqueness and per-position entropy. `novelty_mean` is `1 - AAR` relative to the native loop.
 - **Confidence & plausibility**: generator self-perplexity and optional masked-LM judge pseudo-perplexity, plus confidence-ranking summaries. Cross-model judge comparisons require matched weights, tokenization, context and scoring populations; generator and judge context are configured separately.
 - **Matched external benchmark**: versioned manifests, MLM/AR/S2S and IgLM adapters, shared contract validation and scoring, and optional independent-judge perplexity. `run.sh benchmark plan|smoke|run|status|resume` uses a frozen recipe and reuses saved checkpoints.
+- **Benchmark follow-up**: `run.sh benchmark followup plan|smoke|run|status|resume` reuses scored neural candidates, adds a training-only empirical baseline, verifies original H3 split groups, calculates paired group intervals and exports recorded capacity/compute. Its [protocol](benchmark/recipes/oas4_h3_followup.md) defines the fixed-pool estimand and reporting limits.
 
 **Engineering**
 - **Logging & visualization**: per-run `train.log` (the whole run's record, including the generative-eval table and any uncaught traceback), TensorBoard logging, csv metric extraction, multi-line graph plotter
@@ -92,7 +134,7 @@ Current implemented features include:
 
 ## Contents
 
-**Start here** · [End-of-day handoff](#end-of-day-handoff--2026-10-07) · [Project overview](#project-overview) · [Repository structure](#-repository-structure) · [Environment setup](#-environment-setup)
+**Start here** · [Current handoff](#current-handoff--2026-10-08) · [Project overview](#project-overview) · [Repository structure](#-repository-structure) · [Environment setup](#-environment-setup)
 
 **[Workflow & Execution](WORKFLOW.md)** — how to run everything
 &nbsp;&nbsp;[Architecture overview](WORKFLOW.md#architecture-overview) ·
@@ -114,6 +156,8 @@ Current implemented features include:
 | [3 Anchor inflation — the metric misleads](#3-the-standard-metric-misleads-anchor-inflation) | [8 Context-regime lock-in, and `context_dropout`](#8-a-model-is-locked-to-the-context-regime-it-was-trained-in--and-context_dropout-unlocks-it) | [13 Loss re-weighting changes nothing](#13-re-weighting-the-loss-across-loop-positions-changes-nothing--the-anchors-are-not-wasted-capacity) |
 | [4 Historical MLM context comparisons](#4-sequence-context--partner-chain-and-antigen--gives-no-measurable-benefit) | [9 One hyperparameter inflated four findings](#9-one-un-audited-hyperparameter-inflated-four-findings-at-once) | [14 MLM/AR/S2S context-dropout evidence](#14-context-dropout-improves-missing-partner-robustness-across-mlm-ar-and-s2s) |
 | [5 The homology leak (immaterial for H3)](#5-the-homology-leak-was-real-but-immaterial-for-h3) | [10 Length-free exposes the length problem](#10-removing-native-h3-length-exposes-a-separate-unsolved-problem) | [15 ESM-2 learning-rate screen](#15-esm-2-learning-rate-tuning-improves-teacher-forced-recovery-more-clearly-than-generation) |
+
+**Latest:** [16 Matched OAS4 length-free validation benchmark](#16-matched-oas4-length-free-validation-benchmark)
 
 **[🧠 Architectural Feature Details](#-architectural-feature-details)**
 &nbsp;&nbsp;[1 Task-agnostic masking](#1-task-agnostic-masking-the-lego-principle) ·
@@ -140,6 +184,8 @@ forwards to `run.sh`. Single-run settings live in `configs/{mlm,ar,s2s}/`, multi
 Benchmark commands follow `run.sh benchmark → benchmark/run.py → adapters → scorer → plotter`.
 Their recipes live in `benchmark/recipes/`, frozen inputs in `benchmark/manifests/`, and generated
 candidates, scores and plots in `results/benchmark/`. See the [current recipe](benchmark/recipes/oas4_h3_length_free.md).
+The [follow-up](benchmark/recipes/oas4_h3_followup.md) uses `run.sh benchmark followup →
+benchmark/followup.py → empirical → scorer → analysis/capacity` and reuses the completed score rows.
 
 For the methods reclamation review, the [shared workflow map](cdrseqgen/methods/common/README.md)
 shows the run sequence, stage ownership and method extension points, with a reference
@@ -274,6 +320,10 @@ CDRSeqGen/
 │       └── sweep_tables.py         # Ranks a sweep's settings across seeds -> summary.tsv
 ├── benchmark/                  # Frozen-manifest comparisons against external baselines
 │   ├── run.py                  # plan / smoke / run / status / resume; freezes inputs and source
+│   ├── followup.py             # Reuse completed scores; plan/run/status/resume the follow-up
+│   ├── empirical.py            # Training-only H3 sampling; original cluster/split verification
+│   ├── analysis.py             # Paired group intervals and population reporting across arms
+│   ├── capacity.py             # Learned tensor counts, actual epochs/steps and recorded runtime
 │   ├── recipes/                # Matched protocols, checkpoint selections and user-run commands
 │   ├── adapters/               # CDRSeqGen and IgLM generation under one output contract
 │   ├── manifests/              # Versioned validation/test inputs plus SHA-256 sidecars
@@ -1077,6 +1127,60 @@ All **12,000/12,000** LR-sweep candidates were valid with full judge coverage. T
 
 ---
 
+#### 16. Matched OAS4 length-free validation benchmark
+
+The [seven-arm batch](results/benchmark/oas4_h3_length_free_20261007/) completed shared scoring on
+**7 October at 20:51 Singapore time** and passed its [8 October artifact audit](results/reviews/20261008-benchmark-full.md).
+All arms use the same 150 validation frameworks, with 20 attempts per framework: **21,000/21,000
+valid candidates and full judge coverage**. Scratch MLM/AR/S2S reuse no-partner-trained checkpoints
+at seeds 42/43; IgLM is one frozen released model. Heavy-chain flanks are the only generator
+context, native length is withheld, and the shared IgBert judge uses heavy-chain context only.
+MLM predicts length; AR/S2S/IgLM terminate naturally with EOS. Temperature is 1, top-p 0.9 and the
+autoregressive cap 97 new tokens. [Recipe and frozen protocol](benchmark/recipes/oas4_h3_length_free.md).
+
+| System | Training seed | Edit similarity | Length match % | Length MAE | Conditional core | Core frameworks / matched candidates | Judge PP |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| MLM | 42 | 0.3905 | 6.83 | 4.351 | 0.2292 | 102 / 205 | 7.676 |
+| MLM | 43 | 0.3919 | 7.43 | 4.313 | 0.2200 | 107 / 223 | 7.390 |
+| AR | 42 | 0.3880 | 9.17 | 3.931 | 0.2104 | 117 / 275 | 3.150 |
+| AR | 43 | 0.3888 | 8.77 | 3.961 | 0.2253 | 116 / 263 | 3.151 |
+| S2S | 42 | 0.3870 | 9.70 | 3.855 | 0.2052 | 116 / 291 | 3.244 |
+| S2S | 43 | 0.3881 | 8.60 | 3.874 | 0.2173 | 113 / 258 | 3.161 |
+| IgLM | — | 0.3880 | 8.87 | 3.707 | 0.1944 | 104 / 266 | 4.047 |
+| Empirical training H3 | — | 0.2817 | 6.97 | 4.508 | 0.1208 | 113 / 209 | 5.009 |
+
+Edit, length and judge means average candidates within framework, then all 150 frameworks.
+Core recovery uses only native-length candidates and different contributing framework populations.
+Mean edit similarity spans 0.3870–0.3919; these small differences do not establish superiority or
+significance. IgLM has the lowest observed length MAE, while AR/S2S have lower IgBert perplexity.
+The latter is a judge-dependent proxy. Unequal capacities/training exposure and unresolved OAS
+pretraining overlap prevent an isolated architecture ranking.
+The earlier one-donor IgLM pilot (§11) remains separate. No completion rerun is needed.
+
+**Empirical follow-up — audited 2026-10-08.** The [follow-up audit](results/reviews/20261008-benchmark-followup.md)
+adds 3,000 training-only unconditional H3 draws, giving **24,000 valid/judge-scored candidates** across
+eight arms. All seven learned-system-minus-empirical edit contrasts have positive Bonferroni family
+intervals (observed gains +0.1052 to +0.1102). All six local-checkpoint-minus-IgLM marginal and family
+intervals span zero. These exploratory comparisons fix trained checkpoints/candidate pools; they
+do not estimate training/generation variation or isolate framework conditioning. The
+[13 contrast rows](results/benchmark/oas4_h3_followup_20261008/analysis.md) retain separate local seeds.
+
+Recovered groups reproduce every saved corpus split label. All 150 benchmark frameworks have
+distinct representative group IDs, so group resampling reduces to paired framework resampling.
+Core-recovery paired intersections contain 79–96 frameworks/groups and differ from each arm's
+individual conditional population. Representative grouping does not guarantee biological-family
+separation. Saved parameter counts are **869,949** for MLM including its 4,900-parameter length head,
+**800,256** for AR, **933,120** for S2S and **12,889,600** for released IgLM; the empirical sampler has
+zero neural parameters. Actual stopping/selected epochs, optimizer steps and Trainer runtime are
+exported, with unavailable historical hardware/pretraining compute left unknown.
+
+The manuscript includes the eight-row validation/accounting tables, paired edit intervals and
+vector figures, plus supporting population and capacity tables. Its final held-out table remains
+pending. All original and follow-up result artifacts are unchanged; audits verify hashes,
+training-only source indices, exact validation membership and independent baseline sequence metrics.
+
+---
+
 ## 🧠 Architectural Feature Details
 
 ### 1. Task-Agnostic Masking (The "LEGO" Principle)
@@ -1203,6 +1307,13 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
+- **2026-10-09** -- Audited the completed IgCraft external-generator batch (user-run): `blind_check` pass; 150 frameworks x 20 attempts, 3,000/3,000 valid, 0 failures, all judge-scored; 9-run merged comparison and 20-contrast paired family in `results/benchmark/20261009_183032_oas4_h3_igcraft_20261009_extension`, with the base batch untouched. IgCraft edit similarity 0.3769 (scratch arms 0.3870-0.3919, IgLM 0.3880, empirical 0.2817); its H3 lengths are compressed (mean 12.4 vs native 16.3). ~300M parameters; exposure to these donors unverified. Added `igcraft` env (`/mnt/hdd/pang/envs/igcraft`), `benchmark/adapters/igcraft.py`, `export_regions.py`, `extend.py` [all new]; protocol and audit in `benchmark/recipes/oas4_h3_igcraft.md`. No rerun is needed.
+- **2026-10-09** -- Generalized the benchmark runner from one hard-wired external (`iglm`) to a registry of external generators: `benchmark/externals.py` [new], `run.py` plans/launches/fingerprints each external in its own environment (`--external-python LABEL=PATH`; recipes may list `externals` and omit `arms`), `analysis.planned_pairs` takes any set of externals. Saved plans and the frozen recipe still read unchanged; `scorer.py`, `_common.py` and `cdrseqgen/eval/` are untouched because the follow-up freezes their hashes. Added `benchmark/blind_check.py` [new] (adapter information-budget invariance test, user-run) and `benchmark/adapters/README.md` [new] (adapter contract). Needs review before reclaiming `benchmark/`; `followup.py` and `capacity.py` remain IgLM/empirical-specific.
+- **2026-10-08** -- Audited the completed local split-overlap batch: 180 sealed query chunks, verified corpus allocation and saved closest-pair identities, 3/150 benchmark neighbours, and 14,818/15,273 candidate test records retained under the declared rule. Earlier benchmark artifacts are unchanged; external exposure and final cohort selection remain pending. Recorded [baseline coverage guidance](benchmark/baseline_scope.md): current IgLM/empirical references support a focused framework demonstration; a broader comparison should add a compatible external generator.
+- **2026-10-08** -- Prepared the CPU local split-overlap audit: exhaustive same-length H3 nearest identities for validation→train, test→train and test→validation, exact sequence/context diagnostics, and candidate test retention by donor/length. Verified groups are reused; source/input hashes and chunked resume are checked with synthetic fixtures. The research audit is not run; external IgLM/IgBert membership and final cohort decisions remain pending. [Commands and paper mapping](benchmark/recipes/oas4_h3_leakage.md).
+- **2026-10-08** -- Audited the completed empirical/paired-analysis follow-up: 3,000 new training-only H3 draws, 24,000 total valid/judge-scored candidates, unchanged original seven rows, all 152,727 split labels verified, and 13 fixed-pool primary contrasts. All evaluated frameworks have distinct recovered groups. Updated manuscript means/intervals, supporting populations and capacity/actual exposure; final leakage decisions and held-out testing remain pending.
+- **2026-10-08** -- Prepared the empirical-baseline/paired-analysis follow-up: 3,000 training-only H3 draws, exact original cluster/split verification, fixed-pool paired intervals, and capacity/actual training-exposure export. Full and smoke plans and synthetic CPU checks are validated; the experiments remain user-run and no new results are claimed. See the [handoff protocol](benchmark/recipes/oas4_h3_followup.md).
+- **2026-10-08** -- Audited the completed seven-arm OAS4 length-free validation benchmark: 21,000 valid attempts and full judge coverage, with reproduced metrics/populations and frozen provenance. Added the validation/accounting tables and figure to the manuscript; final held-out evaluation and cluster-aware uncertainty remain pending. No benchmark rerun is needed.
 <!-- AI ACCESS ZONE ENDS -->
 - **2026-10-07** -- Experiments done: 6 AR/S2S no-partner controls, 4 ESM-2 dropout confirmations, 2 MLM no-partner controls and 4 MLM dropout trials. The four-arm length-free benchmark smoke passed artifact checks (100/100 valid draws and judge scores). Prepared the seven-arm full validation batch. 
 - **2026-10-07** -- [RECLAIM] `methods/mlm/`: `arguments`, `train_cli`
@@ -1269,15 +1380,15 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 
 **Research question:** how do generation method, encoder pretraining and partner-chain context affect framework-conditioned CDR-H3 generation under one evaluation protocol?
 
-**Scope:** sequence-only H3 infilling; length-free generation is the primary track and native-length redesign a separate diagnostic. Structure-aware models and other loops are follow-ups. The [Active milestone](#active-milestone--matched-cdrseqgen-vs-iglm-benchmark) below is this study's external-baseline component, not a parallel effort. The current [development benchmark recipe](benchmark/recipes/oas4_h3_length_free.md) fixes heavy-chain-only inputs, attempt budgets and framework-averaged edit similarity; its smoke is complete and full validation is next.
+**Scope:** sequence-only H3 infilling; length-free generation is the primary track and native-length redesign a separate diagnostic. Structure-aware models and other loops are follow-ups. The [Active milestone](#active-milestone--matched-cdrseqgen-vs-iglm-benchmark) below is this study's external-baseline component, not a parallel effort. The current [development benchmark recipe](benchmark/recipes/oas4_h3_length_free.md) fixes heavy-chain-only inputs, attempt budgets and framework-averaged edit similarity; its smoke and full validation passed the [completion audit](results/reviews/20261008-benchmark-full.md).
 
 **Main contribution: the unified architectural and benchmarking framework.** The empirical studies demonstrate the distinctions its shared interfaces make explicit. Historical MLM context results (§4), the completed MLM/AR/S2S dropout comparisons (§14), loss weighting (§13), decoding, length prediction (§10) and judge-based ranking (§12) are case studies with their original cohorts and limits. The newest MLM result shows that robustness to inference-time partner removal differs substantially across methods. Prioritize a documented framework and one matched benchmark; additional controls should follow the claims, rather than filling every experiment cell.
 
 - [ ] **Confirm the framework contribution and target venue with the advisor.** Document the shared MLM/AR/S2S workflows and benchmark contracts, and use the controlled empirical studies to demonstrate them. Derive any additional evidence from the claims retained in the paper.
 - [ ] **Freeze the evaluation protocol before any final experiment**, and gate everything below on it: inputs available to each method, length policy, example selection, candidate/attempt budgets, decoding settings, checkpoint-selection metric, primary endpoint and supporting metrics. Relabel every existing result as exploratory under the old protocol
 - [ ] **Document judge limitations and assess sensitivity where claims depend on it.** The new benchmark uses native edit similarity as primary and IgBert perplexity as supporting evidence. IgBert was trained on OAS paired repertoires; in historical IgBert-encoder S2S arms it also shares encoder identity. These scores cannot establish independent biological quality. An alternative judge is a follow-up if the paper's conclusions depend on this endpoint.
-- [ ] **Finish the leakage audit rather than restart it.** Already done: OAS4 donor/disease confounding recorded, the [September pairwise audit](results/reviews/0903-0904-review.md) (3 of 150 H3 frameworks with ≥85%-identity same-length training neighbours), and versioned frozen manifests. Still open: target-loop clustering for non-H3, nearest-neighbour similarity at scale, and overlap with *PLM pretraining* corpora — IgLM and IgBert were both trained on OAS, so neither is a leakage-free comparator on an OAS holdout. If the audit forces a revised split, retrain before comparing
-- [ ] **Complete the minimum controlled comparison.** Stable MLM, AR and S2S against IgLM plus cheap retrieval/empirical baselines (the V/J length lookup is already one). Report parameter count, training exposure, tuning effort and compute per arm: the `compare` arms already differ 1.17× (`ar` 800k vs `s2s` 933k) and the PLM arms span 34M to 420M, so unstated capacity would confound every conclusion
+- [ ] **Finish the leakage/split decision.** The [local CPU audit](results/reviews/20261008-leakage-audit.md) is complete: all 152,727 cluster allocations verified; 429 validation→train, 425 test→train and 84 test→validation queries have ≥85% same-length H3 neighbours. The current benchmark confirms 3/150 affected frameworks. The candidate test cohort retains 14,818/15,273 records (97.02%), with every donor and represented length retained. Freeze its selection/denominators before model evaluation. Target-loop clustering for non-H3 and different-length/gapped homology remain separate; [IgLM/IgBert external membership](benchmark/pretraining_overlap.md) is unverified. If a revised split is necessary, retrain affected models.
+- [ ] **Complete the minimum controlled comparison.** The eight-arm MLM/AR/S2S, IgLM and empirical validation benchmark is [audited complete](results/reviews/20261008-benchmark-followup.md), including fixed-pool paired intervals and capacity/actual exposure. Final leakage decisions, tuning-effort documentation and held-out evaluation remain pending. The `compare` arms differ 1.17× (`ar` 800k vs `s2s` 933k), and PLM arms span 34M to 420M; these system comparisons do not isolate architecture effects.
 - [ ] **Run the controls each claim needs.** Pretraining: same-architecture pretrained versus random initialization. Context: matched context settings plus dropout-trained models evaluated in both regimes. Conditioning: framework/context perturbation response, via the encoder-memory probe once its criteria are calibrated. Frozen encoders are a feature-extractor control, not a pretraining control
 - [ ] **Report training stability as a result, not a footnote.** The IgBert + partner collapse and its 2026-09-14 non-reproduction at an identical seed show a run can fail catastrophically and nondeterministically. Report failure incidence per configuration alongside performance, and state the run-selection rule — silently dropping failed runs would overstate every arm that has one
 - [ ] **Replicate finalists and quantify uncertainty.** Three seeds is a floor, not a target: run-to-run nondeterminism at a *fixed* seed already exceeds the seed spread by 2–4× on stable runs (§13) and can flip an unstable one to total failure, so seed spread alone understates reproducibility. Include repeated identical-setting runs as a deliberate determinism control, use paired framework-level comparisons accounting for clustering, and keep evaluation uncertainty separate from training variability
@@ -1288,7 +1399,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 
 ### Experiment coverage across methods
 
-Status snapshot: **2026-10-07** (eight no-partner controls, ESM-2 confirmation, MLM dropout screen and four-arm benchmark smoke audited complete). **☑** experiment completed; **◐** partial or historical evidence; **↻** in progress; **☐** pending; **—** requires a pretrained AR adapter first. Completion means validation/development evidence exists, not that the final held-out comparison is finished. Pending cells are candidates, not a requirement to fill the entire matrix; prioritize the full matched benchmark and the controls needed for the paper's claims. The detailed checklists below specify the follow-up work.
+Status snapshot: **2026-10-08** (context-training studies and the seven-arm matched external validation benchmark audited complete). **☑** experiment completed; **◐** partial or historical evidence; **↻** in progress; **☐** pending; **—** requires a pretrained AR adapter first. Completion means validation/development evidence exists, not that the final held-out comparison is finished. Pending cells are candidates, not a requirement to fill the entire matrix; prioritize paired uncertainty, empirical baselines, leakage decisions and the controls needed for the paper's claims. The detailed checklists below specify the follow-up work.
 
 The [experiment-oriented results index](RESULTS.md) links each category to its saved evidence and ranks the next runs. Run `python scripts/organize_results.py` to regenerate the local `results/by_experiment/` view from the catalog; original timestamped batches remain the provenance records. Hyperparameter sweeps stay in their original folders and are excluded from this view.
 
@@ -1305,7 +1416,7 @@ The [experiment-oriented results index](RESULTS.md) links each category to its s
 | **[Conditioning/collapse diagnostics](results/by_experiment/conditioning_diagnostics/)** | ◐ Context sensitivity studied | ◐ Context-ablation results available | ◐ IgBert probes complete; generation and replication pending |
 | **[Length-free generation and length analysis](results/by_experiment/length_free_generation/)** | ☑ Length-head experiments | ☑ EOS/length analysis | ☑ Generation metrics; comparative analysis ongoing |
 | **[Decoding/sampling sensitivity](results/by_experiment/decoding_sampling/)** | ☑ Independent/iterative and sampling studies | ☑ Temperature/length study | ☐ Controlled sampling screen |
-| **[Matched external IgLM benchmark](results/by_experiment/external_iglm_benchmark/)** | ◐ Historical pilot and current smoke complete; full validation pending | ◐ Current smoke complete; full validation pending | ◐ Current smoke complete; full validation pending |
+| **[Matched external IgLM benchmark](results/by_experiment/external_iglm_benchmark/)** | ☑ OAS4 validation, two scratch seeds | ☑ OAS4 validation, two scratch seeds | ☑ OAS4 validation, two scratch seeds |
 | **[Additional seeds for selected contrasts](results/by_experiment/additional_seeds/)** | ◐ No-partner and dropout pairs at seeds 42/43 complete; broader stability/repeats pending | ☐ Seeds 44–46 | ◐ ESM-2 dropout seeds 44/45 complete; other contrasts/repeats pending |
 | **[Light-chain experiments under target-loop-specific splits](results/by_experiment/light_chain/)** | ◐ Historical runs; corrected split required | ☐ After split work | ☐ After split work |
 | **Final frozen protocol, uncertainty estimates and held-out evaluation** | ☐ | ☐ | ☐ |
@@ -1319,13 +1430,14 @@ MLM, AR, S2S and IgLM run on the **same frozen examples**, with matched attempt 
 1. **Fixed-length redesign (historical MLM/IgLM diagnostic).** Native H3 length supplied. Matches MLM's mask construction and permits position-wise recovery with the anchor/core split; IgLM's constrained/filter policies have the limitations described in §11.
 2. **Length-free infilling (current priority).** Only the flanking framework supplied. MLM predicts a length from one gap sentinel, then expands it into residue masks; AR, S2S and IgLM terminate naturally with EOS. Report validity, length error, edit similarity and conditional length-matched recovery with contributing populations.
 
-**Current OAS4 batch:** the [four-arm smoke audit](results/reviews/20261007-benchmark-smoke.md)
-passed on five diagnostic frameworks (100 attempts, 100 valid candidates, full judge coverage).
-The [seven-arm full recipe](benchmark/recipes/oas4_h3_length_free.md) is ready for the user to run:
-150 validation frameworks, 20 attempts, both scratch training seeds and one frozen IgLM pool.
-Full comparison scores, cluster-aware uncertainty and final held-out evaluation are still pending.
-The [handoff commands](#end-of-day-handoff--2026-10-07) are the next action; the earlier one-donor
-pilot below retains its original provenance and cannot supply rows for this table.
+**Current OAS4 batch: complete.** The smoke and [seven-arm full validation audit](results/reviews/20261008-benchmark-full.md)
+passed: 150 shared frameworks, 20 attempts, two scratch training seeds per method and one frozen
+IgLM pool; all 21,000 candidates are valid and judge-scored. [§16](#16-matched-oas4-length-free-validation-benchmark)
+reports the rows. The [empirical follow-up](results/reviews/20261008-benchmark-followup.md) is also complete:
+24,000 valid/judge-scored candidates, 13 primary fixed-pool paired contrasts and saved capacity/exposure.
+No completion rerun is needed. Local split-overlap checking is complete; external membership decisions
+and final held-out evaluation remain pending. The earlier one-donor pilot below retains its original
+provenance and is not pooled with OAS4.
 
 **Done — harness and first comparison (through 2026-08-21).** Versioned H3 manifests from the clustered OAS split; model-independent shared scorer; manifest-driven CDRSeqGen adapter (provenance-validated, checkpoint-hashed, resumable) and attempt-bounded IgLM adapter (kept outside the MLM backbone registry); explicit fixed-length policy (`constrain` default, `filter` audit mode); checkpoint-specific length head with bounded/inferred generation and migration tooling; separate `length_free` manifest/adapter/scorer contract; validated shared evaluator (AAR, diversity, novelty, entropy, length buckets, runtime, revision-pinned IgBert judge); official infill example reproduced (125/125 constrained draws valid, zero adapter failures). **Result: IgLM leads on both tracks** (§11) — recovery, length error, edit similarity and judge perplexity. Paired bootstrap ([`bootstrap.py`](benchmark/bootstrap.py), example as the resampling unit): **only 4 of 8 metrics resolve at 95%** — IgLM's judge-perplexity, length-MAE and edit-similarity leads hold, CDRSeqGen's diversity edge holds, and every recovery comparison is unresolved at n = 25. ⚠️ **Rescore on a clean tree before quoting** — stored scores carry `repository_dirty: true` at commit `0e7e499`, and the intervals must be regenerated after that rescore.
 

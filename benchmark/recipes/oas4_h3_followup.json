@@ -1,0 +1,15 @@
+{
+  "name": "oas4_h3_followup",
+  "source_batch": "results/benchmark/oas4_h3_length_free_20261007",
+  "smoke_source_batch": "results/benchmark/oas4_h3_length_free_smoke_20261007",
+  "corpus": "data/processed/processed_oas_multi.json",
+  "metadata": "data/processed/processed_oas_multi.metadata.json",
+  "baseline": "uniform training H3 records with replacement; no framework/native-length conditioning",
+  "analysis": {"iterations": 20000, "seed": 42, "primary_metric": "edit_similarity_mean"},
+  "limits": [
+    "Exploratory validation analysis selected after reviewing point estimates.",
+    "Bootstrap holds trained models and candidate pools fixed; it does not estimate training/generation variability.",
+    "Reconstructed representative groups must reproduce all stored split labels; no all-pairs/clonal guarantee.",
+    "IgLM/IgBert OAS pretraining overlap remains unresolved; final held-out evaluation is separate."
+  ]
+}

@@ -53,6 +53,7 @@ class VariableLengthEvalTests(unittest.TestCase):
         sampler = IgLMSampler.__new__(IgLMSampler)
         sampler.length_policy = "natural"
         sampler.max_length = 5
+        sampler.max_new_tokens = None
         sampler._starting_tokens = lambda _record: torch.zeros((1, 4), dtype=torch.long)
         sampler.prepare({"example_id": "x", "native_length": 100})
         self.assertIsNone(sampler.target_total_length)

@@ -59,14 +59,18 @@
     "no_partner_training_controls": "results/runs/20261006_140502_185951_no_partner_controls",
     "esm2_dropout_confirmation": "results/runs/20261007_013541_142543_esm2_dropout_confirmation",
     "mlm_no_partner_controls": "results/runs/20261007_144639_381443_mlm_no_partner_controls",
-    "mlm_dropout_screen": "results/runs/20261007_163535_226387_mlm_dropout_screen"
+    "mlm_dropout_screen": "results/runs/20261007_163535_226387_mlm_dropout_screen",
+    "oas4_length_free_validation": "results/benchmark/oas4_h3_length_free_20261007",
+    "oas4_empirical_followup": "results/benchmark/oas4_h3_followup_20261008"
   },
   "decoding_sampling": {
     "validation_oas_matrix": "results/runs/20260818_192606"
   },
   "external_iglm_benchmark": {
     "fixed_length_pilot": "results/benchmark/oas_h3_validation_smoke_v1",
-    "length_free_pilot": "results/benchmark/oas_h3_validation_length_free_v1"
+    "length_free_pilot": "results/benchmark/oas_h3_validation_length_free_v1",
+    "oas4_length_free_validation": "results/benchmark/oas4_h3_length_free_20261007",
+    "oas4_empirical_followup": "results/benchmark/oas4_h3_followup_20261008"
   },
   "additional_seeds": {
     "early_mlm_seed_check": "results/runs/20260730_160028_seedcheck",
