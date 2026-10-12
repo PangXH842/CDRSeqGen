@@ -45,8 +45,8 @@
   },
   "conditioning_diagnostics": {
     "igbert_three_arm_diagnostic": "results/runs/20260914_140305_226060_igbert_diagnostic",
-    "igbert_collapse_report": "results/diagnostics/20260914_igbert",
-    "igbert_diagnostic_summary": "results/diagnostics/20260915_igbert_summary"
+    "igbert_collapse_report": "results/misc/diagnostics/20260914_igbert",
+    "igbert_diagnostic_summary": "results/misc/diagnostics/20260915_igbert_summary"
   },
   "length_free_generation": {
     "ar_length_corrected": "results/runs/20260902_164544",

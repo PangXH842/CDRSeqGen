@@ -14,7 +14,10 @@ loop. Recipes name externals under `"externals"`; the completed batch's frozen r
 legacy `"iglm"` key, which the runner reads as one external. A batch may list externals without `arms`, and
 [`extend.py`](extend.py) merges such a batch into a finished comparison. The IgCraft protocol
 ([recipe](recipes/oas4_h3_igcraft.json), [commands and checks](recipes/oas4_h3_igcraft.md)) is the worked example;
-it has completed and been audited (see its Completion section).
+it has completed and been audited (see its Completion section). The flank-keyed retrieval references
+([recipe](recipes/oas4_h3_retrieval.json), [protocol and commands](recipes/oas4_h3_retrieval.md)) are prepared and await
+their user-run judge-scoring stage. [`variability.py`](variability.py) ([protocol](recipes/oas4_h3_variability.md)) turns the
+weekend queue's seeds, repeats, size scan and IgCraft temperature batches into hash-sealed tables and figures.
 
 ## Completed OAS4 three-method validation comparison
 

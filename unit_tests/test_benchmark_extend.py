@@ -124,6 +124,56 @@ class ExtensionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Frozen input changed'):
             execute(plan, self.root / 'late')
 
+    def references_batch(self):
+        """A second added batch: two parameter-free retrieval pools, as the retrieval recipe produces."""
+        self.added2 = self.root / 'added2'
+        generations = {label: write(self.added2 / f'generations/{label}.json', dict(finished_at='done', model=dict(parameters_network=0)))
+                       for label in ('retrieval', 'retrieval_j')}
+        runs = [dict(run(label, edit), input=dict(path=str(path), sha256=sha256_file(path)))
+                for (label, path), edit in zip(generations.items(), (.33, .32))]
+        write(self.added2 / 'plan.json', dict(arms=[], stage='full', externals=[dict(label=l, adapter='retrieval') for l in generations]))
+        write(self.added2 / 'scores/comparison.json', scores(*runs))
+
+    def test_extensions_chain_and_assign_reference_and_excluded_roles(self):
+        first_plan, first = self.extend()
+        self.references_batch()
+        plan = build_plan(first, self.added2, references=['retrieval'], exclude=['retrieval_j'])
+        self.assertEqual((plan['externals'], plan['references'], plan['excluded']),
+                         (['iglm', 'igcraft'], ['empirical', 'retrieval'], ['retrieval_j']))
+        self.assertEqual(plan['clusters'], str((self.base / 'clusters.json').resolve()))
+        second = self.root / 'extension2'
+        execute(plan, second)
+        analysis = json.loads((second / 'analysis.json').read_text())
+        expected = {('mlm', 'iglm'), ('mlm', 'igcraft'), ('mlm', 'empirical'), ('iglm', 'empirical'), ('igcraft', 'empirical'),
+                    ('retrieval', 'empirical'), ('mlm', 'retrieval'), ('iglm', 'retrieval'), ('igcraft', 'retrieval')}
+        self.assertEqual({tuple(pair) for pair in analysis['pairs']}, expected)
+        self.assertEqual(analysis['primary_comparison_family'], 9)
+        self.assertEqual(analysis['roles'], dict(externals=['iglm', 'igcraft'], references=['empirical', 'retrieval'], excluded=['retrieval_j']))
+        merged = json.loads((second / 'scores/comparison.json').read_text())
+        self.assertEqual([r['label'] for r in merged['runs']], ['mlm', 'iglm', 'empirical', 'igcraft', 'retrieval', 'retrieval_j'])
+        self.assertEqual(len(merged['source_scoring_provenance']), 3)
+        capacity = json.loads((second / 'capacity.json').read_text())['rows']
+        self.assertEqual([r['arm'] for r in capacity][-3:], ['igcraft', 'retrieval', 'retrieval_j'])
+        self.assertEqual((capacity[-1]['system_parameters'], capacity[-1]['timing_scope']), (0, 'No neural training'))
+        self.assertEqual(json.loads((first / 'complete.json').read_text())['added'], ['igcraft'])  # the earlier extension is untouched
+
+    def test_an_older_extension_plan_without_roles_still_chains(self):
+        _, first = self.extend()
+        old = json.loads((first / 'plan.json').read_text())
+        for key in ('clusters', 'references', 'excluded'):
+            old.pop(key)
+        (first / 'plan.json').write_text(json.dumps(old))
+        self.references_batch()
+        plan = build_plan(first, self.added2, references=['retrieval'], exclude=['retrieval_j'])
+        self.assertEqual(plan['references'], ['empirical', 'retrieval'])
+        self.assertEqual(plan['clusters'], str((self.base / 'clusters.json').resolve()))
+
+    def test_roles_must_name_added_arms_once(self):
+        self.references_batch()
+        for options in (dict(references=['mlm']), dict(exclude=['nope']), dict(references=['retrieval'], exclude=['retrieval'])):
+            with self.subTest(options), self.assertRaisesRegex(ValueError, 'must name added arms'):
+                build_plan(self.base, self.added2, **options)
+
     def test_short_candidate_coverage_needs_an_explicit_waiver(self):
         self.write_added(run('igcraft', .40, valid=SAMPLES - 1))
         with self.assertRaisesRegex(ValueError, 'Missing candidates'):

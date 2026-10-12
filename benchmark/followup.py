@@ -166,7 +166,7 @@ def merge_scores(original, added, labels=('empirical',), require_full=True):
                 value=metrics.get(metric)
                 if not isinstance(value,(int,float)) or not math.isfinite(value):
                     raise ValueError(f'Missing finite scored metric: {metric}')
-    return {**original,'runs':runs,'source_scoring_provenance':[original['scoring'],added['scoring']],
+    return {**original,'runs':runs,'source_scoring_provenance':original.get('source_scoring_provenance',[original['scoring']])+[added['scoring']],
             'created_at':datetime.now(ZoneInfo('Asia/Singapore')).isoformat()}
 
 

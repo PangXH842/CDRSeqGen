@@ -217,6 +217,22 @@ class PairTests(unittest.TestCase):
         self.assertNotIn(('iglm', 'igcraft'), pairs)
         self.assertEqual(len(pairs), len(set(pairs)))
 
+    def test_references_form_a_ladder_beneath_every_system(self):
+        labels = self.LOCAL + ['iglm', 'igcraft', 'empirical', 'retrieval']
+        pairs = planned_pairs(labels, externals=('iglm', 'igcraft'), references=('empirical', 'retrieval'))
+        self.assertEqual(len(pairs), 12 + 9 + 8)
+        self.assertEqual(len(pairs), len(set(pairs)))
+        self.assertIn(('retrieval', 'empirical'), pairs)
+        self.assertNotIn(('empirical', 'retrieval'), pairs)
+        self.assertEqual({a for a, b in pairs if b == 'retrieval'}, set(self.LOCAL) | {'iglm', 'igcraft'})
+        self.assertNotIn(('iglm', 'igcraft'), pairs)
+        self.assertEqual(planned_pairs(labels[:-1], externals=('iglm', 'igcraft')), planned_pairs(
+            labels[:-1], externals=('iglm', 'igcraft'), references=('empirical',)))
+
+    def test_one_label_cannot_be_an_external_and_a_reference(self):
+        with self.assertRaisesRegex(ValueError, 'no label in both roles'):
+            planned_pairs(['a', 'iglm', 'empirical'], externals=('iglm',), references=('empirical', 'iglm'))
+
     def test_missing_labels_are_rejected(self):
         for labels, externals in [(['a', 'empirical'], ('iglm',)), (['a', 'iglm'], ('iglm',)),
                                   (['a', 'iglm', 'empirical'], ()), (['a', 'a', 'iglm', 'empirical'], ('iglm',))]:

@@ -2,9 +2,10 @@
 
 An adapter turns a frozen manifest into candidate loops for one generator and writes them as JSON. The
 scorer, plots and paired analysis read only that JSON, so a generator may live in any environment and
-share no code with the rest of the repository. Four producers already meet this contract:
-`cdrseqgen.py` (trained checkpoints), `iglm.py` and `igcraft.py` (frozen external models) and `../empirical.py`
-(training-only reference, no model). `igcraft.py` is the worked example for a generator that needs inputs the
+share no code with the rest of the repository. Five producers already meet this contract:
+`cdrseqgen.py` (trained checkpoints), `iglm.py` and `igcraft.py` (frozen external models), `../empirical.py`
+(training-only reference, no model) and `retrieval.py` (flank-keyed training reference: no parameters, so the
+registry runs it in the main environment and the merge treats it as a reference pool rather than a generator). `igcraft.py` is the worked example for a generator that needs inputs the
 manifest does not carry: it takes IMGT flank regions from a table built once by `../export_regions.py` (flanks
 only, re-verified against `pt1`/`pt2`), rather than numbering strings or reading the corpus at run time.
 
@@ -87,5 +88,7 @@ unfinished run. Then run `blind_check.py` on a length-free manifest (it executes
 
 To put the new arm beside a finished comparison, run its recipe as a batch of its own (externals, no `arms`), then
 `scripts/run.sh benchmark extend run --added BATCH`: it merges the scores only if the manifest, judge revision and
-scoring policy match, runs the paired intervals over `planned_pairs(labels, externals=...)`, and extends the
-capacity table, leaving the base batch untouched. A worked protocol is `../recipes/oas4_h3_igcraft.md`.
+scoring policy match, runs the paired intervals over `planned_pairs(labels, externals=..., references=...)`, and
+extends the capacity table, leaving the base batch untouched. The base may be an earlier extension, so they chain.
+`--reference LABEL` makes an added arm a parameter-free reference pool compared with every system, and `--exclude LABEL`
+merges and scores it but keeps it out of the contrast family (a sensitivity check). A worked protocol is `../recipes/oas4_h3_igcraft.md`.

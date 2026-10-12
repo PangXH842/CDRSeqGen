@@ -10,6 +10,7 @@
 #   ./scripts/run.sh benchmark followup plan
 #   ./scripts/run.sh benchmark followup run --gpu 0
 #   ./scripts/run.sh benchmark extend plan --added results/benchmark/<batch of added externals>
+#   ./scripts/run.sh benchmark variability run [--references results/benchmark/<retrieval batch>]
 #   ./scripts/run.sh benchmark leakage plan
 #   ./scripts/run.sh benchmark leakage run --output results/benchmark/<audit>
 # See --help and configs/experiments/README.md.
@@ -25,6 +26,10 @@ case "${1:-}" in
         if [[ "${1:-}" == "followup" ]]; then
             shift
             exec "${PYTHON:-python}" benchmark/followup.py "$@"
+        fi
+        if [[ "${1:-}" == "variability" ]]; then
+            shift
+            exec "${PYTHON:-python}" benchmark/variability.py "$@"
         fi
         if [[ "${1:-}" == "extend" ]]; then
             shift

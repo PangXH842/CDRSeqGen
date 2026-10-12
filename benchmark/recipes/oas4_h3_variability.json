@@ -1,0 +1,10 @@
+{
+  "name": "oas4_h3_variability",
+  "main": "results/benchmark/20261009_183032_oas4_h3_igcraft_20261009_extension",
+  "seeds": "results/benchmark/20261009_weekend_seeds",
+  "repeats": "results/benchmark/20261009_weekend_repeats",
+  "capacity": "results/benchmark/20261009_weekend_capacity",
+  "igcraft_t1": "results/benchmark/20261009_weekend_igcraft_t1",
+  "references": null,
+  "analysis": {"iterations": 20000, "seed": 42, "anchor_trim": 2}
+}

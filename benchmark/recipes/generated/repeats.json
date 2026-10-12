@@ -1,0 +1,65 @@
+{
+  "name": "repeats",
+  "manifest": "benchmark/manifests/oas4_h3_validation_length_free_v1.json",
+  "smoke_manifest": "benchmark/manifests/oas4_h3_validation_length_free_smoke_v1.json",
+  "sampling": {
+    "num_samples": 20,
+    "smoke_num_samples": 5,
+    "temperature": 1.0,
+    "top_k": 0,
+    "top_p": 0.9,
+    "length_temperature": 1.0,
+    "seed": 42,
+    "max_new_tokens": 97
+  },
+  "judge": {
+    "name": "Exscientia/IgBert",
+    "max_len": 384
+  },
+  "endpoint": "Framework-averaged native edit similarity; length, diversity, conditional recovery and judge scores are supporting.",
+  "arms": [
+    {
+      "label": "mlm_s42_r1",
+      "method": "mlm",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261009_weekend_repeat_mlm_r1/h3_OAS4_scratch_mlm_scratch_no_partner_s42_r1"
+    },
+    {
+      "label": "ar_s42_r1",
+      "method": "ar",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261009_weekend_repeat_ar_r1/h3_OAS4_ar_scratch_ar_scratch_no_partner_s42_r1"
+    },
+    {
+      "label": "s2s_s42_r1",
+      "method": "s2s",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261009_weekend_repeat_s2s_r1/h3_OAS4_s2s_scratch_s2s_scratch_no_partner_s42_r1"
+    },
+    {
+      "label": "mlm_s42_r2",
+      "method": "mlm",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261009_weekend_repeat_mlm_r2/h3_OAS4_scratch_mlm_scratch_no_partner_s42_r2"
+    },
+    {
+      "label": "ar_s42_r2",
+      "method": "ar",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261009_weekend_repeat_ar_r2/h3_OAS4_ar_scratch_ar_scratch_no_partner_s42_r2"
+    },
+    {
+      "label": "s2s_s42_r2",
+      "method": "s2s",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261009_weekend_repeat_s2s_r2/h3_OAS4_s2s_scratch_s2s_scratch_no_partner_s42_r2"
+    }
+  ],
+  "limits": [
+    "Validation demonstration; no final test estimate or isolated architecture/pretraining effect.",
+    "IgLM/IgBert pretraining overlap with OAS is unresolved. Judge sees heavy chain only in every arm.",
+    "Saved checkpoints retain their real training source/runtime versions; inference/scoring use one frozen source snapshot.",
+    "Two training seeds; descriptive summaries. Cluster-aware intervals and fixed-seed repeat variability are separate work.",
+    "Arms are checkpoints of 6 later training batch(es), trained on the current source tree; the original six were trained before the 7 October command-interface refactor."
+  ]
+}

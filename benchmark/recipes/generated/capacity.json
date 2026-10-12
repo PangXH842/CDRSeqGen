@@ -1,0 +1,137 @@
+{
+  "name": "capacity",
+  "manifest": "benchmark/manifests/oas4_h3_validation_length_free_v1.json",
+  "smoke_manifest": "benchmark/manifests/oas4_h3_validation_length_free_smoke_v1.json",
+  "sampling": {
+    "num_samples": 20,
+    "smoke_num_samples": 5,
+    "temperature": 1.0,
+    "top_k": 0,
+    "top_p": 0.9,
+    "length_temperature": 1.0,
+    "seed": 42,
+    "max_new_tokens": 97
+  },
+  "judge": {
+    "name": "Exscientia/IgBert",
+    "max_len": 384
+  },
+  "endpoint": "Framework-averaged native edit similarity; length, diversity, conditional recovery and judge scores are supporting.",
+  "arms": [
+    {
+      "label": "mlm_M_s42",
+      "method": "mlm",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261009_weekend_capacity_mlm/h3_OAS4_scratch_mlm_scratch_no_partner_M_s42"
+    },
+    {
+      "label": "mlm_M_s43",
+      "method": "mlm",
+      "training_seed": 43,
+      "checkpoint": "results/runs/20261009_weekend_capacity_mlm/h3_OAS4_scratch_mlm_scratch_no_partner_M_s43"
+    },
+    {
+      "label": "mlm_L_s42",
+      "method": "mlm",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261009_weekend_capacity_mlm/h3_OAS4_scratch_mlm_scratch_no_partner_L_s42"
+    },
+    {
+      "label": "mlm_L_s43",
+      "method": "mlm",
+      "training_seed": 43,
+      "checkpoint": "results/runs/20261009_weekend_capacity_mlm/h3_OAS4_scratch_mlm_scratch_no_partner_L_s43"
+    },
+    {
+      "label": "mlm_XL_s42",
+      "method": "mlm",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261009_weekend_capacity_mlm/h3_OAS4_scratch_mlm_scratch_no_partner_XL_s42"
+    },
+    {
+      "label": "mlm_XL_s43",
+      "method": "mlm",
+      "training_seed": 43,
+      "checkpoint": "results/runs/20261009_weekend_capacity_mlm/h3_OAS4_scratch_mlm_scratch_no_partner_XL_s43"
+    },
+    {
+      "label": "ar_M_s42",
+      "method": "ar",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261009_weekend_capacity_ar/h3_OAS4_ar_scratch_ar_scratch_no_partner_M_s42"
+    },
+    {
+      "label": "ar_M_s43",
+      "method": "ar",
+      "training_seed": 43,
+      "checkpoint": "results/runs/20261009_weekend_capacity_ar/h3_OAS4_ar_scratch_ar_scratch_no_partner_M_s43"
+    },
+    {
+      "label": "ar_L_s42",
+      "method": "ar",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261009_weekend_capacity_ar/h3_OAS4_ar_scratch_ar_scratch_no_partner_L_s42"
+    },
+    {
+      "label": "ar_L_s43",
+      "method": "ar",
+      "training_seed": 43,
+      "checkpoint": "results/runs/20261009_weekend_capacity_ar/h3_OAS4_ar_scratch_ar_scratch_no_partner_L_s43"
+    },
+    {
+      "label": "ar_XL_s42",
+      "method": "ar",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261009_weekend_capacity_ar/h3_OAS4_ar_scratch_ar_scratch_no_partner_XL_s42"
+    },
+    {
+      "label": "ar_XL_s43",
+      "method": "ar",
+      "training_seed": 43,
+      "checkpoint": "results/runs/20261009_weekend_capacity_ar/h3_OAS4_ar_scratch_ar_scratch_no_partner_XL_s43"
+    },
+    {
+      "label": "s2s_M_s42",
+      "method": "s2s",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261009_weekend_capacity_s2s/h3_OAS4_s2s_scratch_s2s_scratch_no_partner_M_s42"
+    },
+    {
+      "label": "s2s_M_s43",
+      "method": "s2s",
+      "training_seed": 43,
+      "checkpoint": "results/runs/20261009_weekend_capacity_s2s/h3_OAS4_s2s_scratch_s2s_scratch_no_partner_M_s43"
+    },
+    {
+      "label": "s2s_L_s42",
+      "method": "s2s",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261009_weekend_capacity_s2s/h3_OAS4_s2s_scratch_s2s_scratch_no_partner_L_s42"
+    },
+    {
+      "label": "s2s_L_s43",
+      "method": "s2s",
+      "training_seed": 43,
+      "checkpoint": "results/runs/20261009_weekend_capacity_s2s/h3_OAS4_s2s_scratch_s2s_scratch_no_partner_L_s43"
+    },
+    {
+      "label": "s2s_XL_s42",
+      "method": "s2s",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261009_weekend_capacity_s2s/h3_OAS4_s2s_scratch_s2s_scratch_no_partner_XL_s42"
+    },
+    {
+      "label": "s2s_XL_s43",
+      "method": "s2s",
+      "training_seed": 43,
+      "checkpoint": "results/runs/20261009_weekend_capacity_s2s/h3_OAS4_s2s_scratch_s2s_scratch_no_partner_XL_s43"
+    }
+  ],
+  "limits": [
+    "Validation demonstration; no final test estimate or isolated architecture/pretraining effect.",
+    "IgLM/IgBert pretraining overlap with OAS is unresolved. Judge sees heavy chain only in every arm.",
+    "Saved checkpoints retain their real training source/runtime versions; inference/scoring use one frozen source snapshot.",
+    "Two training seeds; descriptive summaries. Cluster-aware intervals and fixed-seed repeat variability are separate work.",
+    "Arms are checkpoints of 3 later training batch(es), trained on the current source tree; the original six were trained before the 7 October command-interface refactor."
+  ]
+}

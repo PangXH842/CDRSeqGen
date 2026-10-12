@@ -1,0 +1,55 @@
+{
+  "name": "oas4_h3_retrieval",
+  "manifest": "benchmark/manifests/oas4_h3_validation_length_free_v1.json",
+  "smoke_manifest": "benchmark/manifests/oas4_h3_validation_length_free_smoke_v1.json",
+  "sampling": {
+    "num_samples": 20,
+    "smoke_num_samples": 5,
+    "temperature": 1.0,
+    "top_k": 0,
+    "top_p": 0.9,
+    "length_temperature": 1.0,
+    "seed": 42,
+    "max_new_tokens": 97
+  },
+  "externals": [
+    {
+      "label": "retrieval",
+      "adapter": "retrieval",
+      "options": {
+        "corpus": "data/processed/processed_oas_multi.json",
+        "key": "fr3tail12+fr4head6",
+        "sha256": "bd854ae32de886bc9b4466edf5d1aa3ade6c09847b622ceaa60cba395bbd5ad8"
+      }
+    },
+    {
+      "label": "retrieval_j",
+      "adapter": "retrieval",
+      "options": {
+        "corpus": "data/processed/processed_oas_multi.json",
+        "key": "fr4",
+        "sha256": "bd854ae32de886bc9b4466edf5d1aa3ade6c09847b622ceaa60cba395bbd5ad8"
+      }
+    },
+    {
+      "label": "retrieval_fine",
+      "adapter": "retrieval",
+      "options": {
+        "corpus": "data/processed/processed_oas_multi.json",
+        "key": "fr3tail20+fr4",
+        "sha256": "bd854ae32de886bc9b4466edf5d1aa3ade6c09847b622ceaa60cba395bbd5ad8"
+      }
+    }
+  ],
+  "judge": {
+    "name": "Exscientia/IgBert",
+    "max_len": 384
+  },
+  "endpoint": "Framework-averaged native edit similarity; length, diversity, conditional recovery and judge scores are supporting.",
+  "limits": [
+    "Reference arms, not generators: they sample training H3 loops whose flanks share a key with the framework. The key of `retrieval` (last 12 residues of FR3 plus first 6 of FR4) is the primary, fixed before the variants were scored; `retrieval_j` and `retrieval_fine` are sensitivity checks outside the planned contrast family.",
+    "Only the training split is searched, using the flank strings alone; no native, length, partner chain or antigen information is read.",
+    "A framework whose key never occurs in training uses the unconditional training pool; each record states which pool it used.",
+    "Validation demonstration; no final test estimate."
+  ]
+}

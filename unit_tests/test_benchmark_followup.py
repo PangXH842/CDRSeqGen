@@ -8,7 +8,9 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from benchmark.analysis import analyze, cluster_interval, planned_pairs
+import numpy as np
+
+from benchmark.analysis import analyze, cluster_interval, crossed_interval, planned_pairs
 from benchmark.capacity import gpt2_parameters, tensor_parameters
 from benchmark.empirical import draw_training_loops, generate, representative_clusters, training_pool, verify_splits
 from benchmark.followup import merge_scores, validate_plan
@@ -146,6 +148,47 @@ class IntervalTests(unittest.TestCase):
         labels=['mlm_s42','mlm_s43','ar_s42','ar_s43','s2s_s42','s2s_s43','iglm','empirical']
         self.assertEqual(len(planned_pairs(labels)),13)
         self.assertEqual(planned_pairs(labels).count(('iglm','empirical')),1)
+
+
+class CrossedIntervalTests(unittest.TestCase):
+    def data(self, seeds=1, spread=0.0, frameworks=60, shift=0.05):
+        rng = random.Random(7)
+        base = [rng.gauss(.4, .08) for _ in range(frameworks)]
+        a = [[x + shift + rng.gauss(0, spread) for x in base] for _ in range(seeds)]
+        b = [[x + rng.gauss(0, spread) for x in base] for _ in range(seeds)]
+        return a, b, list(range(frameworks))
+
+    def test_one_row_per_arm_reduces_to_the_cluster_interval(self):
+        a, b, groups = self.data()
+        crossed = crossed_interval(a, b, groups, iterations=20000)
+        plain = cluster_interval(a[0], b[0], groups, iterations=20000)
+        self.assertAlmostEqual(crossed['difference'], plain['difference'])
+        self.assertAlmostEqual(crossed['ci_low'], plain['ci_low'], delta=.004)
+        self.assertAlmostEqual(crossed['ci_high'], plain['ci_high'], delta=.004)
+        self.assertEqual((crossed['n_seeds_a'], crossed['n_seeds_b'], crossed['n_groups']), (1, 1, 60))
+
+    def test_training_variability_widens_the_interval(self):
+        a, b, groups = self.data(seeds=7, spread=.03)
+        crossed = crossed_interval(a, b, groups, iterations=20000)
+        frameworks_only = cluster_interval(np.mean(a, axis=0), np.mean(b, axis=0), groups, iterations=20000)
+        # About 1.7x with seed resampling and about 1.0x without it, so this cannot pass by random noise.
+        self.assertGreater(crossed['ci_high'] - crossed['ci_low'], 1.4 * (frameworks_only['ci_high'] - frameworks_only['ci_low']))
+        self.assertAlmostEqual(crossed['difference'], .05, delta=.02)
+
+    def test_a_fixed_pool_has_no_seed_variance_and_groups_are_resampled_whole(self):
+        a, b, _ = self.data(seeds=5, spread=.02, frameworks=6)
+        fixed = np.mean(b, axis=0)
+        result = crossed_interval(a, fixed, [0, 0, 1, 1, 2, 2], iterations=2000)
+        self.assertEqual((result['n_groups'], result['n_seeds_a'], result['n_seeds_b']), (3, 5, 1))
+
+    def test_degenerate_and_invalid_inputs(self):
+        a, b, groups = self.data(frameworks=6)
+        self.assertIsNone(crossed_interval(a, b, [0] * 6, iterations=1000)['ci_low'])
+        for args in [dict(a=a, b=b, groups=groups[:5]), dict(a=[], b=b, groups=groups), dict(a=[[float('nan')] * 6], b=b, groups=groups)]:
+            with self.assertRaises(ValueError):
+                crossed_interval(**args, iterations=1000)
+        with self.assertRaises(ValueError):
+            crossed_interval(a, b, groups, iterations=10)
 
 
 class AccountingTests(unittest.TestCase):

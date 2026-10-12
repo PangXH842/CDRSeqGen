@@ -92,12 +92,32 @@ def _igcraft_arguments(output, sampling, options):
     return arguments + ([] if options.get('compile', True) else ['--no-compile'])
 
 
+def _retrieval_check_record(record, sampling, options):
+    from benchmark.adapters.retrieval import KEYS
+    if options['key'] not in KEYS:
+        raise ValueError(f"unknown retrieval key {options['key']!r}; known: {', '.join(sorted(KEYS))}")
+    if not record['pt1'] or not record['pt2']:
+        raise ValueError(f"{record['example_id']} has an empty flank")
+
+
+def _retrieval_inputs(options):
+    return {options['corpus']: options.get('sha256')}
+
+
+def _retrieval_arguments(output, sampling, options):
+    return ['--output', str(output), '--corpus', options['corpus'], '--key', options['key']]
+
+
 EXTERNALS = {
     'iglm': External(script='benchmark/adapters/iglm.py', conda_env='iglm',
                      arguments=_iglm_arguments, check_record=_iglm_check_record),
     'igcraft': External(script='benchmark/adapters/igcraft.py', conda_env='igcraft', arguments=_igcraft_arguments,
                         packages=('torch', 'pytorch-lightning', 'numpy', 'anarci', 'igcraft'),
                         check_record=_igcraft_check_record, inputs=_igcraft_inputs),
+    # Not a generator: a parameter-free reference that runs in the main environment, listed here so it is planned,
+    # pinned, scored and merged exactly like the models it is compared with.
+    'retrieval': External(script='benchmark/adapters/retrieval.py', conda_env='cdrprj', arguments=_retrieval_arguments,
+                          packages=(), check_record=_retrieval_check_record, inputs=_retrieval_inputs),
 }
 
 

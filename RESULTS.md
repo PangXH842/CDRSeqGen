@@ -9,16 +9,19 @@ A batch can appear in several categories. Hyperparameter sweeps are excluded fro
 their summaries remain in `results/runs/*sweep*/`. This is an inventory, not a claim that
 experiments within a category used identical protocols.
 
-The October 7 control and MLM dropout category links are available. Full catalog regeneration
-still needs the historical `results/diagnostics/20260914_igbert` and
-`results/diagnostics/20260915_igbert_summary` folders restored; their catalog
-entries are preserved.
+The October 7 control and MLM dropout category links are available. The two IgBert report
+folders (`results/misc/diagnostics/20260914_igbert` and
+`results/misc/diagnostics/20260915_igbert_summary`) and the September reviews
+(`results/misc/reviews/`) were part of the 21 September migration archive and are kept under
+`results/misc/`, so the category view regenerates in full. The recovered reports keep their
+original internal paths and relative links (`results/diagnostics/...`, `results/reviews/...`);
+read them in place rather than editing them.
 
 | Experiment type | Results to read | What the evidence covers |
 | --- | --- | --- |
 | Scratch baseline | [validation OAS matrix](results/by_experiment/scratch_baseline/validation_oas_matrix/batch_tables.md), [AR length-corrected](results/by_experiment/scratch_baseline/ar_length_corrected/batch_tables.md), [S2S pair](results/by_experiment/scratch_baseline/s2s_scratch_pair/batch_tables.md), [three-method comparison](results/by_experiment/scratch_baseline/three_method_comparison/batch_tables.md) | Completed exploratory MLM/AR/S2S runs. The earliest 07-24 and 07-29 matrices and pre-validation 08-17 matrix are also indexed, but selected on the test partition or predate the validation-safe OAS rerun. |
 | Pretrained models | [S2S encoder matrix](results/by_experiment/pretrained_models/s2s_encoder_matrix/batch_tables.md), [validation OAS matrix](results/by_experiment/pretrained_models/validation_oas_matrix/batch_tables.md) | ESM-2/IgBert/ProtBert S2S encoders and older MLM ESM-2; no pretrained AR arm. These are system comparisons, not an isolated pretraining effect. |
-| Partner context | [three-method comparison](results/by_experiment/partner_context/three_method_comparison/batch_tables.md), [S2S encoder matrix](results/by_experiment/partner_context/s2s_encoder_matrix/batch_tables.md), [six AR/S2S no-partner controls](results/reviews/20261007-no-partner-controls.md), [two MLM controls](results/reviews/20261007-mlm-no-partner-controls.md), [context review](results/reviews/0915-0917-review.md) | Eight no-partner training controls are audited: scratch MLM, scratch AR, scratch S2S and ESM-2 S2S at seeds 42/43. MLM returns 6,000 candidates without an attempt-validity ledger. The new MLM dropout comparison completes six matched checkpoints and ten evaluations; [audit](results/reviews/20261007-mlm-dropout-screen.md). The September AR/S2S screen uses earlier source/runtime versions. |
+| Partner context | [three-method comparison](results/by_experiment/partner_context/three_method_comparison/batch_tables.md), [S2S encoder matrix](results/by_experiment/partner_context/s2s_encoder_matrix/batch_tables.md), [six AR/S2S no-partner controls](results/reviews/20261007-no-partner-controls.md), [two MLM controls](results/reviews/20261007-mlm-no-partner-controls.md), [context review](results/misc/reviews/0915-0917-review.md) | Eight no-partner training controls are audited: scratch MLM, scratch AR, scratch S2S and ESM-2 S2S at seeds 42/43. MLM returns 6,000 candidates without an attempt-validity ledger. The new MLM dropout comparison completes six matched checkpoints and ten evaluations; [audit](results/reviews/20261007-mlm-dropout-screen.md). The September AR/S2S screen uses earlier source/runtime versions. |
 | Context dropout | [AR/S2S screen](results/by_experiment/context_dropout/ar_s2s_screen/batch_tables.md), [October confirmation audit](results/reviews/20261007-esm2-confirmation.md) | AR/S2S screen at seeds 42/43, four audited ESM-2 trials at seeds 44/45, and the [completed four-run MLM screen](results/reviews/20261007-mlm-dropout-screen.md), each evaluated in both regimes. Historical and new batches retain their distinct source/runtime provenance. |
 | Pretrained vs random initialization | — | No same-architecture control yet. |
 | Frozen encoder | [IgBert diagnostic](results/by_experiment/frozen_encoder/igbert_three_arm_diagnostic/batch_tables.md) | Three-epoch frozen/trainable diagnostic at one seed; generation from the saved checkpoints is pending. |

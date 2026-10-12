@@ -10,20 +10,25 @@ METRICS = ['edit_similarity_mean', 'length_absolute_error_mean', 'length_match_r
            'core_aar_mean', 'judge_perplexity_mean', 'diversity_hamming']
 
 
-def planned_pairs(labels, externals=('iglm',)):
-    """Keep each neural seed explicit; use one pool per external generator and one empirical pool.
+def planned_pairs(labels, externals=('iglm',), references=('empirical',)):
+    """Keep each neural seed explicit; one pool per external generator; parameter-free references at the bottom.
 
-    Every local arm is compared with each external; every arm, externals included, with the empirical pool.
-    External pools are not compared with each other. The pair count is the Bonferroni family size, so
-    adding an external widens the family.
+    Every local arm is compared with each external. Every arm is compared with each reference except those listed
+    before it, so with references ('empirical', 'retrieval') the retrieval pool is compared with the empirical one,
+    and every system with both. External pools are not compared with each other. The pair count is the Bonferroni
+    family size, so each added arm or reference widens the family.
     """
-    externals = tuple(externals)
-    if (len(labels) != len(set(labels)) or 'empirical' not in labels or not externals
-            or not set(externals) <= set(labels)):
-        raise ValueError(f'Unique labels including empirical and every external {list(externals)} are required')
-    local = [label for label in labels if label not in {*externals, 'empirical'}]
-    return [(label, external) for external in externals for label in local] + [
-        (label, 'empirical') for label in labels if label != 'empirical']
+    externals, references = tuple(externals), tuple(references)
+    if (len(labels) != len(set(labels)) or not references or not externals
+            or not set(references) <= set(labels) or not set(externals) <= set(labels)
+            or set(externals) & set(references)):
+        raise ValueError(f'Unique labels including every reference {list(references)} and external {list(externals)} '
+                         'are required, with no label in both roles')
+    local = [label for label in labels if label not in {*externals, *references}]
+    pairs = [(label, external) for external in externals for label in local]
+    for position, reference in enumerate(references):
+        pairs += [(label, reference) for label in labels if label != reference and label not in references[:position]]
+    return pairs
 
 
 def cluster_interval(a, b, groups, iterations=20000, seed=42, family_size=1):
@@ -57,6 +62,48 @@ def cluster_interval(a, b, groups, iterations=20000, seed=42, family_size=1):
     low,high = np.quantile(differences, [.025,.975])
     alpha = .05/family_size
     family_low,family_high = np.quantile(differences, [alpha/2,1-alpha/2])
+    return {**point, 'ci_low': float(low), 'ci_high': float(high),
+            'family_ci_low': float(family_low), 'family_ci_high': float(family_high)}
+
+
+def crossed_interval(a, b, groups, iterations=20000, seed=42, family_size=1):
+    """Paired difference of two arms whose rows are training seeds and whose columns are frameworks.
+
+    Whole H3 groups are resampled as in cluster_interval, and independently for each arm its training seeds, so the
+    interval carries framework and training variability together. An arm with a single row is a fixed pool (a frozen
+    external model, a reference). A percentile bootstrap over a handful of seeds is slightly too narrow (roughly a
+    factor (n-1)/n in variance), so read these intervals as supporting rather than confirmatory.
+    """
+    a, b = (np.atleast_2d(np.asarray(arm, dtype=float)) for arm in (a, b))
+    if a.size == 0 or b.size == 0 or not (a.shape[1] == b.shape[1] == len(groups)):
+        raise ValueError('Nonempty arms with one column per framework are required')
+    if iterations < 1000 or family_size < 1:
+        raise ValueError('Use at least 1,000 resamples and a positive family size')
+    if not (np.isfinite(a).all() and np.isfinite(b).all()):
+        raise ValueError('Intervals require finite values')
+    unique = list(dict.fromkeys(groups))
+    point = dict(n_examples=a.shape[1], n_groups=len(unique), n_seeds_a=a.shape[0], n_seeds_b=b.shape[0],
+                 mean_a=float(a.mean()), mean_b=float(b.mean()), difference=float(a.mean() - b.mean()))
+    if len(unique) < 2:
+        return {**point, 'ci_low': None, 'ci_high': None, 'family_ci_low': None, 'family_ci_high': None,
+                'reason': 'Fewer than two contributing groups'}
+    owner = np.array([unique.index(group) for group in groups])
+    rng = np.random.default_rng(seed)
+    counts = rng.multinomial(len(unique), np.full(len(unique), 1 / len(unique)), size=iterations)
+    weights = counts[:, owner].astype(float)
+    weights /= weights.sum(axis=1, keepdims=True)          # framework weights of each resample; ratio estimator
+
+    def estimate(arm):
+        per_seed = weights @ arm.T                           # resamples x seeds: each seed's weighted framework mean
+        if arm.shape[0] == 1:
+            return per_seed[:, 0]
+        draws = rng.multinomial(arm.shape[0], np.full(arm.shape[0], 1 / arm.shape[0]), size=iterations)
+        return (draws * per_seed).sum(axis=1) / arm.shape[0]
+
+    differences = estimate(a) - estimate(b)
+    low, high = np.quantile(differences, [.025, .975])
+    alpha = .05 / family_size
+    family_low, family_high = np.quantile(differences, [alpha / 2, 1 - alpha / 2])
     return {**point, 'ci_low': float(low), 'ci_high': float(high),
             'family_ci_low': float(family_low), 'family_ci_high': float(family_high)}
 
