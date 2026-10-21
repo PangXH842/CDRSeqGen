@@ -1,96 +1,43 @@
 <!-- Note to AI: Edits allowed OUTSIDE of MANUAL PROTECTION ZONES and INSIDE of AI ACCESS ZONES, and DO NOT COMMIT ON MY BEHALF -->
 # CDRSeqGen: Modular Antibody Infilling Framework
 
-**Date Updated:** 2026-10-08
-**Status:** Context-training batches and the eight-arm matched validation benchmark/follow-up audited complete; 24,000 valid candidates with full judge coverage.
+**Date Updated:** 2026-10-21
+**Status:** Ready to draft the framework paper and abstract. The completed validation evidence includes seven training seeds per method, IgLM and IgCraft, empirical/retrieval references, same-seed repeats, capacity and sampling sensitivity, and context-dropout studies.
 
-**Next priority:** finalize framework documentation and [baseline coverage](benchmark/baseline_scope.md), then freeze the common final cohort/settings with external pretraining exposure stated. The empirical follow-up and [local split audit](results/reviews/20261008-leakage-audit.md) passed; no completion rerun is needed. Training/generation variability remains separate from the fixed-pool intervals.
+**Next priority:** consolidate the abstract and incorporate the newer evidence into the manuscript for the **1 November abstract deadline**. Detailed manual code review resumes **after abstract submission**. Final held-out evaluation remains a separate task; completed batches need no completion rerun.
 
-## Current handoff — 2026-10-08
+## Current handoff — 2026-10-21
 
-**Ready to reuse; no completion rerun needed:**
+**Ready to reuse:** all benchmark comparisons below use the same 150 OAS4 validation frameworks and 20 attempts per framework and arm. Context studies retain their original generator/judge context and source/runtime provenance. Counts overlap across analyses; do not add them as independent experiments.
 
-| Evidence | Completed | Audit / outputs |
+| Evidence | Completed | Results / verification |
 |---|---|---|
-| No-partner training controls | 8 checkpoints: MLM 2, AR 2, S2S 4 | [MLM audit](results/reviews/20261007-mlm-no-partner-controls.md), [AR/S2S audit](results/reviews/20261007-no-partner-controls.md) |
-| Selected ESM-2 dropout confirmation | 4 trials, seeds 44/45, both inference context regimes | [Audit](results/reviews/20261007-esm2-confirmation.md) |
-| Scratch MLM dropout screen | 4 trials, seeds 42/43, 8 evaluations | [Audit](results/reviews/20261007-mlm-dropout-screen.md); manuscript tables updated |
-| Matched MLM/AR/S2S + IgLM smoke | 4 arms × 5 frameworks × 5 attempts; 100 valid candidates, all judge-scored | [Audit](results/reviews/20261007-benchmark-smoke.md), [comparison plot](results/benchmark/oas4_h3_length_free_smoke_20261007/comparison.png) |
-| Matched MLM/AR/S2S + IgLM full validation | 7 arms × 150 frameworks × 20 attempts; 21,000 valid candidates, all judge-scored | [Audit](results/reviews/20261008-benchmark-full.md), [comparison plot](results/benchmark/oas4_h3_length_free_20261007/comparison.png) |
-| Empirical baseline + paired analysis | 3,000 new training-only draws; 8-arm comparison totals 24,000 valid/judge-scored candidates; 13 primary contrasts and capacity export | [Follow-up audit](results/reviews/20261008-benchmark-followup.md), [paired intervals](results/benchmark/oas4_h3_followup_20261008/analysis.md) |
-| Local split-overlap audit | All validation/test queries, including test→validation; original 3/150 benchmark neighbours verified; 14,818/15,273 candidate test records retained | [Completion audit](results/reviews/20261008-leakage-audit.md), [saved summary](results/benchmark/oas4_h3_leakage_20261008/summary.md) |
+| Scratch MLM / AR / S2S | Seven training seeds per method (42–48): **21 checkpoints** | [Original seeds 42/43](results/benchmark/oas4_h3_length_free_20261007/), [additional seeds](results/benchmark/20261009_weekend_seeds/), [combined analysis](results/benchmark/20261012_143836_oas4_h3_variability/variability.md) |
+| External generators | IgLM and IgCraft; IgCraft temperature 0.1 and 1.0 each have 3,000 valid, judge-scored candidates | [IgCraft comparison](results/benchmark/20261009_183032_oas4_h3_igcraft_20261009_extension/), [temperature sensitivity](results/benchmark/20261009_weekend_igcraft_t1/) |
+| Training-only references | Unconditional H3 sampling plus three flank-keyed retrieval variants; 3,000 valid, judge-scored candidates per arm | [Empirical follow-up](results/benchmark/oas4_h3_followup_20261008/), [retrieval outputs](results/benchmark/oas4_h3_retrieval_20261012/), [retrieval contrasts](results/benchmark/20261012_143807_oas4_h3_retrieval_20261012_extension/analysis.md) |
+| Same-seed repeats | Two additional seed-42 training runs per method; three runs per method including the original | [Saved candidates and scores](results/benchmark/20261009_weekend_repeats/), [repeat analysis](results/benchmark/20261012_143836_oas4_h3_variability/variability.md) |
+| Capacity study | Three larger sizes × two seeds × three methods: **18 additional checkpoints**, compared with the small models | [Saved outputs](results/benchmark/20261009_weekend_capacity/), [capacity figure](results/benchmark/20261012_143836_oas4_h3_variability/capacity.pdf) |
+| Context controls and dropout | Eight no-partner controls, four scratch MLM dropout trials and four selected ESM-2 confirmation trials; September AR/S2S screen retained | [MLM controls](results/reviews/20261007-mlm-no-partner-controls.md), [AR/S2S controls](results/reviews/20261007-no-partner-controls.md), [MLM dropout](results/reviews/20261007-mlm-dropout-screen.md), [ESM-2 confirmation](results/reviews/20261007-esm2-confirmation.md) |
+| Local split-overlap audit | All validation/test queries checked under the same-length ≥85% positional-identity rule; **3/150** benchmark frameworks affected; **14,818/15,273** candidate test records retained | [Audit](results/reviews/20261008-leakage-audit.md), [saved summary](results/benchmark/oas4_h3_leakage_20261008/summary.md) |
+| Independent evidence verification | Saved report dated **20 October: 852 passed, zero failed, one information note** (stale manuscript PDF) | [Verification report](../iAIM/verification/REPORT.md), [machine-readable checks](../iAIM/verification/report.json) |
 
-The smoke verifies integration; its length-stratified five-framework subset is not a performance
-estimate. IgLM has no native-length matches here, so its conditional recovery is undefined.
-Historical MLM training evaluations still lack attempt-validity accounting; the new benchmark
-adapter records every attempt.
+**What the paper can now show.** The framework makes allowed inputs, length policy, attempt accounting and scoring populations explicit across methods. The expanded results add a useful reference: primary flank retrieval reaches **0.3589** edit similarity versus **0.2817** for unconditional sampling. Seven-seed scratch means are **0.3918 MLM**, **0.3868 AR** and **0.3882 S2S**; IgLM scores **0.3880** and IgCraft **0.3769**. See [§17](#17-expanded-validation-evidence-seeds-retrieval-and-capacity) for the completed analyses and limits. The earlier eight-arm table in §16 is the original subset.
 
-**Completed batch — inspect or reproduce the audit:**
+**Writing order before submission:**
 
-```bash
-cd /mnt/hdd/pang/CDRSeqGen
-conda activate cdrprj
-./scripts/run.sh benchmark status results/benchmark/oas4_h3_length_free_20261007
-python results/reviews/20261008-benchmark-full-audit.py
-```
+1. Consolidate the newer abstract in [abstract.tex](../iAIM/abstract.tex) / [abstract_v2.txt](../iAIM/drafts/abstract_v2.txt) with [sections/0_abstract.tex](../iAIM/sections/0_abstract.tex), which still contains the older eight-arm summary.
+2. Bring the manuscript's methods, results, figures and discussion up to the verified October 9–12 evidence. Centre the unified framework; use retrieval, variability and context dropout as empirical demonstrations.
+3. State exploratory status, scoring populations, provenance and limitations; complete author details and obtain advisor/coauthor review.
+4. Build and inspect fresh PDFs and the submission package. [main.pdf](../iAIM/main.pdf), [abstract.pdf](../iAIM/abstract.pdf) and the [October 8 archive](../iAIM/iaim-draft-20261008.zip) are earlier snapshots, not the current evidence package.
 
-Six scratch checkpoints (MLM/AR/S2S × seeds 42/43) and one frozen IgLM baseline passed the audit.
-Generation and the shared IgBert judge use heavy-chain context only; older partner-present judge
-values are not copied into this comparison. The batch uses validation, leaving its reserved test
-partition unused. Mean edit similarities are close (0.3870–0.3919); IgLM has the lowest observed
-length MAE (3.707 residues). Conditional recovery populations differ, so retain their denominators.
-See [§16](#16-matched-oas4-length-free-validation-benchmark) for all seven rows.
+**Remaining experiment decision — final held-out evaluation.** Freeze the cohort, participating systems, checkpoint choices, decoding settings, primary comparisons and reporting before final inference. The 14,818 audit-eligible records are a candidate pool, not a frozen final manifest. Decide common length support, including IgCraft's 30-slot H3 support, and disclose unknown external pretraining membership. The current batch runner still selects validation; the final path needs preparation before execution. Further training follows a specific retained claim or necessary split revision, rather than another broad sweep.
 
-**Completed follow-up — inspect or reproduce the artifact audit:**
+The current matched OAS4 benchmark has used validation; historical test-selection caveats remain documented below. All current contrasts are exploratory. The newer analysis resamples training seeds and framework groups, while older intervals fix checkpoints; candidate-generation variability is not estimated by either. The seven-seed study covers no-partner scratch checkpoints, **not seven-seed dropout experiments**. Historical MLM training evaluations lack attempt-validity accounting; the benchmark adapters record every attempt. Different-length/gapped homology and [external pretraining membership](benchmark/pretraining_overlap.md) remain unresolved.
 
-```bash
-./scripts/run.sh benchmark followup status results/benchmark/oas4_h3_followup_20261008
-python results/reviews/20261008-benchmark-followup-audit.py
-```
+**Manual code review — deferred until after abstract submission.** Verification of saved results and passing tests do not mark the implementation as manually reviewed. Resume at [MLM training](cdrseqgen/methods/mlm/training.py), then [shared training](cdrseqgen/methods/common/training.py), [MLM losses](cdrseqgen/methods/mlm/losses.py) and [recovery](cdrseqgen/methods/mlm/recovery.py). Continue each chunk through MLM → AR → S2S → common using the [workflow map](cdrseqgen/methods/common/README.md). The manual reclamation checkboxes remain the record of your own review.
 
-The follow-up completed **8 October at 13:37 Singapore time**. Empirical edit similarity is
-**0.2817**, versus **0.3870–0.3919** for the learned systems. All seven learned-system-versus-
-empirical primary contrasts have positive Bonferroni family intervals. All six local-checkpoint-
-versus-IgLM intervals span zero; this does not establish equivalence. The original seven rows are
-unchanged, and the 3,000 new loops all trace to training records with no native-length/framework
-conditioning. The shared judge revision and policy match the original benchmark.
+**Reading older notes:** dated recipes, the baseline-scope memo and the results index contain preparation-time statements that precede these completions. Use this handoff, §17 and the linked saved outputs for current run status. No new broad training batch is needed before drafting. Experiment execution remains user-run.
 
-Recovered **145,172** representative H3 groups reproduce all **152,727** split labels. The benchmark
-contains **150 frameworks in 150 distinct groups**, so its group resampling reduces to paired
-framework resampling. Intervals fix candidate pools/checkpoints and exclude training/generation
-variance. Capacity and actual sequence-training exposure come from saved artifacts; historical GPU
-hardware and external pretraining compute are unavailable. See the [protocol](benchmark/recipes/oas4_h3_followup.md).
-
-The empirical reference, paired validation analysis and capacity export need no completion rerun.
-The [local split-overlap audit](benchmark/recipes/oas4_h3_leakage.md) completed **8 October at 14:58 Singapore time**
-and passed its [artifact review](results/reviews/20261008-leakage-audit.md). Inspect the saved outputs:
-
-```bash
-./scripts/run.sh benchmark leakage status results/benchmark/oas4_h3_leakage_20261008
-python results/reviews/20261008-leakage-audit.py
-```
-
-Of 15,273 queries per comparison, **429 validation→train**, **425 test→train** and **84 test→validation**
-have a same-length H3 neighbour at ≥85% positional identity. Exact H3/heavy/pair overlap is zero.
-The current benchmark has **3/150 affected frameworks**, confirming the historical recorded finding.
-The predeclared test exclusion rule retains **14,818/15,273 (97.02%)**, excluding 455; all four donors
-and originally represented test lengths retain records. These indices are a candidate cohort, not
-a frozen final manifest. Earlier benchmark results are unchanged; no completion rerun is needed.
-Different-length/gapped homology and [external pretraining membership](benchmark/pretraining_overlap.md)
-remain unresolved. Decide the common final cohort and [external baseline scope](benchmark/baseline_scope.md)
-before final inference; additional training follows the claims and any necessary split revision.
-
-**Code review resumes at:** [MLM training](cdrseqgen/methods/mlm/training.py), following the reviewed
-`train_cli.py` and `arguments.py`; trace its dataset setup and post-training generation, then
-[shared training](cdrseqgen/methods/common/training.py), [MLM losses](cdrseqgen/methods/mlm/losses.py)
-and [recovery](cdrseqgen/methods/mlm/recovery.py). The [workflow map](cdrseqgen/methods/common/README.md)
-connects the stages. Manual reclamation checkboxes record your own review progress.
-
-**Paper handoff:** [manuscript PDF](../iAIM/main.pdf), [abstract PDF](../iAIM/abstract.pdf),
-[Overleaf archive](../iAIM/iaim-draft-20261008.zip). Current tables include audited training
-results and the eight-arm external validation comparison. Results §3.1 now includes the empirical
-reference and paired intervals; the appendix records paired populations and capacity/actual
-sequence-training exposure. Final held-out evaluation remains pending.
 Deadlines: **1 November for abstracts; early December for posters**.
 
 ## Project Overview
@@ -123,8 +70,9 @@ Current implemented features include:
 **Evaluation**
 - **Sequence metrics**: length-matched amino-acid recovery (AAR), core/anchor recovery, positional and globally aligned BLOSUM62, edit similarity, length error, diversity, uniqueness and per-position entropy. `novelty_mean` is `1 - AAR` relative to the native loop.
 - **Confidence & plausibility**: generator self-perplexity and optional masked-LM judge pseudo-perplexity, plus confidence-ranking summaries. Cross-model judge comparisons require matched weights, tokenization, context and scoring populations; generator and judge context are configured separately.
-- **Matched external benchmark**: versioned manifests, MLM/AR/S2S and IgLM adapters, shared contract validation and scoring, and optional independent-judge perplexity. `run.sh benchmark plan|smoke|run|status|resume` uses a frozen recipe and reuses saved checkpoints.
+- **Matched external benchmark**: versioned manifests, MLM/AR/S2S, IgLM, IgCraft and training-only reference adapters, shared contract validation and scoring, and optional masked-LM judge perplexity. `run.sh benchmark plan|smoke|run|status|resume` uses a frozen recipe and reuses saved checkpoints; external generators have separate environments.
 - **Benchmark follow-up**: `run.sh benchmark followup plan|smoke|run|status|resume` reuses scored neural candidates, adds a training-only empirical baseline, verifies original H3 split groups, calculates paired group intervals and exports recorded capacity/compute. Its [protocol](benchmark/recipes/oas4_h3_followup.md) defines the fixed-pool estimand and reporting limits.
+- **Variability and reference analysis**: the completed `benchmark variability` analysis combines training seeds, fixed-seed repeats, capacity, IgCraft sampling sensitivity and retrieval references from saved artifacts. It reports crossed seed/framework intervals separately from the older fixed-pool comparisons; generation-pool variance remains unmeasured.
 
 **Engineering**
 - **Logging & visualization**: per-run `train.log` (the whole run's record, including the generative-eval table and any uncaught traceback), TensorBoard logging, csv metric extraction, multi-line graph plotter
@@ -134,7 +82,7 @@ Current implemented features include:
 
 ## Contents
 
-**Start here** · [Current handoff](#current-handoff--2026-10-08) · [Project overview](#project-overview) · [Repository structure](#-repository-structure) · [Environment setup](#-environment-setup)
+**Start here** · [Current handoff](#current-handoff--2026-10-21) · [Project overview](#project-overview) · [Repository structure](#-repository-structure) · [Environment setup](#-environment-setup)
 
 **[Workflow & Execution](WORKFLOW.md)** — how to run everything
 &nbsp;&nbsp;[Architecture overview](WORKFLOW.md#architecture-overview) ·
@@ -157,7 +105,7 @@ Current implemented features include:
 | [4 Historical MLM context comparisons](#4-sequence-context--partner-chain-and-antigen--gives-no-measurable-benefit) | [9 One hyperparameter inflated four findings](#9-one-un-audited-hyperparameter-inflated-four-findings-at-once) | [14 MLM/AR/S2S context-dropout evidence](#14-context-dropout-improves-missing-partner-robustness-across-mlm-ar-and-s2s) |
 | [5 The homology leak (immaterial for H3)](#5-the-homology-leak-was-real-but-immaterial-for-h3) | [10 Length-free exposes the length problem](#10-removing-native-h3-length-exposes-a-separate-unsolved-problem) | [15 ESM-2 learning-rate screen](#15-esm-2-learning-rate-tuning-improves-teacher-forced-recovery-more-clearly-than-generation) |
 
-**Latest:** [16 Matched OAS4 length-free validation benchmark](#16-matched-oas4-length-free-validation-benchmark)
+**Latest:** [17 Expanded validation evidence: seeds, retrieval and capacity](#17-expanded-validation-evidence-seeds-retrieval-and-capacity) · [16 Original matched validation comparison](#16-matched-oas4-length-free-validation-benchmark)
 
 **[🧠 Architectural Feature Details](#-architectural-feature-details)**
 &nbsp;&nbsp;[1 Task-agnostic masking](#1-task-agnostic-masking-the-lego-principle) ·
@@ -169,7 +117,7 @@ Current implemented features include:
 
 **[⚠️ Current Issues](#-current-issues)** · [Open problems](#open-problems) · [How to read the numbers](#how-to-read-the-numbers) · [Changelog](#changelog)
 
-**[⏭️ Roadmap](#-roadmap)** · [Active milestone — CDRSeqGen vs IgLM](#active-milestone--matched-cdrseqgen-vs-iglm-benchmark)
+**[⏭️ Roadmap](#-roadmap)** · [Active milestone — abstract submission](#active-milestone--abstract-submission)
 
 ---
 
@@ -1109,7 +1057,7 @@ The two runs return **6,000 nonempty canonical candidates** with complete judge 
 
 Dropping partner context only at inference substantially reduces native edit similarity for dropout-0 MLM. Training dropout 0.5 restores partner-absent similarity close to the no-partner-trained controls: gains **+0.2332/+0.2526**, versus the dropout-0 partner-trained models. Partner-present changes are **−0.0017/+0.0013**; unlike the AR/S2S screens, their directions differ. These observations do not establish equivalence, significance or a universal context-present cost. Length remains limited: match rates are 5.70–7.40%, and none of the four length heads beats the training-mode baseline on validation argmax accuracy or MAE. Conditional-recovery populations and all eight rows are in the audit.
 
-Final weights match the selected checkpoints (epochs 16/17/19/19), and all length-head artifacts passed integrity checks. Frozen launch-time source/runtime match the MLM controls. During this batch, MLM annotations changed and the same loss-config/logging statements moved after model loading; all other executable AST nodes match the frozen source. The command-interface refactor followed completion. The audit preserves snapshots and unchanged plan/ledger hashes; byte-identical code at every subprocess launch is not asserted. **No completion rerun is needed.** Next, freeze the framework benchmark's endpoints/populations and uncertainty plan, resolve leakage decisions, and prepare the matched MLM/AR/S2S plus IgLM validation comparison. Optional confirmation seeds/repeats should follow the intended claim and precision.
+Final weights match the selected checkpoints (epochs 16/17/19/19), and all length-head artifacts passed integrity checks. Frozen launch-time source/runtime match the MLM controls. During this batch, MLM annotations changed and the same loss-config/logging statements moved after model loading; all other executable AST nodes match the frozen source. The command-interface refactor followed completion. The audit preserves snapshots and unchanged plan/ledger hashes; byte-identical code at every subprocess launch is not asserted. **No completion rerun is needed.** The matched validation benchmark and its later extensions are now complete (§16–17); final held-out settings remain to be frozen. Additional dropout confirmation seeds/repeats should follow the intended claim and precision, separately from the completed seven-seed no-partner benchmark.
 
 #### 15. ESM-2 learning-rate tuning improves teacher-forced recovery more clearly than generation
 
@@ -1178,6 +1126,61 @@ The manuscript includes the eight-row validation/accounting tables, paired edit 
 vector figures, plus supporting population and capacity tables. Its final held-out table remains
 pending. All original and follow-up result artifacts are unchanged; audits verify hashes,
 training-only source indices, exact validation membership and independent baseline sequence metrics.
+
+---
+
+#### 17. Expanded validation evidence: seeds, retrieval and capacity
+
+The completed October 9–12 batches extend §16 on the same **150 validation frameworks**. The
+[sealed analysis](results/benchmark/20261012_143836_oas4_h3_variability/variability.md) combines
+seven training seeds per scratch method with external and training-only reference pools.
+All reported comparisons are exploratory; the cohort and candidate pools are reused.
+
+| System / reference | Training seeds | Native edit similarity | Interpretation |
+|---|---:|---:|---|
+| MLM scratch | 7 | 0.3918 ± 0.0017 | Mean ± training-seed SD |
+| AR scratch | 7 | 0.3868 ± 0.0014 | Mean ± training-seed SD |
+| S2S scratch | 7 | 0.3882 ± 0.0013 | Mean ± training-seed SD |
+| IgLM | Released checkpoint | 0.3880 | One candidate pool |
+| IgCraft, temperature 0.1 | Released checkpoint | 0.3769 | One candidate pool |
+| Unconditional training-H3 sampling | — | 0.2817 | No framework conditioning |
+| Primary flank retrieval | — | 0.3589 | Last 12 FR3 + first 6 FR4 residues |
+| FR4-only retrieval | — | 0.3469 | Sensitivity arm |
+| Finer-key retrieval | — | 0.3653 | Sensitivity arm |
+
+**Retrieval is a substantive reference.** The primary lookup captures 70–73% of the scratch
+models'/IgLM gain over unconditional sampling and 81% of IgCraft's gain. Scratch models and
+IgLM exceed it by 0.028–0.033; IgCraft by 0.018. All five method-level native-edit family
+intervals exclude zero in the seed-aware report. Retrieval-key development was exploratory;
+the two sensitivity arms are outside that primary contrast family. These findings concern
+native sequence similarity under the measured information budget, not binding quality.
+
+**Seed-aware comparisons replace a single ranking.** The analysis resamples framework groups
+and each method's training seeds. MLM–AR has a nominal 95% interval of [0.0011, 0.0089], but
+its family-adjusted interval is [-0.0008, 0.0108]. All three local-method-versus-IgLM native-edit
+intervals include zero. This does not establish equivalence. Anchor-trimmed core edit is a
+separate supporting endpoint, defined after the primary analysis; it is not conditional
+length-matched core recovery. Candidate-generation variability remains unmeasured.
+
+**Same-seed repeats and capacity are complete.** AR generates identical candidate sets across
+all three seed-42 runs; MLM and S2S vary, and one MLM repeat trains 20 epochs rather than 11.
+The 18-arm capacity study compares three larger sizes at seeds 42/43 with the small checkpoints:
+approximately 0.8–0.9M to 25–29M parameters changes native edit similarity by at most 0.0033.
+The learning rate was not retuned for size, so this does not establish a capacity ceiling.
+[Capacity figure](results/benchmark/20261012_143836_oas4_h3_variability/capacity.pdf) ·
+[Seed-spread figure](results/benchmark/20261012_143836_oas4_h3_variability/seed_spread.pdf).
+
+**IgCraft sampling sensitivity is complete.** Temperature 1.0 increases mean loop length from
+12.42 to 13.79 residues and diversity from 0.635 to 0.745, while edit similarity decreases
+from 0.3769 to 0.3506. The comparison remains method- and setting-specific; temperatures are
+not interchangeable across generator families.
+
+The [October 20 independent verification](../iAIM/verification/REPORT.md) covers the newer
+44 arms and 32 seed-aware contrasts, as well as the older paper evidence. An October 21
+read-only review also checked 74 saved variability input/output hashes with no mismatch.
+These are result checks, not completion of manual code review. Newer batches retain their
+recorded source/runtime provenance, including dirty working trees where recorded. Final
+held-out evaluation and the manuscript update remain pending; no completion rerun is needed.
 
 ---
 
@@ -1253,20 +1256,20 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **The `OAS4` corpus confounds donor with disease, by construction.** Jaffe 2022 contains exactly four donors and no more (all 580 catalogued paired runs probed 2026-09-03), and their conditions do not overlap: Donor-1 and Donor-2 are SARS-CoV-2, Donor-3 healthy, Donor-4 CMV. A donor-held-out split is therefore also a disease-held-out split, and neither effect can be attributed separately. Mitigated but not removed by every run being **Naive-B-Cells**: naive repertoires are largely pre-antigen-selection, so disease shapes them far less than it shapes memory or plasmablast compartments. Recorded before any `OAS4` experiment was run.
 - **More donors would cost B-cell-type purity.** 96 further donors exist across the other 18 paired studies, but only **one** naive paired run among them (Woodruff_2020); the rest are unsorted, memory, or plasmablast. Somatic hypermutation differs sharply between those compartments, and it lands hardest on the germline-encoded H1/H2 — the loops §6 already shows to be retrieval-bound. Any expansion past four donors must record `BType` per entry (`read_oas_metadata` does not capture it today) and stratify on it, or the heterogeneity becomes invisible in the merged corpus.
 - **`OAS4` results are not comparable to any earlier OAS number.** A different donor set is a different test split. The `oas_multi -> OAS4` tag keeps the two apart in run names and batch tables mechanically, but no table should place them on one axis — the same rule the `_OAS` / `_SD2` tags exist to enforce.
-- **H3 clustering does not guarantee pairwise separation.** The split clusters heavy CDR3 against representatives. The [September audit](results/misc/reviews/0903-0904-review.md) found same-length training neighbors at ≥85% identity for 3/150 evaluated OAS4 H3 frameworks; disjoint cluster IDs do not rule out such neighbors. Other loops have a separate exact-overlap problem: 98% of the older OAS test H1s occur in train (§6). Audit pairwise H3 separation and use target-loop clustering before interpreting non-H3 results as generalisation.
+- **H3 clustering does not guarantee pairwise separation.** Representative clustering permits same-length training neighbours at ≥85% identity across named splits. The [completed October audit](results/reviews/20261008-leakage-audit.md) confirms 3/150 affected benchmark frameworks and retains 14,818/15,273 candidate test records after exclusions. Final cohort selection is pending. Different-length/gapped homology and non-H3 target-loop separation remain separate questions; 98% of the older OAS test H1s occur in train (§6).
 - **H3 length is close to unpredictable from the framework, and every learned method is below the achievable ceiling.** A non-neural lookup — group training examples by (last 12 residues of FR3 | first 6 of FR4), a crude V/J-gene proxy, and take the modal H3 length — reaches **11.07% exact / 3.01 MAE** on the OAS4 validation split, covering 98.3% of it. Against that: the §10 length head 9.24% / 3.64, causal `<eos>` 7.23% / 4.00, and always predicting the global mode 10.12% / 3.53. So there IS signal (MAE 3.01 against a constant's 3.53, a 15% reduction) but very little, and **neither learned method captures even that much**. Three interventions moved nothing — decoding temperature, a 10x learning-rate range, and 7x more data — which is what a near-flat ceiling predicts. The same verdict holds on the older split the length head was measured on: 9.24% / 3.64 against 10.52% / 3.28 for always predicting length 15 (§10) — below its naive baseline there too. Treat length accuracy as a property to report against these baselines, not a target to optimise; the V/J lookup should replace the global mode as the reference number. Before treating inferred MLM generation as competitive, evaluate probability calibration and top-k length coverage, then test a representation or objective that actually learns the framework-to-length signal.
 - **Training still optimizes recovery, not design.** The masked-LM objective rewards reproducing the native loop; the generative metrics only *measure* design quality after the fact — nothing trains for it. Findings §7 shows the two can disagree outright (H1: 0.99 recovery, 0.002 diversity). A design-aligned objective stays open (Phase 2). Re-weighting tokens *within* the masked-LM objective has now been tested and does not help (§13), so this needs a different objective class rather than a better weighting.
-- **Run-to-run nondeterminism exceeds the seed spread, and only seeds are ever reported.** The strongest evidence is qualitative: on 2026-09-14 the IgBert + partner collapse **failed to reproduce** at the same seed and settings — the 09-13 run degraded through epoch 2 (loss 1.7379 → 1.7684, anchor 0.8819 → 0.8135) while the replay improved (1.745 → 1.651, 0.8757 → 0.8820). Same nominal configuration, opposite outcomes. The quantitative case is older and milder: two bit-identical objectives at identical seeds — `cross_entropy` and `weighted 1.0/1.0`, differing only in floating-point reduction order — ended 0.0014 apart in teacher-forced core, all three seeds in the same direction, against a within-objective seed sd of 0.0003–0.0007 (§13). So a seed sd *understates* reproducibility by at least 2–4× on stable runs and can miss a total training failure on unstable ones, which bears directly on the ±0.006 tie threshold in `sweep.sh` and the σ ≈ 0.0028 noise floor in §4. Every "error bar" in this README is a seed spread and should be read as a lower bound. Cheap fix: keep one duplicated setting per sweep as a deliberate determinism control.
+- **Training variability has now been measured for the scratch benchmark.** Seven seeds per method, two additional identical-config seed-42 runs per method, and crossed seed/framework intervals are complete (§17). AR repeats produce identical candidates; MLM and S2S do not. Historical loss/context studies retain their own seed counts and uncertainty limits, and the IgBert collapse/non-reproduction remains a separate instability case. Seed spread, fixed-seed repeat variation and evaluation-population uncertainty describe different sources of variation; generation-pool variance is still unmeasured.
 - **Loss-sweep selection and ranking are separate.** The shared runner now defaults the `loss` preset to whole-span checkpoint selection (`SELECT_METRIC=accuracy`) and judge-perplexity ranking (`RANK_METRIC=judge_ppl`). This makes anchor collapse visible to selection, but does not train directly for design quality. Historical loss-screen results retain their original checkpoint-selection policy; new summaries label both selection and ranking metrics.
 - **Scratch and pretrained S2S have completed initial experiments.** The [September 8 comparison](results/runs/20260908_173143_compare/batch_tables.md) contains six completed runs. Without partner context, judge perplexity is 7.512 / 3.154 / 3.215 for MLM / AR / S2S, with inferred length for MLM and EOS termination for AR/S2S. This is one training seed, and conditional recovery uses different length-matched subsets. It does not establish an AR-versus-S2S winner. The [first S2S PLM matrix](#s2s-pretrained-encoders-results-and-next-runs) also completed all six runs: judge perplexity is 3.441–4.132, with no improvement over the earlier scratch S2S reference. Unequal capacities/budgets, one seed, and incomplete convergence prevent attributing this to pretraining; IgBert + partner has confirmed encoder representation collapse ([diagnostics](results/misc/diagnostics/20260914_igbert/REPORT.md)), but the 2026-09-14 replay at the same seed and settings did **not** reproduce it (`20260914_140305_226060_igbert_diagnostic`), so its trigger, incidence and remedy remain open; this rerun did not reproduce collapse within three epochs.
-- **The S2S LR screen and shipped defaults use different optimizer settings.** The [six-trial scratch screen](results/runs/20260907_204721_sweep_lr/summary.tsv) tested LR 1e-4 / 3e-4 / 1e-3 at warmup 0.06 and decay 0.01, seeds 42/43; 3e-4 has the lowest mean judge perplexity in that screen. The fresh comparison and current scratch configs use LR 1e-4 with zero warmup/decay. A sweep does not automatically promote its settings into configs. New PLM configs start at LR 3e-5 with warmup 0.06 and decay 0.01 and still need tuning.
-- **The `compare` suite's three arms are matched on protocol but not on capacity.** Corpus, split, evaluation frameworks, candidate count, `top_p`, `max_len`, judge and seed all match; parameter counts do not. `ar` is 800k, and `s2s` is 933k (1.17x) even after pinning its stacks to 2/2 — the closest match that keeps real depth on both sides, since the nearest-by-count alternative needed a single-layer encoder and would have gutted the one thing the method exists to test. The counts are logged in every `train.log`; **quote them in any table**, and do not read a 1.17x-larger model's win as an architecture result until the `arch` sweep separates the two.
+- **The S2S LR screen and shipped defaults use different optimizer settings.** The [six-trial scratch screen](results/runs/20260907_204721_sweep_lr/summary.tsv) tested LR 1e-4 / 3e-4 / 1e-3 at warmup 0.06 and decay 0.01, seeds 42/43; 3e-4 has the lowest mean judge perplexity in that screen. The fresh comparison and current scratch configs use LR 1e-4 with zero warmup and zero weight decay; the Trainer's linear schedule still decays the LR to zero at the 20-epoch maximum (checked against the logged LR of all 16 scratch/ESM-2 control runs). A sweep does not automatically promote its settings into configs. New PLM configs start at LR 3e-5 with warmup 0.06 and decay 0.01 and still need tuning.
+- **The `compare` suite's three arms are matched on protocol but not on capacity.** Corpus, split, evaluation frameworks, candidate count, `top_p`, `max_len`, judge and seed all match; parameter counts do not. `ar` is 800k, and `s2s` is 933k (1.17x) even after pinning its stacks to 2/2 — the closest match that keeps real depth on both sides, since the nearest-by-count alternative needed a single-layer encoder and would have gutted the one thing the method exists to test. The counts are logged in every `train.log`; **quote them in any table**, and do not read a 1.17x-larger model's win as an isolated architecture result. The completed capacity scan (§17) adds evidence under a fixed training recipe, but does not equalize tuning effort or isolate architecture effects.
 - **The causal method's plausibility advantage is judge-specific, and a native-referenced metric contradicts it.** On OAS4 H3 the causal model reaches judge perplexity 3.15 against masked 9.35 at equal recovery — but BLOSUM62 global alignment over retained non-empty candidates puts it behind: 0.146 against 0.199. The two disagree because both are confounded by length in opposite directions: the aligned score charges gap penalties for the 93% of causal draws whose length is wrong, while the masked arm is handed the native length and never pays one; judge perplexity is length-blind and native-free, so it is indifferent to exactly what causal is bad at. Neither is a clean method comparison until both arms predict their own length (the `compare` suite). Also worth recording: **core BLOSUM is ~0 for every H3 model** (causal 0.020, masked -0.001, ESM-2 0.003) — core substitutions are on average no better than the matrix expects between unrelated residues, which exact-match core recovery of ~0.20 made look like partial credit.
 - **The judge shares the eval distribution.** IgBert was trained on OAS paired repertoires — the same distribution as the OAS eval split it judges. It's applied identically to every model, so the *comparison* is fair, but absolute perplexities are OAS-flavoured; an off-distribution judge would be a stronger check.
 - **Generative sweep is H3/OAS only.** The matrix covered CDR-H3 on OAS (150 held-out frameworks × 4 models). L-chain loops, SAbDab2, and the antigen configs have not been swept generatively.
 - **Sampler is marginal-based, not learned-joint — now measured.** The `iterative` (Mask-Predict) decoder approximates the loop joint by conditioning on committed residues, but the model is still a masked-LM trained on independent-position recovery. As of 2026-07-28 this is no longer a suspicion: iterative and `independent` are **within noise on every metric** on H3/OAS/ESM-2 (recovery 0.4057 vs 0.4072; judge-ppl 7.14 vs 7.23) at ~15× the compute. The conditioning buys nothing because the learned marginals are already near-independent — AR and S2S now provide autoregressive training paths; their free-running evaluations must be assessed separately from this historical MLM decoding comparison.
 - **Three runs hit their epoch ceiling, all of them context runs.** `h1_OAS_LC`, `h1_SD2_LC` and `l3_OAS_HC` (all scratch) peaked at their final epoch, 20 of 20, in [`20260818_192606`](results/runs/20260818_192606) — the batch the Findings tables quote. Their numbers are lower bounds, so the §4 partner-chain penalty (−0.0102) is an upper bound on the true effect. A scratch-only sweep at 30–40 epochs would settle it (~1 hour; scratch is 60 of the batch's 226 minutes). The earlier 07-29 batch had five such runs; `h2_OAS_LC`, `h3_OAS_LC` and `l1_OAS_HC` no longer hit the ceiling in the 08-18 re-run.
-- **Uncertainty coverage is incomplete.** MLM context/loss studies and LR screens include multiple seeds, and the IgLM comparison has paired bootstrap intervals. The fresh three-method comparison and the S2S PLM matrix are still single-seed. Seed spread, repeated-run variation, and uncertainty across evaluation frameworks measure different things; small method/context differences — light chain hurting scratch by ~0.01 while staying neutral for ESM-2, for example — need matched replication and error bars before they can be claimed.
+- **Uncertainty coverage depends on the study.** The expanded no-partner scratch benchmark has seven seeds per method and paired seed/framework analysis (§17). Historical context/dropout, loss, LR and PLM comparisons retain their original replication levels. Do not apply the seven-seed benchmark's uncertainty to those studies or claim equivalence from an interval that includes zero.
 - **Every batch through 2026-08-17 selected checkpoints on the test split.** Not just the 07-29 runs: `eval_split` defaulted to empty, which fell back to "every non-train entry", and `processed_oas_data.json` has only `train`/`test` — so early stopping, `load_best_model_at_end`, the reported `eval_*` metrics, and `generation_eval.json` all read the final holdout. The 08-17 post-refactor batch (`results/runs/20260817_200051`) is affected too; its logs read `2111 eval (split: all non-train)`. **Fixed 2026-08-18**: `get_datasets` now refuses an unset `eval_split` whenever a `test` split exists, and the 36 OAS configs declare `processed_oas_tuning.json` + `eval_split: validation`. **Resolved for OAS 2026-08-31**: the matrix was re-run as `results/runs/20260818_192606` and every Findings table now quotes it, so the OAS numbers are validation-selected and the test partition is untouched. Two things still stand: the **SAbDab2** rows come from configs declaring `eval_split: test` and remain selection-on-holdout (see the SAbDab2 entry below), and any figure elsewhere in this README still sourced from a pre-08-18 batch — the Step 4 decoding table, the §12 confidence numbers, and the §3 position breakdown — has not been re-derived and stays exploratory.
 - **Neither fixed-length policy is unbiased — report both.** *(Re-run 2026-08-21; see Findings §11.)* `constrain` corrupts IgLM's loop endings; `filter` is fair per-example but drops the frameworks IgLM cannot length-match (5 of 25, skewing long), so it scores an easier subset. Current practice: report `filter` on a matched population and state the dropout. A policy that is unbiased in both respects — e.g. raising the attempt budget until every framework is covered, or reporting per-length-bucket — is still open. Historical note on `constrain`: IgLM's `constrain` policy sets `min_length = max_length = native_length`, which suppresses its end-of-span logit until that length is reached — so it writes past its loop into FR4. Only 2% of constrained loops carry the J-gene motif against 20% naturally (Findings §11), and every fixed-length CDRSeqGen-versus-IgLM number is inflated in CDRSeqGen's favour. Re-run with the adapter's `filter` mode (retain only naturally length-matched draws; ~12 attempts per accepted candidate at IgLM's 8.4% match rate) before making any fixed-length claim. The length-free track is unaffected — IgLM uses natural EOS there.
 - **SAbDab2 has no validation partition.** Its split comes from the source `ab_ag_split` column, which is `train`/`test` only, so its 12 configs now declare `eval_split: test` — honest, but still selection on the holdout. A three-way SAbDab2 split (or a fixed validation carve-out of its train partition) is needed before any SAbDab2 comparison is reportable.
@@ -1307,8 +1310,10 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
+- **2026-10-21** -- Refreshed the handoff and roadmap for abstract-first writing. Recorded completed IgCraft/retrieval, seven-seed, same-seed repeat and capacity evidence; linked the October 20 verification (852 pass, zero fail, one stale-PDF note) and added §17. Final held-out evaluation remains pending. Detailed manual code review resumes after abstract submission; manual reclamation checkboxes are unchanged. No experiments were launched.
+- **2026-10-12** -- Independently verified the manuscript and the weekend/retrieval results against the raw run outputs (`/mnt/hdd/pang/iAIM/verification/` [new]; `python verification/run_all.py --project-root ../CDRSeqGen`, CPU, ~3 min; start with `FINDINGS_2026-10-12.md`, every check is in `REPORT.md`). Metrics, bootstrap intervals, the H3 clustering and split allocation (all 152,727 labels), neighbour counts, logs, provenance, the IgBert judge (CPU sample) and the plotted data of Figures 2-7 are re-implemented without importing `cdrseqgen/` or `benchmark/`; 832 checks (831 pass, 1 note: `main.pdf` predates today's edits) and a self-test catches 20/20 corrupted tables. One protocol-table statement was misleading ("no warmup/decay" hid a linear LR decay to zero over the 20-epoch maximum) and is fixed, as are three over-stated claims in the next entry. Not yet in the paper: the flank-keyed retrieval reference (0.3589) captures 70-81% of the learned systems' gain over unconditional sampling (they still beat it by +0.028 to +0.033, Bonferroni intervals positive); several weekend batches record a dirty working tree although the scoring code is byte-identical in every batch plan.
 - **2026-10-12** -- Added `benchmark/variability.py` [new] (`run.sh benchmark variability`; protocol `benchmark/recipes/oas4_h3_variability.md`): hash-sealed seed-variability, same-seed determinism, capacity and sampling-sensitivity analysis from the saved batches, with seed-aware contrasts (`analysis.crossed_interval` [new]: H3 groups and each arm's seeds resampled together) and a core-trimmed supporting endpoint, plus two figures. CPU-only; runs in ~10 s; final run waits for the retrieval reference batch (`--references`).
-- **2026-10-12** -- Audited the 9-12 October weekend queue (user-run, 17/17 stages, 40 new arms, all 3,000 valid and judge-scored, source tree unchanged): `blind_check` passes for all eight adapters on GPU; seeds 44-48 (7 seeds per method: MLM 0.3918, S2S 0.3882, AR 0.3868 +- ~0.0015; only MLM - AR excludes 0 once seed and framework uncertainty are both counted); same-seed repeats (AR candidates identical, S2S/MLM vary ~0.001-0.002, one MLM repeat trained 20 epochs vs 11; the 7 Oct refactor left no trace); capacity 0.8M -> 25-29M flat (<= 0.003); IgCraft at temperature 1.0 scores 0.3506 with longer loops (13.8 vs 12.4). Prepared flank-keyed retrieval reference arms (`benchmark/adapters/retrieval.py` [new], `benchmark/recipes/oas4_h3_retrieval.{json,md}`; `extend.py` now chains and takes `--reference`/`--exclude`; `planned_pairs` takes `references`): a feasibility check showed retrieval from the flanks alone reaches ~0.355-0.359 (unconditional 0.282, learned 0.387-0.392), i.e. 70-80% of the learned gain. The judge-scoring stage is user-run and pending.
+- **2026-10-12** -- Audited the 9-12 October weekend queue (user-run, 17/17 stages, 40 new arms, all 3,000 valid and judge-scored, source tree unchanged): `blind_check` passes for all eight adapters on GPU; seeds 44-48 (7 seeds per method: MLM 0.3918, S2S 0.3882, AR 0.3868 +- ~0.0015; only MLM - AR excludes 0 once seed and framework uncertainty are both counted, at the marginal 95% level [+0.0011, +0.0089]; its Bonferroni interval over the 16 contrasts [-0.0008, +0.0108] includes 0); same-seed repeats (AR candidates identical in 150/150 frameworks and weights within 4e-6; MLM 0/150 and S2S 6-9/150 identical, edit similarity ranges 0.0023 and 0.0012, one MLM repeat trained 20 epochs vs 11; the pre-refactor seed-42 run differs from the post-refactor repeats no more than the repeats differ from each other, so no refactor effect is detectable beyond run-to-run nondeterminism); capacity 0.8M -> 25-29M nearly flat (|change| <= 0.0033 = 2.0 seed sd: MLM +0.0028 to +0.0033 at every larger size, AR -0.0011 to -0.0018, S2S +0.0003 to +0.0012); IgCraft at temperature 1.0 scores 0.3506 with longer loops (13.8 vs 12.4). Prepared flank-keyed retrieval reference arms (`benchmark/adapters/retrieval.py` [new], `benchmark/recipes/oas4_h3_retrieval.{json,md}`; `extend.py` now chains and takes `--reference`/`--exclude`; `planned_pairs` takes `references`): a feasibility check showed retrieval from the flanks alone reaches ~0.355-0.359 (unconditional 0.282, learned 0.387-0.392), i.e. 70-80% of the learned gain. The user then ran and scored them (2026-10-12): retrieval 0.3589, retrieval_j 0.3469, retrieval_fine 0.3653, i.e. 70-81%, 59-69% and 76-88% of the learned gain.
 - **2026-10-09** -- Audited the completed IgCraft external-generator batch (user-run): `blind_check` pass; 150 frameworks x 20 attempts, 3,000/3,000 valid, 0 failures, all judge-scored; 9-run merged comparison and 20-contrast paired family in `results/benchmark/20261009_183032_oas4_h3_igcraft_20261009_extension`, with the base batch untouched. IgCraft edit similarity 0.3769 (scratch arms 0.3870-0.3919, IgLM 0.3880, empirical 0.2817); its H3 lengths are compressed (mean 12.4 vs native 16.3). ~300M parameters; exposure to these donors unverified. Added `igcraft` env (`/mnt/hdd/pang/envs/igcraft`), `benchmark/adapters/igcraft.py`, `export_regions.py`, `extend.py` [all new]; protocol and audit in `benchmark/recipes/oas4_h3_igcraft.md`. No rerun is needed.
 - **2026-10-09** -- Generalized the benchmark runner from one hard-wired external (`iglm`) to a registry of external generators: `benchmark/externals.py` [new], `run.py` plans/launches/fingerprints each external in its own environment (`--external-python LABEL=PATH`; recipes may list `externals` and omit `arms`), `analysis.planned_pairs` takes any set of externals. Saved plans and the frozen recipe still read unchanged; `scorer.py`, `_common.py` and `cdrseqgen/eval/` are untouched because the follow-up freezes their hashes. Added `benchmark/blind_check.py` [new] (adapter information-budget invariance test, user-run) and `benchmark/adapters/README.md` [new] (adapter contract). Needs review before reclaiming `benchmark/`; `followup.py` and `capacity.py` remain IgLM/empirical-specific.
 - **2026-10-08** -- Audited the completed local split-overlap batch: 180 sealed query chunks, verified corpus allocation and saved closest-pair identities, 3/150 benchmark neighbours, and 14,818/15,273 candidate test records retained under the declared rule. Earlier benchmark artifacts are unchanged; external exposure and final cohort selection remain pending. Recorded [baseline coverage guidance](benchmark/baseline_scope.md): current IgLM/empirical references support a focused framework demonstration; a broader comparison should add a compatible external generator.
@@ -1376,77 +1381,48 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ## ⏭️ Roadmap
 
 <!-- AI ACCESS ZONE BEGINS -->
-> **Objective-first:** the target is **CDR-H3 design**. **Phase 1** = a leakage-controlled *sequence benchmark* (historical MLM settings plateau near 0.32 masked core recovery; AR/S2S teacher-forced and generated recovery are separate measures; see Findings), positioned against a published sequence-infilling baseline under one matched evaluation protocol. **Phase 2** = *structure-conditioned* design (RMSD-to-native; exact target to lock with advisor). Everything below is a tool toward that objective.
+> **Current priority — 21 October:** draft and submit the framework abstract by **1 November**, using the completed evidence in §17. Detailed manual code review resumes after submission. The remaining method-specific lists below are a deferred backlog, not a requirement to complete before the abstract.
 
-### Medium-term milestone — conference-ready CDR-H3 infilling study
+### Medium-term milestone — framework paper and final evaluation
 
-**Research question:** how do generation method, encoder pretraining and partner-chain context affect framework-conditioned CDR-H3 generation under one evaluation protocol?
+**Main contribution:** a unified architectural and benchmarking framework for MLM, AR and S2S, with explicit method interfaces, allowed conditioning information, length policies, attempt budgets and scoring populations. IgLM, IgCraft and training-only samplers demonstrate the external adapter/scorer contract. Retrieval, variability and context-dropout results provide empirical case studies.
 
-**Scope:** sequence-only H3 infilling; length-free generation is the primary track and native-length redesign a separate diagnostic. Structure-aware models and other loops are follow-ups. The [Active milestone](#active-milestone--matched-cdrseqgen-vs-iglm-benchmark) below is this study's external-baseline component, not a parallel effort. The current [development benchmark recipe](benchmark/recipes/oas4_h3_length_free.md) fixes heavy-chain-only inputs, attempt budgets and framework-averaged edit similarity; its smoke and full validation passed the [completion audit](results/reviews/20261008-benchmark-full.md).
+**Scope:** sequence-only H3 infilling, with length-free generation as the primary track. Native-length redesign and earlier MLM studies remain separate diagnostics. Current comparisons are validation evidence; structure-conditioned design, other loops and isolated pretraining effects are follow-ups if the paper retains those claims.
 
-**Main contribution: the unified architectural and benchmarking framework.** The empirical studies demonstrate the distinctions its shared interfaces make explicit. Historical MLM context results (§4), the completed MLM/AR/S2S dropout comparisons (§14), loss weighting (§13), decoding, length prediction (§10) and judge-based ranking (§12) are case studies with their original cohorts and limits. The newest MLM result shows that robustness to inference-time partner removal differs substantially across methods. Prioritize a documented framework and one matched benchmark; additional controls should follow the claims, rather than filling every experiment cell.
-
-- [ ] **Confirm the framework contribution and target venue with the advisor.** Document the shared MLM/AR/S2S workflows and benchmark contracts, and use the controlled empirical studies to demonstrate them. Derive any additional evidence from the claims retained in the paper.
-- [ ] **Freeze the evaluation protocol before any final experiment**, and gate everything below on it: inputs available to each method, length policy, example selection, candidate/attempt budgets, decoding settings, checkpoint-selection metric, primary endpoint and supporting metrics. Relabel every existing result as exploratory under the old protocol
-- [ ] **Document judge limitations and assess sensitivity where claims depend on it.** The new benchmark uses native edit similarity as primary and IgBert perplexity as supporting evidence. IgBert was trained on OAS paired repertoires; in historical IgBert-encoder S2S arms it also shares encoder identity. These scores cannot establish independent biological quality. An alternative judge is a follow-up if the paper's conclusions depend on this endpoint.
-- [ ] **Finish the leakage/split decision.** The [local CPU audit](results/reviews/20261008-leakage-audit.md) is complete: all 152,727 cluster allocations verified; 429 validation→train, 425 test→train and 84 test→validation queries have ≥85% same-length H3 neighbours. The current benchmark confirms 3/150 affected frameworks. The candidate test cohort retains 14,818/15,273 records (97.02%), with every donor and represented length retained. Freeze its selection/denominators before model evaluation. Target-loop clustering for non-H3 and different-length/gapped homology remain separate; [IgLM/IgBert external membership](benchmark/pretraining_overlap.md) is unverified. If a revised split is necessary, retrain affected models.
-- [ ] **Complete the minimum controlled comparison.** The eight-arm MLM/AR/S2S, IgLM and empirical validation benchmark is [audited complete](results/reviews/20261008-benchmark-followup.md), including fixed-pool paired intervals and capacity/actual exposure. Final leakage decisions, tuning-effort documentation and held-out evaluation remain pending. The `compare` arms differ 1.17× (`ar` 800k vs `s2s` 933k), and PLM arms span 34M to 420M; these system comparisons do not isolate architecture effects.
-- [ ] **Run the controls each claim needs.** Pretraining: same-architecture pretrained versus random initialization. Context: matched context settings plus dropout-trained models evaluated in both regimes. Conditioning: framework/context perturbation response, via the encoder-memory probe once its criteria are calibrated. Frozen encoders are a feature-extractor control, not a pretraining control
-- [ ] **Report training stability as a result, not a footnote.** The IgBert + partner collapse and its 2026-09-14 non-reproduction at an identical seed show a run can fail catastrophically and nondeterministically. Report failure incidence per configuration alongside performance, and state the run-selection rule — silently dropping failed runs would overstate every arm that has one
-- [ ] **Replicate finalists and quantify uncertainty.** Three seeds is a floor, not a target: run-to-run nondeterminism at a *fixed* seed already exceeds the seed spread by 2–4× on stable runs (§13) and can flip an unstable one to total failure, so seed spread alone understates reproducibility. Include repeated identical-setting runs as a deliberate determinism control, use paired framework-level comparisons accounting for clustering, and keep evaluation uncertainty separate from training variability
-- [ ] **Test whether conclusions survive evaluation choices.** Report validity and length/alignment metrics over all attempts; label length-matched recovery with its contributing population; check dependence on judge, length bucket and decoding setting. Judge perplexity and BLOSUM alignment already disagree in direction on AR versus MLM (Open problems), so this is a known risk rather than a hypothetical. Include diversity and novelty beside recovery
-- [ ] **Run the final held-out evaluation.** Freeze settings and reporting first. Test-set history is known and must be stated rather than rediscovered: every batch through 2026-08-17 selected checkpoints on the test split, OAS was re-run clean as `20260818_192606`, but **SAbDab2 still selects on its own holdout** and has no validation partition — carve one out or keep SAbDab2 out of the headline claims. Do not tune on the final results
-- [ ] **State the regime honestly.** 122,181 training pairs, 0.8M–420M parameters, single-digit-hour runs, one corpus family. The conclusions are about this scale; say so rather than letting a reader generalise them
-- [ ] **Produce the evidence package and release artifacts.** Main comparison table, conditioning/control figure, length and coverage breakdown, uncertainty estimates, compute and failure accounting — each figure with a defined claim and a reproducible source artifact. Pin code/environment versions, configs, manifests, model provenance and scoring commands, preserving historical runs' real provenance rather than back-dating it. Write methods and limitations alongside the experiments, then related work, results and discussion
+1. **Before abstract submission:** consolidate the abstract, import the verified newer evidence into the manuscript, write the framework contribution and limitations, complete author details and advisor/coauthor review, then rebuild the submission artifacts. The old PDFs and October 8 archive need regeneration.
+2. **Prepare the final evaluation alongside writing:** freeze cohort selection from the audit-eligible pool, common generator support, checkpoint/seed choices, decoding settings, metrics and contrasts. Adapt the validation-only runner and manifest export for the chosen protocol. Reuse existing checkpoints where compatible; disclose external pretraining uncertainty and historical test use.
+3. **After abstract submission:** resume manual reclamation at MLM training → shared training → losses → recovery, then continue each chunk through MLM → AR → S2S → common. Review extension documentation, logging/artifacts and release packaging as their code paths are understood. Automated result checks do not complete this manual review.
+4. **For the planned final held-out comparison:** run the frozen evaluation and report it separately from exploratory validation. The abstract/poster can present the existing findings with their exploratory scope stated. Add experiments only for a specific unresolved claim; no new broad seed, baseline or capacity sweep is currently required.
 
 ### Experiment coverage across methods
 
-Status snapshot: **2026-10-08** (context-training studies and the seven-arm matched external validation benchmark audited complete). **☑** experiment completed; **◐** partial or historical evidence; **↻** in progress; **☐** pending; **—** requires a pretrained AR adapter first. Completion means validation/development evidence exists, not that the final held-out comparison is finished. Pending cells are candidates, not a requirement to fill the entire matrix; prioritize paired uncertainty, empirical baselines, leakage decisions and the controls needed for the paper's claims. The detailed checklists below specify the follow-up work.
+Status snapshot: **2026-10-21**. **☑** completed development evidence; **◐** partial/historical evidence; **☐** pending; **—** not applicable to the current implementation. These are experiment statuses, not manual code-review marks. Pending entries are claim-dependent options, not an abstract submission checklist.
 
-The [experiment-oriented results index](RESULTS.md) links each category to its saved evidence and ranks the next runs. Run `python scripts/organize_results.py` to regenerate the local `results/by_experiment/` view from the catalog; original timestamped batches remain the provenance records. Hyperparameter sweeps stay in their original folders and are excluded from this view.
+The [results index](RESULTS.md) retains historical categories; the [current handoff](#current-handoff--2026-10-21) and [§17](#17-expanded-validation-evidence-seeds-retrieval-and-capacity) link the newer evidence directly. Preserve each batch's original provenance and source/runtime differences.
 
 | Experiment category | MLM | AR | S2S |
 |---|---|---|---|
-| **[Scratch baseline](results/by_experiment/scratch_baseline/)** | ☑ | ☑ | ☑ |
-| **[Pretrained models](results/by_experiment/pretrained_models/)** | ☑ ESM-2, IgBert, ProtBert | ☐ Pretrained causal adapter and experiments | ☑ ESM-2, IgBert, ProtBert **encoders** |
-| **Scratch learning-rate tuning** | ☑ Broader hyperparameter screen | ☑ LR screen | ☑ LR screen; settings not yet promoted |
-| **PLM learning-rate tuning** | ☐ Matched follow-up as needed | — | ☑ ESM-2 four-run partner-present screen reviewed (§15); confirmation pending |
-| **[Train with versus without partner context](results/by_experiment/partner_context/)** | ☑ Six matched scratch checkpoints at seeds 42/43; [context audit](results/reviews/20261007-mlm-dropout-screen.md) | ◐ Historical partner-present runs; **2/2 no-partner controls complete** | ◐ Historical partner-present runs; **4/4 no-partner controls complete** |
-| **[Context dropout 0 versus 0.5; evaluate both regimes](results/by_experiment/context_dropout/)** | ☑ **4/4 scratch trials and eight evaluations audited** ([review](results/reviews/20261007-mlm-dropout-screen.md)); historical studies retained | ☑ 4/4 complete and reviewed (§14) | ☑ Scratch/ESM-2 screens; **4/4 new ESM-2 seed-44/45 confirmations audited** (§14) |
-| **Same architecture: pretrained versus random initialization** | ☐ | — | ☐ ESM-2 control; code available |
-| **[Frozen versus trainable pretrained weights](results/by_experiment/frozen_encoder/)** | ☐ | — | ◐ IgBert diagnostic trained; generation pending. ☐ ESM-2; code available |
-| **[Conditioning/collapse diagnostics](results/by_experiment/conditioning_diagnostics/)** | ◐ Context sensitivity studied | ◐ Context-ablation results available | ◐ IgBert probes complete; generation and replication pending |
-| **[Length-free generation and length analysis](results/by_experiment/length_free_generation/)** | ☑ Length-head experiments | ☑ EOS/length analysis | ☑ Generation metrics; comparative analysis ongoing |
-| **[Decoding/sampling sensitivity](results/by_experiment/decoding_sampling/)** | ☑ Independent/iterative and sampling studies | ☑ Temperature/length study | ☐ Controlled sampling screen |
-| **[Matched external IgLM benchmark](results/by_experiment/external_iglm_benchmark/)** | ☑ OAS4 validation, two scratch seeds | ☑ OAS4 validation, two scratch seeds | ☑ OAS4 validation, two scratch seeds |
-| **[Additional seeds for selected contrasts](results/by_experiment/additional_seeds/)** | ◐ No-partner and dropout pairs at seeds 42/43 complete; broader stability/repeats pending | ☐ Seeds 44–46 | ◐ ESM-2 dropout seeds 44/45 complete; other contrasts/repeats pending |
-| **[Light-chain experiments under target-loop-specific splits](results/by_experiment/light_chain/)** | ◐ Historical runs; corrected split required | ☐ After split work | ☐ After split work |
-| **Final frozen protocol, uncertainty estimates and held-out evaluation** | ☐ | ☐ | ☐ |
+| Scratch no-partner benchmark | ☑ Seven seeds, 42–48 | ☑ Seven seeds, 42–48 | ☑ Seven seeds, 42–48 |
+| Matched external references | ☑ IgLM, IgCraft, empirical and retrieval | ☑ Same references | ☑ Same references |
+| Fixed-seed repeat study | ☑ Seed 42, three runs | ☑ Seed 42, three runs | ☑ Seed 42, three runs |
+| Capacity study | ☑ S/M/L/XL; seeds 42/43 | ☑ S/M/L/XL; seeds 42/43 | ☑ S/M/L/XL; seeds 42/43 |
+| Seed/framework uncertainty | ☑ No-partner benchmark | ☑ No-partner benchmark | ☑ No-partner benchmark |
+| Train with/without partner context | ☑ Matched scratch controls | ◐ Historical paired runs; no-partner controls complete | ◐ Historical paired runs; scratch/ESM-2 no-partner controls complete |
+| Context dropout in both inference regimes | ☑ Four trials, seeds 42/43 | ☑ Scratch screen, seeds 42/43 | ☑ Scratch/ESM-2 screens and ESM-2 confirmations at seeds 44/45 |
+| Pretrained backbones | ☑ Historical MLM studies | ☐ Pretrained causal adapter | ☑ ESM-2/IgBert/ProtBert encoder matrix |
+| Same-architecture pretrained/random control | ☐ Claim-dependent | — | ☐ Claim-dependent |
+| Frozen-encoder/collapse diagnosis | ◐ Historical context studies | ◐ Context ablations | ◐ IgBert diagnostic trained; generation/replication pending |
+| Decoding and length sensitivity | ☑ Historical decoder/length-head studies | ☑ Historical temperature/length study | ☐ Controlled sampling screen if needed |
+| Target-loop-specific light-chain splits | ☐ Historical results only | ☐ | ☐ |
+| Final frozen held-out comparison | ☐ | ☐ | ☐ |
 
-### Active milestone — matched CDRSeqGen vs IgLM benchmark
+### Active milestone — abstract submission
 
-**Primary baseline:** [IgLM](https://github.com/Graylab/IgLM) — the closest published, reproducible match to CDRSeqGen's sequence-infilling task. IgCraft is the intended second sequence baseline once the comparison interface is stable; structure/antigen models such as IgGM belong to Phase 2 and must not enter the sequence-only table.
+**Evidence is ready for drafting.** The original eight-arm comparison, IgCraft extension, three retrieval variants, seven-seed analysis, same-seed repeats and capacity study are complete. IgCraft temperature sensitivity is also complete. See §16 for the original subset and §17 for the expanded findings. All numerical comparisons remain exploratory; uncertainty varies by study and endpoint.
 
-MLM, AR, S2S and IgLM run on the **same frozen examples**, with matched attempt budgets and a shared scorer. Retained candidate counts can differ when attempts fail. Two tracks remain separate:
+**Remaining writing work:** use one canonical abstract, update the main results and figures, explain the shared workflow/extension contract, expand related work and retain the limits of the data and metrics. Avoid claiming architecture superiority, equivalence or independent biological quality from these comparisons. The local split audit is complete, while final cohort selection and external pretraining membership remain unresolved.
 
-1. **Fixed-length redesign (historical MLM/IgLM diagnostic).** Native H3 length supplied. Matches MLM's mask construction and permits position-wise recovery with the anchor/core split; IgLM's constrained/filter policies have the limitations described in §11.
-2. **Length-free infilling (current priority).** Only the flanking framework supplied. MLM predicts a length from one gap sentinel, then expands it into residue masks; AR, S2S and IgLM terminate naturally with EOS. Report validity, length error, edit similarity and conditional length-matched recovery with contributing populations.
-
-**Current OAS4 batch: complete.** The smoke and [seven-arm full validation audit](results/reviews/20261008-benchmark-full.md)
-passed: 150 shared frameworks, 20 attempts, two scratch training seeds per method and one frozen
-IgLM pool; all 21,000 candidates are valid and judge-scored. [§16](#16-matched-oas4-length-free-validation-benchmark)
-reports the rows. The [empirical follow-up](results/reviews/20261008-benchmark-followup.md) is also complete:
-24,000 valid/judge-scored candidates, 13 primary fixed-pool paired contrasts and saved capacity/exposure.
-No completion rerun is needed. Local split-overlap checking is complete; external membership decisions
-and final held-out evaluation remain pending. The earlier one-donor pilot below retains its original
-provenance and is not pooled with OAS4.
-
-**Done — harness and first comparison (through 2026-08-21).** Versioned H3 manifests from the clustered OAS split; model-independent shared scorer; manifest-driven CDRSeqGen adapter (provenance-validated, checkpoint-hashed, resumable) and attempt-bounded IgLM adapter (kept outside the MLM backbone registry); explicit fixed-length policy (`constrain` default, `filter` audit mode); checkpoint-specific length head with bounded/inferred generation and migration tooling; separate `length_free` manifest/adapter/scorer contract; validated shared evaluator (AAR, diversity, novelty, entropy, length buckets, runtime, revision-pinned IgBert judge); official infill example reproduced (125/125 constrained draws valid, zero adapter failures). **Result: IgLM leads on both tracks** (§11) — recovery, length error, edit similarity and judge perplexity. Paired bootstrap ([`bootstrap.py`](benchmark/bootstrap.py), example as the resampling unit): **only 4 of 8 metrics resolve at 95%** — IgLM's judge-perplexity, length-MAE and edit-similarity leads hold, CDRSeqGen's diversity edge holds, and every recovery comparison is unresolved at n = 25. ⚠️ **Rescore on a clean tree before quoting** — stored scores carry `repository_dirty: true` at commit `0e7e499`, and the intervals must be regenerated after that rescore.
-
-- [ ] Cover the 5 frameworks `filter` drops — raise the attempt budget or report per-length-bucket, so the fixed-length population isn't silently the easier subset
-- [ ] Produce side-by-side curves: recovery by H3-length bucket, accuracy by relative H3 position, and the recovery–diversity frontier across matched sampling settings. Do **not** compare CDRSeqGen training curves against a frozen IgLM checkpoint; that becomes meaningful only if IgLM is retrained on the same corpus, and should then use tokens/examples seen rather than epoch number
-- [ ] Audit training-data overlap. Frozen IgLM was pretrained on OAS, so the local OAS holdout is not automatically a leakage-free generalization estimate. Report the limitation, and investigate either retraining IgLM on the exact local training split or building an independent test set
-- [ ] Write one comparison artifact — manifest hash, model provenance, full parameters, per-example records, aggregate table, confidence intervals, plot paths — reproducible from a single command
+**Deferred historical method backlog.** The following items preserve earlier implementation and research questions. Revisit their relevance after the abstract, and distinguish work already covered by §17 from genuinely different settings. They do not require new runs now.
 
 **General**
 
@@ -1454,7 +1430,7 @@ provenance and is not pooled with OAS4.
 
 - [ ] **Per-loop split** — cluster on the *target* CDR, not always heavy CDR3, then re-run the OAS matrix. Everything non-H3 in Findings is retrieval-bounded until this lands (§6)
 - [ ] Confirm the top two sweep settings with additional shared seeds, freeze the selected config, then evaluate it once on the untouched test split
-- [ ] Multi-seed the key H3 configs (error bars on the ±0.01 model/context deltas)
+- **Completed for the current no-partner benchmark:** seven training seeds per method and seed/framework intervals (§17). Further context/dropout replication is claim-dependent and remains separate.
 - [ ] Finish the loss screen's two missing `weighted 3.0/1.0` seeds (43, 44) so the only distinct untested setting is measured rather than noise-bounded; skip `3.0/0.0` — it is the same objective as `1.0/0.0`
 - [ ] Settle the §12 self-vs-judge ordering with one 150 × 20 `evaluate.py` run on the tuned checkpoint — the 08-25 screen inverted it at 100 × 10
 - [ ] Re-run the 07-24 batch under core-based checkpoint selection (those 36 runs predate the fix; their saved weights were picked on whole-span)
@@ -1465,7 +1441,7 @@ provenance and is not pooled with OAS4.
 **Done — the length question is closed (through 2026-09-04).** All six `ar` configs retrained under the fixed `LOOP_LENGTH_RESERVE` (`20260902_164544_ar`; `valid_rate` ~1.0 confirms the `<eos>` mechanism is healthy). H1/H2 are perfect and therefore meaningless (§6 retrieval regime); on H3 the causal model reaches **8.3% exact length / 3.80 MAE**, against §10's length head at 9.24%/3.64 and a modal-length baseline at 10.52%/3.28 — `<eos>` does **not** beat the length head, and both sit below the constant baseline on the natural length distribution. Three causes excluded: decoding (temperature sweep moves MAE only 4.31 → 3.48 from T=1.0 to greedy, exact-match never leaves ~8%; mean length well calibrated at 16.11 vs 16.17 native but under-dispersed, correlating 0.396 with the target); learning rate (`20260903_155940_sweep_h3` — teacher-forced core moves 0.0005 across a 10× range against a 0.006 noise floor); data scale (`20260903_192305` — at 7.2× the data the model held at exactly 1.13× its corpus's own modal-length MAE, and a V/J-conditioned lookup puts the achievable ceiling at 11.07% / 3.01). **Length is now a reported property, not an optimisation target.** The causal `generate.py` counterpart landed 2026-09-07 (currently `ar/gen_cli.py` + `ar/case_generation.py`, dispatching through the registry).
 
 - [ ] **Decide the showcase fixture** — blocking the causal CLI (diagnosed 2026-09-07). Every `showcase/*.json` carries one "design only" case with no `target_truth` and an explicit `target_length`, because a masked LM must be told a length when there is no native to derive one from. Both length-free methods reject that key and abort the whole file; dropping it runs all three H3 cases correctly. Either add length-free probe sets, or relax the two CLIs to warn-and-ignore a length request they cannot honour
-- [ ] **Sweep capacity** (`arch` preset) on the expanded corpus rather than the current one: at 0.8M parameters capacity and data scale plausibly interact, so an answer at 21k would not transfer. Also the axis that would settle whether `s2s`'s 1.17× parameter edge matters; `sweep.sh` drives both encoder and decoder depth on an s2s base config
+- **OAS4 scratch capacity study complete:** 18 larger-model runs across MLM/AR/S2S, three sizes and seeds 42/43 (§17). Further capacity/tuning interactions need a specific research question; this scan does not isolate architecture effects or establish a capacity ceiling.
 - [ ] **Harden `SpanLayout` before registering a second layout** (review finding 2026-09-04; none of it affects the shipped `CDRSEQGEN_CAUSAL` or any current result): `build_prompt` receives the whole framework dict **including `target`**, so a layout could leak the answer into its own prompt and the training-equals-generation test would still pass; `n_layout_tokens` is unverified metadata that drives truncation; `CausalInfillingDataset` does not validate its layout, so an invalid one trains a whole run before generation rejects it; and `validate_layout` accepts a residue token as the terminator, which would stop decoding at that amino acid
 - [ ] Record `span_layout_id` in `run_config.json` and compare it in the checkpoint-compatibility check — otherwise changing a backbone's layout silently reinterprets older checkpoints
 - [ ] **A pretrained causal backbone** through `methods/ar/backbones.py` (registry has `scratch` and a generic `hf_decoder` fallback). `SpanLayout` is only a partial prerequisite: it cannot express a native format needing generated-output conversion or wrapper tokens, and IgLM's format additionally needs `validate_generated_seq` + `iglm_to_infilled`. Still missing: layout-aware extraction, per-config layout selection, conditioning fields on the framework dict, and a wired layout on the `hf_decoder` path. Format and checkpoint are separate questions — adopting IgLM's *layout* is clean, fine-tuning IgLM's *weights* is not, since it was pretrained on OAS and is the §11 baseline
