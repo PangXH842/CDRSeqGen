@@ -1,4 +1,9 @@
-"""Generate and score one framework case with the masked-LM method."""
+"""Build one generated/scored MLM case record for generation.generate_case().
+
+The generation workflow supplies resolved native truth, a length policy and an
+optional predictor. This module calls generation's span helpers, calculates case
+metrics, invokes the display callback and returns the JSON-ready record.
+"""
 
 from cdrseqgen.eval.metrics import amino_acid_recovery, calculate
 from cdrseqgen.methods.mlm.generation import sample_length_conditioned_spans

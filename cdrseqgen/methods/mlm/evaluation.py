@@ -1,12 +1,19 @@
-"""Coordinate generated-loop evaluation for MLM models.
+"""Own MLM evaluation setup and coordinate generated-loop scoring.
 
 Callers:
-  * evaluate.py -> mlm.eval_cli.evaluate -> run_generative_eval
+  * evaluate.py -> mlm.eval_cli.main -> run_evaluation -> shared loading lifecycle
+                -> run_generative_eval
   * mlm.training -> common.evaluation.post_training_generation
                  -> mlm.eval_cli.evaluate -> run_generative_eval
-  Both paths supply a loaded model, tokenizer, evaluation dataset and optional judge.
+  run_generative_eval receives a loaded model, tokenizer, dataset and optional judge.
 
-Functions/classes defined here:
+Command workflow:
+  * run_evaluation     -- master standalone workflow using common.evaluation
+  * prepare_evaluation -- validate options and resolve length/decoder defaults
+  * evaluation_options -- load the optional length head and return evaluator kwargs
+  * resolve_decoding   -- choose the decoder from an override or checkpoint metadata
+
+Evaluation functions/classes:
   * masked_view         -- extract prompt tokens, supervised positions and native tokens
   * FixedNativeStrategy -- fill the dataset's existing masks, exposing the native length
   * run_generative_eval -- select examples, choose a strategy, score and return the payload
@@ -32,7 +39,7 @@ from dataclasses import dataclass, field
 
 import torch
 
-from cdrseqgen.artifacts import atomic_write_json
+from cdrseqgen.artifacts import atomic_write_json, read_run_config
 from cdrseqgen.datasets.dataset_mlm import MaskedInfillingDataset
 from cdrseqgen.eval.metrics import (
     amino_acid_recovery,
@@ -52,12 +59,82 @@ from cdrseqgen.methods.mlm.length import (
     native_mask_length,
     resolve_generation_length_policy,
 )
+from cdrseqgen.methods.mlm.length_predictor import LengthPredictor
 from cdrseqgen.methods.mlm.sampling import pseudo_log_likelihood
 
 logger = logging.getLogger(__name__)
 
 # Shared native-length reporting buckets; also re-exported for existing callers.
 from cdrseqgen.eval.metrics import LENGTH_BUCKETS  # noqa: E402
+
+
+def run_evaluation(args, config, run_config=None):
+    """Run standalone checkpoint evaluation with MLM's setup and candidate strategy.
+
+    common.evaluation checks compatibility/output paths and loads data/model/judge.
+    This module supplies decoder/length setup and run_generative_eval().
+    """
+    from cdrseqgen.methods.common.evaluation import run_evaluation_pipeline
+
+    return run_evaluation_pipeline(
+        "mlm", args, config, run_config,
+        prepare_evaluation=prepare_evaluation,
+        evaluation_options=evaluation_options,
+        evaluate=run_generative_eval,
+    )
+
+
+def resolve_decoding(requested, model_dir=None, run_config=None):
+    """Pick a decoder that is compatible with the checkpoint's masking policy.
+
+    Missing policy metadata means an older full-span checkpoint. A recorded iterative decoder must
+    not silently override that training contract; callers can still request it explicitly for an
+    intentional off-distribution experiment.
+    """
+    meta = run_config if run_config is not None else (read_run_config(model_dir) or {})
+    recorded = meta.get("gen_decoding")
+    policy = (meta.get("masking_policy") or "full_span").strip().lower()
+    if requested is None:
+        if policy == "mixed":
+            chosen = recorded if recorded in {"independent", "iterative"} else "iterative"
+        else:
+            chosen = "independent"
+        source = f"masking_policy={policy!r}"
+        if recorded and recorded != chosen:
+            source += f"; ignored incompatible recorded gen_decoding={recorded!r}"
+        print(f"🎲 Decoding: {chosen} ({source})")
+    else:
+        chosen = requested
+        if recorded and recorded != chosen:
+            print(f"🎲 Decoding: {chosen} (CLI override; the run recorded '{recorded}')")
+        else:
+            print(f"🎲 Decoding: {chosen}")
+    if chosen == "iterative" and policy != "mixed":
+        print(f"⚠️  Iterative decoding on a {policy} checkpoint: the model never saw a partially "
+              "revealed loop in training, so this is off distribution and roughly halves core "
+              "recovery. Train with masking_policy: mixed for iterative decoding.")
+    return chosen
+
+
+def prepare_evaluation(args, config):
+    """Validate MLM evaluation options and set resolved length/decoder modes in args."""
+    args.length_mode = args.length_mode or 'fixed_native'
+    if args.max_new_tokens is not None:
+        raise ValueError('--max_new_tokens applies to autoregressive decoding, not masked infilling')
+    if args.decoding == 'causal':
+        raise ValueError('Masked infilling requires independent or iterative decoding')
+    resolve_generation_length_policy(args.length_mode, min_length=args.min_length, max_length=args.max_length)
+    args.decoding = resolve_decoding(args.decoding, run_config=config)
+
+
+def evaluation_options(args, device):
+    """Return evaluator kwargs, loading the saved head for bounded/inferred modes."""
+    predictor = None
+    if args.length_mode != 'fixed_native':
+        predictor = LengthPredictor.load(args.model_dir, device=device)
+    return dict(decoding=args.decoding, length_mode=args.length_mode, length_predictor=predictor,
+                min_length=args.min_length, max_length=args.max_length,
+                length_temperature=args.length_temperature)
 
 
 def masked_view(item):

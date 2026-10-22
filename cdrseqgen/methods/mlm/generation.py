@@ -1,6 +1,17 @@
-"""Build prompts and generate MLM candidates for command, evaluation and benchmark callers.
+"""Own the MLM generation workflow and reusable prompt/sampling helpers.
 
-Functions:
+Command workflow:
+  generate.py -> gen_cli.main -> run_generation -> common.generation lifecycle
+  The shared lifecycle calls prepare_generation, generation_state and generate_case.
+
+Workflow functions:
+  * run_generation     -- master command workflow using the shared loading/output lifecycle
+  * prepare_generation -- validate options and resolve one length policy per case
+  * generation_state   -- load the length predictor when any case requires it
+  * generate_case      -- resolve a case and delegate its scored record to case_generation
+  * resolve_case_length -- combine case/command settings and retain optional native truth
+
+Reusable inference helpers (also used by evaluation and benchmark callers):
   * prepare_fixed_length_prompt   -- encode context and insert the selected number of masks
   * sample_masked_span            -- dispatch an assembled prompt to an MLM decoder
   * sample_length_conditioned_spans -- select lengths, build prompts and collect candidate draws
@@ -13,8 +24,8 @@ Workflow:
   caller's length policy -> selected lengths -> group draws by length
                          -> assemble prompts -> sampling.py decoder -> GeneratedSpan objects
 
-These helpers implement MLM inference. Sequence measurements, judge scoring and
-evaluation reports are handled by cdrseqgen.eval and the evaluation wrappers.
+Sequence measurements and dataset scoring/reporting are supplied by cdrseqgen.eval.
+case_generation assembles individual case records; evaluation coordinates dataset runs.
 """
 
 from __future__ import annotations
@@ -24,8 +35,89 @@ from dataclasses import dataclass
 from typing import Any
 
 from cdrseqgen.datasets.dataset_mlm import assemble_masked_input, inject_context
-from cdrseqgen.methods.mlm.length import LengthPolicy, fixed_length
+from cdrseqgen.methods.mlm.length import LengthPolicy, fixed_length, resolve_length_policy
+from cdrseqgen.methods.mlm.length_predictor import LengthPredictor
 from cdrseqgen.methods.mlm.sampling import sample_independent, sample_iterative
+
+
+def run_generation(args, config):
+    """Run the generation command with MLM's length policies and per-case producer.
+
+    common.generation handles compatibility, loading, seeding and output.
+    This module supplies preparation, optional length-head loading and generation.
+    """
+    from cdrseqgen.methods.common.generation import run_generation_pipeline
+
+    return run_generation_pipeline(
+        "mlm", args, config,
+        prepare_generation=prepare_generation,
+        generation_state=generation_state,
+        generate_case=generate_case,
+    )
+
+
+def resolve_case_length(case, args):
+    """Return normalized native truth and the case's generation length policy.
+
+    Case-level settings override command settings. Native truth is retained for
+    scoring and supplies generation length only when use_native_length is explicit.
+    """
+    native = case.get("target_truth")
+    native = native.upper().strip() if native else None
+
+    def case_value(key):
+        return case[key] if key in case else getattr(args, key, None)
+
+    policy = resolve_length_policy(
+        native_length=len(native) if native else None,
+        use_native_length=bool(case_value("use_native_length")),
+        target_length=case_value("target_length"),
+        min_length=case_value("min_length"),
+        max_length=case_value("max_length"),
+    )
+    return native, policy
+
+
+def prepare_generation(args, cases, config):
+    """Validate MLM command options and return one length policy per supplied case.
+
+    Sets the existing iterative decoder default in args. config is accepted as
+    part of the shared method-command interface; MLM does not use it here.
+    """
+    if getattr(args, 'max_new_tokens', None) is not None:
+        raise ValueError('--max_new_tokens applies to autoregressive decoding, not masked infilling')
+    args.decoding = args.decoding or 'iterative'  # preserve the qualitative tool's existing default
+    if args.decoding == 'causal':
+        raise ValueError('Masked infilling requires independent or iterative decoding')
+    return [resolve_case_length(case, args)[1] for case in cases]
+
+
+def generation_state(args, policies, device):
+    """Load the saved length predictor if required by any case; otherwise return None."""
+    return LengthPredictor.load(args.model_path, device=device) if any(p.requires_predictor for p in policies) else None
+
+
+def generate_case(model, tokenizer, device, args, generator, case, state, print_callback):
+    """Resolve one case and return its generated/scored JSON-ready record.
+
+    state is the optional predictor loaded by generation_state(). The record
+    builder is imported on demand because it also uses this module's span helpers.
+    """
+    from cdrseqgen.methods.mlm.case_generation import generate_case_record
+
+    native, length_policy = resolve_case_length(case, args)
+    return generate_case_record(
+        model,
+        tokenizer,
+        device,
+        args,
+        generator,
+        case,
+        native=native,
+        length_policy=length_policy,
+        length_predictor=state,
+        print_callback=print_callback,
+    )
 
 
 @dataclass(frozen=True)

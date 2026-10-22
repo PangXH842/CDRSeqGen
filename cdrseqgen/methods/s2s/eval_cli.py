@@ -1,20 +1,10 @@
-"""S2S command functions called by root evaluate.py for a saved checkpoint.
+"""S2S evaluation entrypoint called by root evaluate.py.
 
-Caller:
-  evaluate.py -> methods.registry -> method.module('eval_cli')
+Execution:
+  evaluate.py -> main -> common.evaluation.run_evaluation_pipeline
 
-Command path:
-  prepare_evaluation -> evaluation_options -> evaluate
-
-Functions:
-  * prepare_evaluation -- validate decoder/length options and resolve the EOS cap
-  * evaluation_options -- return the evaluator's max_new_tokens setting
-  * evaluate           -- run s2s.evaluation.run_s2s_generative_eval
-
-Notes:
-  * Shared command checks live in arguments.validate_inference_args.
-  * Loop length is chosen by EOS; native truth is retained for scoring.
-  * Root evaluate.py owns parsing, model/data/judge loading and output setup.
+The shared lifecycle calls prepare_evaluation(), evaluation_options() and the
+S2S evaluate alias below. Post-training callers use evaluate with loaded resources.
 """
 from cdrseqgen.datasets.dataset_s2s import S2S_DECODE_STEPS, validate_s2s_decode_steps
 from cdrseqgen.methods.s2s.arguments import validate_inference_args as _validate
@@ -32,3 +22,15 @@ def prepare_evaluation(args, config):
 
 def evaluation_options(args, device):
     return {'max_new_tokens': args.max_new_tokens}
+
+
+def main(args, config, run_config=None):
+    """Run standalone evaluation through the shared lifecycle and S2S evaluator."""
+    from cdrseqgen.methods.common.evaluation import run_evaluation_pipeline
+
+    return run_evaluation_pipeline(
+        "s2s", args, config, run_config,
+        prepare_evaluation=prepare_evaluation,
+        evaluation_options=evaluation_options,
+        evaluate=evaluate,
+    )

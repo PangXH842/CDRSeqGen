@@ -145,9 +145,14 @@ The root-to-method command paths use the same names for MLM, AR and S2S:
 
 | Root command | Method command module | Responsibility |
 |---|---|---|
-| `train.py` | `methods/<method>/train_cli.py` | Configure and conduct a training run, including optional post-training evaluation. |
-| `evaluate.py` | `methods/<method>/eval_cli.py` | Validate evaluation options, prepare method-specific state and call the evaluator. |
-| `generate.py` | `methods/<method>/gen_cli.py` | Validate supplied cases, prepare method-specific state and generate each case. |
+| `train.py` | `methods/<method>/train_cli.main()` | Configure and conduct a training run, including optional post-training evaluation. |
+| `evaluate.py` | `methods/<method>/eval_cli.main()` | Validate evaluation options, prepare method-specific state and call the evaluator. |
+| `generate.py` | `methods/<method>/gen_cli.main()` | Validate supplied cases, prepare method-specific state and generate each case. |
+
+For MLM, these entry functions call `training.run_training()`,
+`evaluation.run_evaluation()` and `generation.run_generation()`. Shared standalone
+loading, compatibility and output handling live in `methods/common/evaluation.py`
+and `methods/common/generation.py`.
 
 ```text
 CDRSeqGen/
@@ -188,7 +193,8 @@ CDRSeqGen/
 │   │   │   ├── arguments.py    # The 28 shared args + config/CLI parsing + run-directory setup;
 │   │   │   │                   #   each method subclasses and adds only its own
 │   │   │   ├── backbones.py    # Shared checkpoint loading and protein tokenizer helpers
-│   │   │   ├── evaluation.py   # Post-training judge/context setup and evaluation dispatch
+│   │   │   ├── evaluation.py   # Standalone loading/provenance and post-training evaluation setup
+│   │   │   ├── generation.py   # Standalone checks, model loading, case execution and output
 │   │   │   ├── logging.py      # Console/file logging and uncaught exceptions
 │   │   │   ├── run_setup.py    # Run directories/latest, dataset tags and config/provenance
 │   │   │   ├── record_results.py # epoch_metrics.csv and training-curve PNGs
@@ -209,8 +215,8 @@ CDRSeqGen/
 │   │   │   │                   #   own length, so §10's gap-sentinel head has no counterpart
 │   │   │   ├── arguments.py    # Causal args: subclasses the shared bases, adds gen_max_new_tokens
 │   │   │   ├── train_cli.py    # Training-run coordinator; root train.py calls main()
-│   │   │   ├── eval_cli.py     # Saved-checkpoint evaluation functions for root evaluate.py
-│   │   │   ├── gen_cli.py      # Per-case generation functions for root generate.py
+│   │   │   ├── eval_cli.py     # main(): saved-checkpoint evaluation entrypoint
+│   │   │   ├── gen_cli.py      # main(): supplied-framework generation entrypoint
 │   │   │   ├── evaluation.py   # CausalStrategy for the SHARED loop in eval/generative.py —
 │   │   │   │                   #   decode-to-eos draws, TRUE (not pseudo) perplexity, per-candidate
 │   │   │   │                   #   judge prompts since causal lengths vary
@@ -222,8 +228,8 @@ CDRSeqGen/
 │   │   │   │                   #   mlm, <eos>-chosen length like ar. Contract-identical to ar
 │   │   │   │                   #   throughout, so an s2s/ar/mlm table is one implementation.
 │   │   │   ├── train_cli.py    # Training-run coordinator; root train.py calls main()
-│   │   │   ├── eval_cli.py     # Saved-checkpoint evaluation functions for root evaluate.py
-│   │   │   ├── gen_cli.py      # Per-case generation functions for root generate.py
+│   │   │   ├── eval_cli.py     # main(): saved-checkpoint evaluation entrypoint
+│   │   │   ├── gen_cli.py      # main(): supplied-framework generation entrypoint
 │   │   │   ├── backbones.py    # scratch, ESM-2, and protein-BERT encoders. PLM encoders keep
 │   │   │   │                   #   native tokenizers; all decoders use the same residue vocabulary
 │   │   │   ├── training.py     # get_datasets + teacher-forced metrics + Trainer. The metrics do
@@ -240,16 +246,16 @@ CDRSeqGen/
 │   │   └── mlm/                # Masked-LM training, generation, and native evaluation
 │   │       ├── arguments.py        # MLM args: shared bases + loss_type/core/anchor weights
 │   │       ├── train_cli.py        # Logging/config/CLI setup -> training.run_training()
-│   │       ├── eval_cli.py         # Saved-checkpoint evaluation functions for root evaluate.py
-│   │       ├── gen_cli.py          # Per-case generation functions for root generate.py
+│   │       ├── eval_cli.py         # main(): saved-checkpoint evaluation entrypoint
+│   │       ├── gen_cli.py          # main(): supplied-framework generation entrypoint
 │   │       ├── backbones.py        # Masked-LM registry — resolve(model_type) -> Backbone
 │   │       ├── losses.py           # Shared loss registry + Trainer bridge for every MLM backbone
 │   │       ├── training.py         # MLM workflow: datasets, model/Trainer, training and extensions
 │   │       ├── recovery.py         # Position recovery, anchor/core split, core coverage
 │   │       ├── sampling.py         # Independent/iterative decoding + pseudo-perplexity
-│   │       ├── evaluation.py       # Fixed-native generative evaluation
+│   │       ├── evaluation.py       # Standalone MLM evaluation workflow and candidate strategies
 │   │       ├── variable_length_evaluation.py # Bounded/inferred held-out evaluation
-│   │       ├── generation.py       # Length selection, mask expansion, decoder dispatch
+│   │       ├── generation.py       # MLM generation workflow, length selection and mask filling
 │   │       ├── case_generation.py  # One framework -> candidates and metrics
 │   │       ├── length.py           # Policies, constraints, evaluation-mode validation
 │   │       ├── length_predictor.py # Gap-sentinel classifier + checkpoint artifacts

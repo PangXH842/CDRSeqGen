@@ -1,20 +1,10 @@
-"""AR command functions called by root generate.py for supplied frameworks.
+"""AR generation entrypoint called by root generate.py.
 
-Caller:
-  generate.py -> methods.registry -> method.module('gen_cli')
+Execution:
+  generate.py -> main -> common.generation.run_generation_pipeline
 
-Command path:
-  prepare_generation -> generation_state -> generate_case (per case)
-
-Functions:
-  * prepare_generation -- validate options/cases and resolve the EOS decode cap
-  * generation_state   -- return None; this method has no separate length head
-  * generate_case      -- generate/score one case through case_generation
-
-Notes:
-  * Shared command checks live in arguments.validate_inference_args.
-  * Loop length is chosen by EOS; native truth is retained for scoring.
-  * Root generate.py owns parsing, model loading and output writing.
+The shared lifecycle calls prepare_generation(), generation_state() and
+generate_case() below. These supply AR validation, EOS settings and case production.
 """
 from cdrseqgen.datasets.dataset_ar import CAUSAL_DECODE_STEPS, validate_causal_decode_steps
 from cdrseqgen.methods.ar.arguments import validate_inference_args as _validate
@@ -41,3 +31,15 @@ def generation_state(args, policies, device):
 def generate_case(model, tokenizer, device, args, generator, case, state, print_callback):
     from cdrseqgen.methods.ar.case_generation import generate_case_record
     return generate_case_record(model, tokenizer, device, args, generator, case, print_callback)
+
+
+def main(args, config):
+    """Run the generation command through the shared lifecycle and AR producers."""
+    from cdrseqgen.methods.common.generation import run_generation_pipeline
+
+    return run_generation_pipeline(
+        "ar", args, config,
+        prepare_generation=prepare_generation,
+        generation_state=generation_state,
+        generate_case=generate_case,
+    )

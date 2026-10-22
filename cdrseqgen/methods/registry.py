@@ -1,6 +1,6 @@
 """Lazy method dispatch shared by training, generation, and held-out evaluation.
 
-A method exposes train_cli, eval_cli and gen_cli for the three root commands.
+Each root command calls main() in the selected train_cli, eval_cli or gen_cli module.
 Its backbones, training, evaluation and sampling modules implement the stages
 those commands use. Importing this registry loads no model library.
 """
@@ -18,7 +18,7 @@ class Method:
         return import_module(f'{self.package}.{component}')
 
     def evaluate(self, *args, **kwargs):
-        """Use the same evaluation interface as root evaluate.py, including after training."""
+        """Evaluate already loaded resources, including after training."""
         return self.module('eval_cli').evaluate(*args, **kwargs)
 
 

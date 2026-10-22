@@ -9,6 +9,8 @@
   * record_results.py -- epoch CSV export and training curves
   * losses.py     -- aligned token cross-entropy; each method owns alignment and weighting
   * training.py   -- external-loss Trainer workflow, lifecycle and finished-run artifacts
+  * generation.py -- standalone generation lifecycle: checks, loading, cases and output
+  * evaluation.py -- standalone evaluation loading/provenance and post-training context regimes
 
 The membership test: **things a method needs to PRODUCE output**. Turning records into model inputs
 belongs in ``datasets/dataset_common.py``; measuring outputs belongs in ``cdrseqgen/eval/``.

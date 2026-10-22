@@ -124,7 +124,7 @@ class EvaluationArtifactTests(unittest.TestCase):
         self.assertIn("inferred_independent_n25x20", path)
         self.assertIn("IgBert", path)
 
-    @patch("evaluate.git_state", return_value={
+    @patch("cdrseqgen.methods.common.evaluation.git_state", return_value={
         "repository_commit": "abc", "repository_dirty": False,
     })
     def test_provenance_hashes_config_checkpoint_and_metadata(self, _git):
@@ -144,6 +144,7 @@ class EvaluationArtifactTests(unittest.TestCase):
 
             provenance = evaluation_provenance(config, checkpoint, data)
 
+        _git.assert_called_once_with(Path(__file__).resolve().parents[1])
         self.assertEqual(
             provenance["checkpoint_weights"][0]["sha256"],
             hashlib.sha256(b"weights").hexdigest(),

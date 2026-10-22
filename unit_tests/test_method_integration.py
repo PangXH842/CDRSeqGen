@@ -64,8 +64,8 @@ class MethodRegistryTests(unittest.TestCase):
 
     COMMAND_PROTOCOLS = {
         "train_cli": ("main",),
-        "eval_cli": ("prepare_evaluation", "evaluation_options", "evaluate"),
-        "gen_cli": ("prepare_generation", "generation_state", "generate_case"),
+        "eval_cli": ("main", "prepare_evaluation", "evaluation_options", "evaluate"),
+        "gen_cli": ("main", "prepare_generation", "generation_state", "generate_case"),
     }
 
     def test_every_registered_method_resolves_its_components(self):

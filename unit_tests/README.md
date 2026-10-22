@@ -18,6 +18,7 @@ Use the project Python environment (`conda activate cdrprj` if needed). No GPU, 
 
 | What must not silently change | Main coverage |
 |---|---|
+| Root commands reach each method through one main(), while compatibility, context, case order and output checks survive delegation | `test_command_dispatch`, `test_inference_entrypoints`, `test_method_integration`, `test_evaluate_contract` |
 | Native residues or native length must not leak into length-free generation | `test_variable_length_eval`, `test_length_policy`, `test_dataset_ar`, `test_span_layout` |
 | Future answer tokens and padding must not change earlier causal predictions | `test_ar_model` (real attention, including the padded branch) |
 | Prompt layout, EOS, and answer-only supervision agree between training and generation | `test_dataset_ar`, `test_span_layout`, `test_ar_sampling`, `test_ar_training` |
