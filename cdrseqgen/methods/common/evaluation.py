@@ -1,4 +1,15 @@
-"""Post-training evaluation setup, shared across methods without sharing decoding assumptions."""
+"""Set up post-training generated-loop evaluation for MLM, AR and S2S.
+
+Caller:
+  A method's training workflow calls post_training_generation after training/saving.
+
+Workflow:
+  optional judge + evaluation context views -> registry-selected method evaluator
+                                           -> payloads in the run directory
+
+This module chooses context regimes and handles evaluation failures. Method
+evaluators produce candidates; cdrseqgen.eval supplies shared measurements and reports.
+"""
 import logging
 import os
 
@@ -12,7 +23,17 @@ logger = logging.getLogger(__name__)
 
 def post_training_generation(method, trainer, tokenizer, eval_dataset, data_args, gen_args,
                              training_args, *, anchor_trim, method_options=None):
-    """Evaluate the saved model; preserve training artifacts and log any evaluation failure."""
+    """Evaluate trainer.model and return the primary payload, or None on failure.
+
+    Steps:
+      1. Load the optional judge with its requested partner-context setting.
+      2. Evaluate with the training partner-context setting and dropout disabled.
+      3. If requested, also evaluate with partner context removed from the generator.
+
+    The same judge is reused across context regimes. Method-specific options are
+    forwarded to the evaluator, which receives trainer.model without reloading a
+    checkpoint. Evaluation errors are logged; previously saved training artifacts remain.
+    """
     try:
         judge_context = getattr(gen_args, 'gen_judge_partner_context', 'trained')
         judge_partner = (bool(data_args.include_partner_chain) if judge_context == 'trained'

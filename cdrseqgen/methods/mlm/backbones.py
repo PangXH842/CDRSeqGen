@@ -1,39 +1,49 @@
-"""Registry for masked-LM-compatible model backbones.
+"""Select tokenizers and model loaders for MLM training, generation and evaluation.
 
-  * Backbone -- one model family's record: match predicate, encoding conventions, three loaders
-  * register -- append a Backbone to REGISTRY (order matters, see below)
-  * resolve  -- model_type string -> the first Backbone whose predicate matches
+Workflow:
+  import this module
+    -> register backbone definitions in REGISTRY
 
-Current backbones:
-  * scratch      -- the in-house transformer, models/transformer.py
-  * esm2         -- Meta ESM-2; the only relative/rotary-position backbone
-  * protein_bert -- IgBert / ProtBert / AntiBERTy; needs whitespace-separated residues
-  * hf_encoder   -- generic AutoModelForMaskedLM fallback: any other hub id or local dir
+  model_type -> resolve() -> Backbone
+    -> build_tokenizer()        : construct the tokenizer adapter
+    -> load_training_model()    : create scratch weights or load pretrained PLM weights
+    -> load_pretrained_model()  : restore a saved model for generation/evaluation
 
-Each backbone declares two conventions that the encoding depends on, so they are explicit rather
-than guessed from the tokenizer:
-  * position_type -- "absolute" | "relative". Where antigen context is injected (see
-    MaskedInfillingDataset). Absolute-position models (scratch, BERT-style) need it appended
-    after the target; relative/rotary models (ESM-2) can take it prepended.
-  * uses_special_tokens -- whether inputs are wrapped as [cls] ... [end].
+Backbone class:
+  * id / matches -- registry name and predicate used to select this backbone
+  * load_tokenizer -- construct its tokenizer adapter
+  * load_training_model -- create scratch weights or load pretrained PLM weights
+  * load_pretrained_model -- restore a saved model for generation/evaluation
+  * position_type -- "absolute" or "relative"; determines antigen placement and context truncation, 
+    without changing the model's positional embeddings
+  * uses_special_tokens -- whether MLM inputs receive leading/trailing wrappers
+  * fallback -- mark the generic backbone, which must be registered last
+  * build_tokenizer() -- select the tokenizer source and call load_tokenizer with this backbone's 
+    position_type and uses_special_tokens settings
 
-Matching is by an ordered list of predicates; the first match wins, so register specific
-backbones before the generic Hugging Face fallback.
+Functions:
+  * register -- append a Backbone to REGISTRY and return it
+  * resolve  -- return the first matching Backbone object; raise ValueError if none match
 
---- To add a new PLM ---
-Append one register(Backbone(...)) below (BEFORE the hf_encoder fallback if you need custom
-conventions). Point load_tokenizer at its tokenizer, load_training_model/load_pretrained_model
-at its HF model class, and set position_type correctly (absolute unless it uses rotary/relative
-positions). Unless the generic hf_encoder fallback already fits it (any AutoModelForMaskedLM +
-AutoTokenizer, absolute positions).
+Current backbones (first match wins):
+  * scratch      -- custom transformer and tokenizer
+  * esm2         -- name contains "esm2"; ESM tokenizer, relative layout
+  * protein_bert -- name contains "bert"; whitespace-separated residue encoding
+  * hf_encoder   -- remaining names containing "/" or starting with ".";
+                    AutoTokenizer + AutoModelForMaskedLM, absolute layout
 
-Note:
-  * <model_cls>.from_pretrained(path) silently returns a *randomly initialized* model with
-    the current transformers version — it builds the config but never loads the checkpoint weights
-    (verified: lm_head norm came back at the std-0.02 init value, not the trained value), with no
-    missing/unexpected-key warning. This broke both generate.py and any re-evaluation of scratch
-    checkpoints. Load the state dict explicitly instead; keys match the freshly built model
-    exactly, so strict=True is a hard correctness guard rather than a formality.
+Extending:
+  * Add a register(Backbone(...)) before the generic fallback when custom
+    tokenization, layout conventions or model loading are required.
+  * Reuse the fallback only when its masked-LM loader, residue encoding and
+    layout conventions fit the model. Matching a name does not verify these.
+  * The fallback must remain last; an import-time assertion checks this.
+
+Notes:
+  * Scratch checkpoints use common.backbones.load_custom_pretrained():
+    rebuild from the saved config and load model.safetensors with strict=True.
+  * Running this module directly prints example resolutions and checks the
+    scratch-model import; it does not load checkpoint weights or run training.
 """
 import logging
 from dataclasses import dataclass
@@ -41,9 +51,13 @@ from typing import Callable
 
 from cdrseqgen.datasets.dataset_mlm import AntibodyTokenizer, TokenizerAdapter
 
+from cdrseqgen.methods.common.backbones import (
+    load_custom_pretrained as _load_custom_pretrained,
+    esm_tokenizer as _esm_tokenizer, bert_tokenizer as _bert_tokenizer)
+
 logger = logging.getLogger(__name__)
 
-
+# --- (1) Backbone class definition ------
 @dataclass
 class Backbone:
     id: str
@@ -61,6 +75,7 @@ class Backbone:
         return self.load_tokenizer(source, self.position_type, self.uses_special_tokens)
 
 
+# --- (2) Setup REGISTRY storage & backbone name resolve function ------
 REGISTRY = []
 
 
@@ -80,11 +95,7 @@ def resolve(model_type: str) -> Backbone:
     )
 
 
-# --- lazy loader helpers (imports kept local so the module is cheap to import) ----------------
-from cdrseqgen.methods.common.backbones import (
-    load_custom_pretrained as _load_custom_pretrained,
-    esm_tokenizer as _esm_tokenizer, bert_tokenizer as _bert_tokenizer)
-
+# --- (3a) local model definitions ------
 # --- custom from-scratch transformer -------------------------------------------
 def _scratch():
     from cdrseqgen.methods.mlm.models import transformer
@@ -119,6 +130,7 @@ register(Backbone(
 ))
 
 
+# --- (3b) external PLMs ------
 # --- ESM-2 -------------------------------------------------
 
 def _load_esm(name_or_path):
@@ -191,7 +203,7 @@ assert _fallbacks == [len(REGISTRY) - 1], (
     f"got fallbacks at {_fallbacks} of {[b.id for b in REGISTRY]}"
 )
 
-
+# --- MAIN ---
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     print(f"{len(REGISTRY)} backbones registered, fallback last: {[b.id for b in REGISTRY]}\n")

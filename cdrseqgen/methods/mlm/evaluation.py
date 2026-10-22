@@ -1,24 +1,27 @@
-"""Core script for retrieving generative evaluation metrics from a trained model.
+"""Coordinate generated-loop evaluation for MLM models.
 
-Two callers: `train.py` runs it post-training on the run it just finished (no judge by default),
-and `evaluate.py` is the standalone entrypoint for re-evaluating an existing checkpoint (where the
-judge is worth setting up).
+Callers:
+  * evaluate.py -> mlm.eval_cli.evaluate -> run_generative_eval
+  * mlm.training -> common.evaluation.post_training_generation
+                 -> mlm.eval_cli.evaluate -> run_generative_eval
+  Both paths supply a loaded model, tokenizer, evaluation dataset and optional judge.
 
-  * run_generative_eval -- master function: load eval dataset, select indices, sample from the
-                           model, score, then log the summary and write the JSON
-  * select_indices      -- randomly select CDRs from eval dataset,
-                           stratify by CDR lengths if option selected
-  * build_judge         -- optional, set specified third-party model to judge perplexity
-  * masked_view         -- one dataset item -> (input_ids, mask_positions, native_ids)
-  * bucket_of           -- map a loop length to its short/medium/long bucket
-  * aggregate           -- (mean, stdev) of one metric across the sampled records
-  * format_report       -- build the summary table as a string, without emitting it
-  * log_report          -- emit that table through the logger, as one record
+Functions/classes defined here:
+  * masked_view         -- extract prompt tokens, supervised positions and native tokens
+  * FixedNativeStrategy -- fill the dataset's existing masks, exposing the native length
+  * run_generative_eval -- select examples, choose a strategy, score and return the payload
 
-Imports:
-  * metrics.calculate               -- retrieve dict of sequence-based metrics for generated samples
-  * generation.sample_masked_span   -- shared independent / iterative decoder dispatch
-  * sampling.pseudo_log_likelihood  -- calculate PLL and pseudo-perplexity of a filled loop
+Workflow:
+  fixed_native     -> FixedNativeStrategy
+  bounded/inferred -> variable_length_evaluation.VariableLengthStrategy
+                   -> eval.generative.run_eval_loop -> report + JSON/figure output
+
+Shared responsibilities:
+  * cdrseqgen.eval.metrics calculates sequence measurements.
+  * cdrseqgen.eval.generative owns the scoring loop, aggregation and output helpers.
+    Its imported helpers remain available here for existing callers.
+  * mlm.generation fills masked spans; mlm.sampling supplies MLM pseudo-perplexity.
+  * mlm.recovery supplies Trainer validation metrics, a separate evaluation stage.
 """
 import logging
 import os
@@ -53,13 +56,22 @@ from cdrseqgen.methods.mlm.sampling import pseudo_log_likelihood
 
 logger = logging.getLogger(__name__)
 
-# Split CDR length into buckets, especially for H3, for summary purposes. Imported rather than
-# redeclared so a bucket boundary means the same thing here and in the benchmark scorer.
+# Shared native-length reporting buckets; also re-exported for existing callers.
 from cdrseqgen.eval.metrics import LENGTH_BUCKETS  # noqa: E402
 
 
 def masked_view(item):
-    """(input_ids, mask_positions, native_ids) for one dataset item"""
+    """Return prompt IDs, supervised positions and native IDs as three lists.
+
+    Example: labels use -100 for positions excluded from the loss
+      input_ids:      [10, 99, 99, 20]    (99 is a mask in this example)
+      labels:         [-100, 3, 4, -100]
+      mask_positions: [1, 2]
+      native_ids:     [3, 4]
+
+    Positions come from labels, without checking the input token at each position.
+    Fixed-native generation expects the dataset's fully masked evaluation view.
+    """
     input_ids = item["input_ids"].tolist()
     labels = item["labels"].tolist()
     mask_positions = [p for p, l in enumerate(labels) if l != -100]
@@ -68,11 +80,13 @@ def masked_view(item):
 
 
 class FixedNativeStrategy:
-    """Original protocol: the dataset's own masked view supplies the mask count and the input.
+    """Adapt the dataset's native-length masked prompt to the shared scoring loop.
 
-    The input tensor is taken from the eval dataset rather than reassembled, so partner-chain and
-    antigen context are exactly the ones the model trained against. Every recovery number in the
-    README came from this path; it is kept byte-for-byte.
+    Example: three supervised loop positions -> three masks -> length-3 candidates.
+
+    The supplied dataset determines partner/antigen context, including any ablation.
+    Candidate generation receives the native mask count. Each candidate retains its
+    prompt for self-scoring; the judge uses a separate prompt from judge_dataset.
     """
 
     supplies_native_length = True
@@ -88,9 +102,11 @@ class FixedNativeStrategy:
         self._judge_cache = (None, None)
 
     def payload_length_policy(self):
+        """Describe the native-mask-count policy for the evaluation payload."""
         return {"mode": "fixed", "source": "native_mask_count"}
 
     def draw(self, i):
+        """Return candidates and scoring prompts for index i, or None if no masks exist."""
         input_ids, mask_positions, native_ids = masked_view(self.eval_dataset[i])
         if not mask_positions:
             return None
@@ -114,7 +130,11 @@ class FixedNativeStrategy:
         )
 
     def self_scores(self, drawn):
-        """Pseudo-perplexity: a masked LM scores each hidden position with the others visible."""
+        """Return generator pseudo-perplexities in candidate order.
+
+        Each filled loop is re-masked one position at a time; the other candidate
+        residues remain visible. sampling.pseudo_log_likelihood performs the scoring.
+        """
         return [
             pseudo_log_likelihood(self.model, input_ids, mask_positions, token_ids,
                                   self.tokenizer.special_ids, self.tokenizer.mask_id, self.device)[1]
@@ -122,11 +142,15 @@ class FixedNativeStrategy:
         ]
 
     def judge_inputs(self, i, _seq):
-        """Every candidate has the native length here, so one prompt serves them all."""
+        """Return and cache the judge's masked prompt for evaluation index i.
+
+        All candidates share the native length, so _seq does not change this prompt.
+        A Subset index is mapped back to the corresponding judge_dataset entry.
+        """
         cached_index, cached_prompt = self._judge_cache
         if cached_index == i:
             return cached_prompt
-        # Map the eval-subset index back to the full dataset so the judge sees the same entry
+        # Resolve one outer Subset layer; the judge dataset uses the full corpus order.
         full_idx = self.eval_dataset.indices[i] if hasattr(self.eval_dataset, "indices") else i
         judge_input, judge_mask_positions, _ = masked_view(self.judge_dataset[full_idx])
         self._judge_cache = (i, (judge_input, judge_mask_positions))
@@ -145,11 +169,22 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
                         judge_dataset=None, judge_name=None,
                         anchor_trim=ANCHOR_TRIM,
                         output_path=None, meta=None, title=""):
-    """Sample + score candidate loops for a subsample of the eval split, returns the payload dict.
+    """Generate and score loops from a supplied evaluation dataset; return a payload dict.
 
-    Both length tracks run the same loop, aggregation, reporting, and writer; they differ only in
-    the strategy that turns one eval index into candidates, which is the one part that must not be
-    shared (the fixed track is told the native mask count, the variable track must never be).
+    Steps:
+      1. Set model.eval(), seed sampling and select evaluation frameworks.
+      2. Choose native-length prompts or a bounded/inferred strategy with a length head.
+      3. Run shared sequence, optional self-perplexity and optional judge scoring.
+      4. Log the report, assemble the payload and call the JSON/figure writers.
+
+    Notes:
+      * The caller loads the model, datasets and optional judge before this function.
+      * Native lengths support selection/reporting; only fixed_native exposes them
+        to generation. Bounded/inferred generation requires length_predictor.
+      * skip_perplexity disables generator self-scoring; judge scoring is independent.
+      * n_generated counts framework records, each containing its candidate draws.
+      * Errors propagate to the caller. Model evaluation mode and the Torch seed
+        are set here and are not restored on return.
     """
     model.eval()
     if isinstance(anchor_trim, bool) or not isinstance(anchor_trim, int) or anchor_trim < 0:
@@ -159,7 +194,7 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
     generator = torch.Generator(device=device)
     generator.manual_seed(seed)
 
-    # Native loop lengths, used only to choose and bucket examples — never passed to generation.
+    # This length list selects examples; each strategy controls its generation inputs.
     lengths = [eval_dataset[i]["target_len"] for i in range(len(eval_dataset))]
     rng = random.Random(seed)
     selected = select_indices(lengths, num_examples, stratify, rng)

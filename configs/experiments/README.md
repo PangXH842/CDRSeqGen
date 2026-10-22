@@ -47,6 +47,7 @@ Completion status belongs in [RESULTS.md](../../RESULTS.md) and each batch's
 | Name | Runs | Purpose | Recipe/details |
 |---|---:|---|---|
 | `mlm_no_partner_controls` | 2 | Scratch MLM trained/generated without its partner, seeds 42/43; completed | [spec](20261007_mlm_no_partner_controls.json), [protocol](20261007_mlm_context.md) |
+| `mlm_esm2_no_partner_controls` | 2 | Optional MLM ESM-2 35M length-free no-partner rows for the control table, seeds 42/43; completed and audited | [spec](20261021_mlm_esm2_no_partner_controls.json), [protocol/commands](20261021_mlm_esm2_no_partner_controls.md) |
 | `mlm_dropout_screen` | 4 | Scratch MLM dropout 0/0.5, seeds 42/43, both contexts; completed and audited | [spec](20261007_mlm_dropout_screen.json), [protocol](20261007_mlm_context.md) |
 | `esm2_dropout_confirmation` | 4 | S2S ESM-2 dropout 0/0.5, seeds 44/45; completed | [spec](20261006_esm2_dropout_confirmation.json), [protocol](20261006_h3_followup.md) |
 | `no_partner_controls` | 6 | AR/scratch S2S/ESM-2 S2S no-partner controls, seeds 42/43; completed | [spec](20261006_no_partner_controls.json), [review](../../results/reviews/20261007-no-partner-controls.md) |

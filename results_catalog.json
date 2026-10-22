@@ -19,7 +19,8 @@
     "s2s_encoder_matrix": "results/runs/20260913_151152_463868_s2s_plm",
     "pre_validation_oas_matrix": "results/runs/20260817_200051",
     "no_partner_training_controls": "results/runs/20261006_140502_185951_no_partner_controls",
-    "esm2_dropout_confirmation": "results/runs/20261007_013541_142543_esm2_dropout_confirmation"
+    "esm2_dropout_confirmation": "results/runs/20261007_013541_142543_esm2_dropout_confirmation",
+    "mlm_esm2_no_partner_controls": "results/runs/20261021_155531_796405_mlm_esm2_no_partner_controls"
   },
   "partner_context": {
     "validation_oas_matrix": "results/runs/20260818_192606",
@@ -32,7 +33,8 @@
     "no_partner_training_controls": "results/runs/20261006_140502_185951_no_partner_controls",
     "esm2_dropout_confirmation": "results/runs/20261007_013541_142543_esm2_dropout_confirmation",
     "mlm_no_partner_controls": "results/runs/20261007_144639_381443_mlm_no_partner_controls",
-    "mlm_dropout_screen": "results/runs/20261007_163535_226387_mlm_dropout_screen"
+    "mlm_dropout_screen": "results/runs/20261007_163535_226387_mlm_dropout_screen",
+    "mlm_esm2_no_partner_controls": "results/runs/20261021_155531_796405_mlm_esm2_no_partner_controls"
   },
   "context_dropout": {
     "early_mlm_pilot": "results/runs/20260729_195134_ctxdrop",
@@ -61,7 +63,8 @@
     "mlm_no_partner_controls": "results/runs/20261007_144639_381443_mlm_no_partner_controls",
     "mlm_dropout_screen": "results/runs/20261007_163535_226387_mlm_dropout_screen",
     "oas4_length_free_validation": "results/benchmark/oas4_h3_length_free_20261007",
-    "oas4_empirical_followup": "results/benchmark/oas4_h3_followup_20261008"
+    "oas4_empirical_followup": "results/benchmark/oas4_h3_followup_20261008",
+    "mlm_esm2_no_partner_controls": "results/runs/20261021_155531_796405_mlm_esm2_no_partner_controls"
   },
   "decoding_sampling": {
     "validation_oas_matrix": "results/runs/20260818_192606"

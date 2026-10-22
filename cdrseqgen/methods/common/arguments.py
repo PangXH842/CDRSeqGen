@@ -21,8 +21,10 @@ import sys
 from dataclasses import dataclass, field, fields as dataclass_fields
 
 from cdrseqgen.eval import ANCHOR_TRIM
-from cdrseqgen.train.logging import (RUN_SUFFIX_ENV, attach_file_logging, dataset_tag,
-                                     results_root, unique_run_dir, write_run_config)
+from cdrseqgen.methods.common.logging import attach_file_logging
+from cdrseqgen.methods.common.run_setup import (
+    RUN_SUFFIX_ENV, dataset_tag, results_root, unique_run_dir, write_run_config,
+)
 
 logger = logging.getLogger(__name__)
 

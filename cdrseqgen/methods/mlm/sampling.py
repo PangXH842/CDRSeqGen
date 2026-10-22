@@ -1,14 +1,20 @@
-"""Masked-LM decoding strategies and pseudo-log-likelihood scoring.
+"""Fill MLM masks and score completed candidate loops.
 
-  * warp_logits           -- apply temperature / top-k / top-p to logits
-  * sample_independent    -- sample each masked residue individually
-  * sample_iterative      -- sample and update from most confident masked residue
-  * pseudo_log_likelihood -- calculate pll and pseudo-perplexity of filled loop
+Functions:
+  * sample_independent    -- fill all positions from one forward pass over a masked prompt
+  * sample_iterative      -- fill one position per draw per pass, in confidence order
+  * pseudo_log_likelihood -- re-mask each candidate position and return (PLL, pseudo-ppl)
+  * _logits_of            -- extract logits from a dict or model-output object
+
+Callers:
+  * mlm.generation dispatches candidate generation to the two decoders.
+  * MLM evaluation strategies use pseudo_log_likelihood for generator self-scoring.
+  * eval.generative uses the same scorer for the shared masked-LM judge.
 
 Notes:
-  * Comment letter keys: S = sequence length, L = masked length, V = vocab size, N = samples length
-  * Every decoder bans non-amino-acid ids so only real residues are emitted
-  * Both sampling methods can handle temperature=0 (greedy) cases
+  * ban_tokens and warp_logits are shared helpers imported from methods.common.
+  * Both decoders exclude banned_ids and return one candidate at temperature=0.
+  * Tensor comments use S=prompt length, L=loop length, V=vocabulary size, N=draws.
 """
 import torch
 from cdrseqgen.methods.common import NEG_INF, ban_tokens, warp_logits
@@ -16,7 +22,7 @@ from cdrseqgen.methods.common import NEG_INF, ban_tokens, warp_logits
 
 
 def _logits_of(outputs):
-    """Function to extract logits from each kind of model output"""
+    """Return dict['logits'] or outputs.logits; raise ValueError for other outputs."""
     if isinstance(outputs, dict):
         return outputs["logits"]
     elif hasattr(outputs, "logits"):
@@ -30,7 +36,17 @@ _ban = ban_tokens   # kept as a local alias so existing call sites are untouched
 
 def sample_independent(model, input_ids, mask_positions, banned_ids, *, device,
                      num_samples=1, temperature=1.0, top_k=0, top_p=1.0, generator=None):
-    """Sample each masked position independently in one forward pass"""
+    """Return candidate token-ID lists using one model forward pass.
+
+    Example: two masks, two requested draws
+      model sees: [mask] [mask] -> position-wise distributions
+      draw 1:        A      C
+      draw 2:        D      C
+
+    Predictions at different positions use the same supplied prompt; sampled
+    residues are not fed back into the model. temperature=0 returns one argmax
+    sequence and bypasses top-k/top-p filtering.
+    """
     x = torch.tensor([input_ids], dtype=torch.long, device=device)
     logits = _logits_of(model(input_ids=x))[0]                      # [S, V]
     mask_logits = _ban(logits[mask_positions].clone(), banned_ids)  # [L, V]
@@ -47,8 +63,20 @@ def sample_independent(model, input_ids, mask_positions, banned_ids, *, device,
 @torch.no_grad()
 def sample_iterative(model, input_ids, mask_positions, banned_ids, mask_id, *, device,
                      num_samples=1, temperature=1.0, top_k=0, top_p=1.0, generator=None):
-    """Confidence-ordered iterative sampling, update after every next most-confident
-    masked position is filled
+    """Return candidates by filling one most-confident unfilled position per pass.
+
+    Example: one draw with three masks (position order is chosen by the model)
+      pass 1: [mask] [mask] [mask] -> [mask]   C    [mask]
+      pass 2: [mask]   C    [mask] ->   A      C    [mask]
+      pass 3:   A      C    [mask] ->   A      C      D
+
+    Notes:
+      * Each draw can choose a different position order. Confidence is the maximum
+        residue probability at a position after banning/filtering logits.
+      * Filled residues stay fixed and become context for later forward passes.
+      * All supplied mask_positions are reset to mask_id before generation.
+      * temperature=0 returns one greedy sequence and bypasses top-k/top-p filtering.
+      * An empty span returns one empty list per effective draw.
     """
     L = len(mask_positions)
     greedy = temperature == 0
@@ -85,7 +113,22 @@ def sample_iterative(model, input_ids, mask_positions, banned_ids, mask_id, *, d
 
 @torch.no_grad()
 def pseudo_log_likelihood(model, input_ids, mask_positions, token_ids, banned_ids, mask_id, device):
-    """Pseudo-log-likelihood of a filled loop; returns (pll, pseudo_perplexity)"""
+    """Return (sum of conditional log-probabilities, masked-LM pseudo-perplexity).
+
+    Example: candidate="ACD"
+      model input 1: [mask]   C      D      -> log p(A | C, D, context)
+      model input 2:   A    [mask]   D      -> log p(C | A, D, context)
+      model input 3:   A      C    [mask]   -> log p(D | A, C, context)
+      PLL:        sum of these log-probabilities
+      pseudo-ppl: exp(-PLL / 3); p=0.5 at every position gives 2.0
+
+    Notes:
+      * token_ids must correspond one-to-one with mask_positions.
+      * All single-mask variants are scored together in one batched forward pass.
+      * Probabilities are normalized after excluding banned_ids; standard callers
+        use this to restrict scoring to amino-acid tokens.
+      * An empty span returns (0.0, 1.0).
+    """
     L = len(mask_positions)
     if L == 0:
         return 0.0, 1.0

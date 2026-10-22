@@ -60,7 +60,7 @@ import os
 import torch
 
 from cdrseqgen.artifacts import load_run_config
-from cdrseqgen.train.logging import configure_logging
+from cdrseqgen.methods.common.logging import configure_logging
 configure_logging()
 
 from cdrseqgen.methods.registry import decoding_choices, checkpoint_method

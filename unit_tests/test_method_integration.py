@@ -278,7 +278,7 @@ class CausalConfigTests(unittest.TestCase):
 
     def test_a_second_oas_corpus_gets_its_own_dataset_tag(self):
         """Two donor sets have two test splits, so they must not share a run-name tag."""
-        from cdrseqgen.train.logging import dataset_tag
+        from cdrseqgen.methods.common.run_setup import dataset_tag
         self.assertEqual(dataset_tag("data/processed/processed_oas_tuning.json"), "OAS")
         self.assertEqual(dataset_tag("data/processed/processed_oas_multi.json"), "OAS4")
         self.assertEqual(dataset_tag("data/processed/processed_sabdab2_data.json"), "SD2")

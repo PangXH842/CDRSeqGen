@@ -12,7 +12,8 @@ from cdrseqgen.methods.common.training import run_training_pipeline
 from cdrseqgen.methods.s2s.arguments import setup_args
 from cdrseqgen.methods.s2s.backbones import resolve
 from cdrseqgen.methods.s2s.training import build_seq2seq_trainer, get_datasets
-from cdrseqgen.train.logging import configure_logging, update_latest_link
+from cdrseqgen.methods.common.logging import configure_logging
+from cdrseqgen.methods.common.run_setup import update_latest_link
 
 logger = logging.getLogger(__name__)
 

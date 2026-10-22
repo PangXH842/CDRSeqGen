@@ -58,7 +58,7 @@ import pandas as pd
 
 from cdrseqgen.artifacts import find_run_config
 from cdrseqgen.eval import MIN_CORE_COVERAGE
-from cdrseqgen.train.logging import DATASET_TAGS, UNKNOWN_DATASET_TAG
+from cdrseqgen.methods.common.run_setup import DATASET_TAGS, UNKNOWN_DATASET_TAG
 from cdrseqgen import artifacts
 
 # <loop>_<DS>[_LC|_HC][_AG]_<model>, e.g. h3_OAS_LC_esm2_t12_35M_UR50D, h1_SD2_LC_AG_scratch

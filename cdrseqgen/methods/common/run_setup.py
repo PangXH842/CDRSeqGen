@@ -1,35 +1,26 @@
-"""Setup directory for training batch and runs, and logging.
+"""Run naming, output directories and resolved-configuration provenance.
 
-  * configure_logging   -- stdout logging + quieting the noisy hub libraries (entrypoints call this)
-  * attach_file_logging -- tee the root logger into <run_dir>/train.log
-  * LogMetricsCallback  -- route the Trainer's metric dicts through logging so train.log records them
-  * results_root        -- the batch directory this run's folder is created inside
-  * unique_run_dir      -- <batch>/<run_name>, suffixed _2, _3 ... rather than overwriting
-  * update_latest_link  -- point results/runs/latest at the newest batch
-  * write_run_config      -- persist data/model provenance so a checkpoint is self-describing
-  * dataset_tag         -- data path -> short dataset tag (OAS / SD2)
+Functions:
+  * results_root -- select the batch directory from the environment or timestamp
+  * unique_run_dir -- choose a new run path without overwriting an existing run
+  * update_latest_link -- point results/runs/latest at the selected batch
+  * write_run_config -- save flat resolved arguments plus dataset/runtime/Git identity
+  * dataset_tag -- map a corpus path to the run-name tag used by reports
 
-Notes:
-  * Every run lives at results/<batch>/<run>/ — always two levels, so there is one shape to reason
-    about and results/ never collects loose run folders. Batch runners export CDRSEQGEN_RESULTS_ROOT
-    so a whole round shares a batch folder; a standalone train.py gets a batch folder of its own.
-  * The run folder is named from the RESOLVED arguments, not the config filename, so a CLI override
-    (`--target_region l3` on h3_scratch.json) can't be misfiled. See arguments.setup_args.
-  * Logging config is a function, not import-time side effect, because three entrypoints need it
-    (train.py, generate.py, evaluate.py) and evaluate.py used to get it only as an accident of
-    importing train.py.
+The shared argument setup uses these helpers, creates the run directory and
+attaches file logging. Each method updates latest after dataset validation.
+This module does not start training or create directories merely by importing.
 """
-import os
-import sys
 import json
 import logging
+import os
+import sys
+from dataclasses import asdict
+from datetime import datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from datetime import datetime
-from dataclasses import asdict
 
-from transformers import TrainerCallback
-
+import cdrseqgen
 from cdrseqgen.artifacts import (
     RUN_CONFIG_FILENAME,
     atomic_write_json,
@@ -37,14 +28,6 @@ from cdrseqgen.artifacts import (
     git_state,
     processed_metadata_path,
 )
-
-LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
-LOG_FILENAME = "train.log"
-
-# These libraries log every HTTP request at INFO and propagate to root, so they land in train.log —
-# 15 of 24 lines in a typical ESM-2 run were hub chatter. Their WARNINGs still get through, so a real
-# problem (rate limiting, a failed download) is not hidden; only the per-request noise is.
-NOISY_LOGGERS = ("httpx", "httpcore", "urllib3", "filelock", "huggingface_hub")
 
 # First match wins, so a more specific corpus must precede the general one. The tag is what keeps
 # incomparable test sets off one axis (see visualization/batch_plots), and a corpus built from a
@@ -64,69 +47,6 @@ DEFAULT_RESULTS_ROOT = "./results/runs"
 LATEST_LINK = "latest"
 
 logger = logging.getLogger(__name__)
-
-
-def configure_logging(level=logging.INFO):
-    """Send logging to stdout and quiet the per-request hub chatter. Call once, from an entrypoint."""
-    logging.basicConfig(level=level, format=LOG_FORMAT,
-                        handlers=[logging.StreamHandler(sys.stdout)])
-    for name in NOISY_LOGGERS:
-        logging.getLogger(name).setLevel(logging.WARNING)
-
-
-class LogMetricsCallback(TrainerCallback):
-    """Route the Trainer's metric dicts through logging, so they reach <run_dir>/train.log.
-
-    HF reports metrics via PrinterCallback (print) or ProgressCallback (tqdm.write) — neither goes
-    through the logging module, so the file handler never saw them. A 15-minute run left train.log
-    with a silent gap between "Starting Training" and "Starting Evaluation" and no numbers at all.
-    `on_log` is the documented hook that receives the same dicts those callbacks print.
-    """
-
-    def on_log(self, args, training_state, control, logs=None, **kwargs):
-        if not logs:
-            return
-        epoch = logs.get("epoch")
-        body = "  ".join(
-            f"{k}={v:.4g}" if isinstance(v, float) else f"{k}={v}"
-            for k, v in logs.items() if k != "epoch"
-        )
-        logger.info(f"📉 epoch {epoch:6.2f} │ {body}" if isinstance(epoch, (int, float)) else f"📉 {body}")
-
-
-def attach_file_logging(output_dir: str) -> str:
-    """Tee the log stream into <output_dir>/train.log, so every run keeps its own record.
-
-    Until this existed, logger output went ONLY to stdout: a run launched by scripts/run.sh or bare
-    `python train.py` left no readable log at all — the run dir held numbers (epoch_metrics.csv,
-    *_results.json) and binary TensorBoard events, but nothing you could open to see what happened.
-
-    Attached to the ROOT logger so the transformers/Trainer loggers are captured too (they propagate
-    to root), and called after output_dir exists — configure_logging() runs long before the run
-    directory is known. Re-attaching is guarded so repeated calls in one process (tests, notebooks)
-    don't duplicate every line.
-    """
-    log_path = os.path.join(output_dir, LOG_FILENAME)
-    root = logging.getLogger()
-
-    for handler in root.handlers:
-        if isinstance(handler, logging.FileHandler) and getattr(handler, "baseFilename", None) == os.path.abspath(log_path):
-            return log_path
-
-    file_handler = logging.FileHandler(log_path, mode="a+", encoding="utf-8")
-    file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
-    root.addHandler(file_handler)
-
-    # A crash otherwise goes to stderr only — and scripts/run.sh deliberately continues past a failed
-    # run ("|| true"), so the run dir would be left with no explanation of what went wrong. Route
-    # uncaught exceptions through the logger first so the traceback lands in train.log too.
-    def log_uncaught(exc_type, exc_value, exc_tb):
-        if not issubclass(exc_type, KeyboardInterrupt):
-            logger.error("💥 Run failed with an uncaught exception:", exc_info=(exc_type, exc_value, exc_tb))
-        sys.__excepthook__(exc_type, exc_value, exc_tb)
-
-    sys.excepthook = log_uncaught
-    return log_path
 
 
 def unique_run_dir(root: str, run_name: str) -> str:
@@ -219,7 +139,8 @@ def _training_provenance(model_args, data_args):
                 "processed_file_sha256"
             )
 
-    repo = Path(__file__).resolve().parents[2]
+    # Anchor to the package so moving this module cannot change the checkout.
+    repo = Path(cdrseqgen.__file__).resolve().parent.parent
     return {
         "dataset": dataset,
         "model_source": model_args.model_type,

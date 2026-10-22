@@ -125,7 +125,7 @@ class DatasetTagPlumbingTests(unittest.TestCase):
         # RUN_RE used to spell out OAS|SD2|DS. Adding OAS4 for the four-donor corpus then made
         # every OAS4 run unparseable: discover_runs returned nothing and a finished batch produced
         # empty tables and dashboards with no error anywhere.
-        from cdrseqgen.train.logging import DATASET_TAGS, UNKNOWN_DATASET_TAG
+        from cdrseqgen.methods.common.run_setup import DATASET_TAGS, UNKNOWN_DATASET_TAG
         for tag in {t for _, t in DATASET_TAGS} | {UNKNOWN_DATASET_TAG}:
             with self.subTest(tag=tag):
                 match = RUN_RE.match(f"h3_{tag}_LC_scratch")

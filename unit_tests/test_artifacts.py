@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from cdrseqgen.artifacts import atomic_write_json, file_identity
-from cdrseqgen.train.logging import write_run_config
+from cdrseqgen.methods.common.run_setup import write_run_config
 
 
 class AtomicArtifactTests(unittest.TestCase):
@@ -58,8 +58,8 @@ class TrainingArgs:
 
 
 class RunConfigProvenanceTests(unittest.TestCase):
-    @patch("cdrseqgen.train.logging._package_versions", return_value={"torch": "test"})
-    @patch("cdrseqgen.train.logging.git_state", return_value={
+    @patch("cdrseqgen.methods.common.run_setup._package_versions", return_value={"torch": "test"})
+    @patch("cdrseqgen.methods.common.run_setup.git_state", return_value={
         "repository_commit": "abc", "repository_dirty": False,
     })
     def test_run_config_carries_dataset_runtime_and_repository_identity(self, _git, _versions):
@@ -83,6 +83,7 @@ class RunConfigProvenanceTests(unittest.TestCase):
         self.assertEqual(payload["provenance"]["dataset"]["declared_processed_file_sha256"], "declared")
         self.assertEqual(payload["provenance"]["runtime"]["packages"]["torch"], "test")
         self.assertEqual(payload["provenance"]["repository_commit"], "abc")
+        _git.assert_called_once_with(Path(__file__).resolve().parents[1])
 
 
 if __name__ == "__main__":

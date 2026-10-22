@@ -1,13 +1,22 @@
-"""Bounded / inferred-length candidate production for held-out evaluation.
+"""Adapt bounded/inferred-length MLM generation to the shared evaluation loop.
 
-Only the generation strategy lives here. Example selection, scoring, judging, reporting, and
-writing are shared with the fixed-native track in ``evaluation.py`` — they were duplicated once and
-had already drifted apart in four places (progress bar, write guard, summary statistic, empty-mask
-guard), which is exactly the kind of difference that makes two tracks quietly incomparable.
+Caller:
+  mlm.evaluation.run_generative_eval creates VariableLengthStrategy when the
+  requested length policy uses the checkpoint's fitted length predictor.
 
-The invariant this module exists to protect: the native loop reaches ``calculate`` for scoring and
-nothing else. No native length is passed to generation, so the checkpoint's own length head decides
-how many residues to fill.
+Strategy methods:
+  * draw                  -- generate loops from framework context and the length policy
+  * self_scores           -- score each loop in its own generator prompt
+  * judge_inputs          -- build a judge prompt with the candidate's mask count
+  * payload_length_policy -- describe the policy in the output payload
+
+Data flow:
+  framework + length head -> selected lengths -> masked prompts -> candidates
+  candidates + native    -> eval.generative scoring/reporting helpers
+
+The native loop and its length remain available for scoring and record metadata.
+Neither is passed to candidate generation. mlm.evaluation selects the examples
+and writes the payload; cdrseqgen.eval owns the shared measurements and scoring loop.
 """
 
 import logging
@@ -23,7 +32,12 @@ logger = logging.getLogger(__name__)
 
 
 class VariableLengthStrategy:
-    """Generate without the native mask count, keeping the native for scoring only."""
+    """Adapt length-head-based generation to the shared scoring loop.
+
+    The fitted length head selects lengths within the requested policy's support.
+    Each candidate retains its own prompt, which may differ in mask count from
+    both the native loop and the other candidates for the same framework.
+    """
 
     supplies_native_length = False
 
@@ -42,9 +56,15 @@ class VariableLengthStrategy:
         self._judge_framework_cache = (None, None)
 
     def payload_length_policy(self):
+        """Return the requested policy and length-sampling temperature for the payload."""
         return {**self.length_policy.as_dict(), "length_temperature": self.length_temperature}
 
     def draw(self, i):
+        """Return generated loops and their prompts, with the native saved for scoring.
+
+        Only framework flanks, optional context and length-policy settings enter
+        sample_length_conditioned_spans; the native target stays in the Draw record.
+        """
         framework = framework_for_dataset(self.eval_dataset, i)
         native = framework["target"].upper().strip()
         generated, length_metadata = sample_length_conditioned_spans(
@@ -78,7 +98,11 @@ class VariableLengthStrategy:
         )
 
     def self_scores(self, drawn):
-        """Same pseudo-perplexity as the fixed-native track; the spans differ, the scoring does not."""
+        """Return generator pseudo-perplexities using each candidate's own prompt.
+
+        The scoring calculation is the same as in FixedNativeStrategy; here the
+        number of scored positions can differ between candidates.
+        """
         from cdrseqgen.methods.mlm.sampling import pseudo_log_likelihood
         return [
             pseudo_log_likelihood(self.model, input_ids, mask_positions, token_ids,
@@ -87,10 +111,12 @@ class VariableLengthStrategy:
         ]
 
     def judge_inputs(self, i, seq):
-        """Rebuild the judge's prompt at this candidate's own length, not the native one.
+        """Return a judge prompt containing len(seq) masks for evaluation index i.
 
-        The framework is fixed per example and only the mask count varies, so it is cached while
-        the prompt itself is rebuilt for every candidate length.
+        Example: native length=8, candidate length=6 -> six judge masks.
+
+        The framework is cached per index; a prompt is assembled for each call.
+        A Subset index is mapped back to the corresponding judge_dataset entry.
         """
         cached_index, cached_framework = self._judge_framework_cache
         if cached_index == i:

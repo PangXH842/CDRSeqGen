@@ -1,9 +1,20 @@
-"""Shared fixed, bounded, and inferred-length candidate generation.
+"""Build prompts and generate MLM candidates for command, evaluation and benchmark callers.
 
-Callers resolve a length policy first, then this module assembles the selected number of masks and
-fills them with either masked-LM decoder. Keeping prompt assembly and decoder dispatch here prevents
-the demo, held-out evaluation, and benchmark adapter from quietly implementing different inference
-behavior. Variable policies select lengths first, group equal-length draws, then reuse the fixed span.
+Functions:
+  * prepare_fixed_length_prompt   -- encode context and insert the selected number of masks
+  * sample_masked_span            -- dispatch an assembled prompt to an MLM decoder
+  * sample_length_conditioned_spans -- select lengths, build prompts and collect candidate draws
+
+Data classes:
+  * FixedLengthPrompt -- prompt tokens, mask positions and context-length metadata
+  * GeneratedSpan     -- candidate tokens plus the prompt needed for self-scoring
+
+Workflow:
+  caller's length policy -> selected lengths -> group draws by length
+                         -> assemble prompts -> sampling.py decoder -> GeneratedSpan objects
+
+These helpers implement MLM inference. Sequence measurements, judge scoring and
+evaluation reports are handled by cdrseqgen.eval and the evaluation wrappers.
 """
 
 from __future__ import annotations
@@ -19,7 +30,7 @@ from cdrseqgen.methods.mlm.sampling import sample_independent, sample_iterative
 
 @dataclass(frozen=True)
 class FixedLengthPrompt:
-    """One assembled masked-LM prompt plus auditable truncation information."""
+    """Store an assembled prompt, its mask positions and context-length metadata."""
 
     input_ids: list[int]
     mask_positions: list[int]
@@ -31,7 +42,7 @@ class FixedLengthPrompt:
     pt2_truncated_tokens: int
 
     def metadata(self) -> dict[str, int]:
-        """JSON-ready prompt metadata used by the benchmark adapter."""
+        """Return JSON-ready token counts used in generation and benchmark metadata."""
         return {
             "max_len": self.max_len,
             "input_tokens": len(self.input_ids),
@@ -52,7 +63,14 @@ def prepare_fixed_length_prompt(
     antigen: str | None = None,
     max_len: int = 256,
 ) -> FixedLengthPrompt:
-    """Encode context and assemble ``target_length`` masks between the two framework flanks."""
+    """Return a prompt with target_length masks between the framework flanks.
+
+    Example: pt1="AC", pt2="FG", target_length=3, no extra context
+      prompt: A C [mask] [mask] [mask] F G    (plus tokenizer wrapper tokens, if used)
+
+    Dataset helpers place optional partner/antigen context and apply max_len
+    truncation rules. The supplied target_length is validated, not inferred here.
+    """
     target_length = fixed_length(target_length, source="prompt_argument").length
     pt1_ids = tokenizer.encode(pt1)
     pt2_ids = tokenizer.encode(pt2)
@@ -96,7 +114,15 @@ def sample_masked_span(
     top_k: int,
     top_p: float,
 ) -> list[list[int]]:
-    """Fill one assembled masked span with the requested existing decoder."""
+    """Return candidate token-ID lists for an already assembled masked prompt.
+
+    Dispatch:
+      decoding="independent" -> sample_independent
+      otherwise              -> sample_iterative
+
+    The caller validates the decoder name. Both decoders exclude tokenizer.special_ids
+    and return one greedy candidate when temperature=0, regardless of num_samples.
+    """
     kwargs: dict[str, Any] = {
         "model": model,
         "input_ids": input_ids,
@@ -116,7 +142,11 @@ def sample_masked_span(
 
 @dataclass(frozen=True)
 class GeneratedSpan:
-    """One sampled loop plus the exact prompt needed for architecture-native scoring."""
+    """Store one sampled loop, its selected length and the prompt used to generate it.
+
+    input_ids and mask_positions let evaluation score the candidate in the same
+    context; prompt_metadata records the assembled prompt's token counts.
+    """
 
     token_ids: list[int]
     length: int
@@ -145,7 +175,24 @@ def sample_length_conditioned_spans(
     top_p: float,
     length_temperature: float = 1.0,
 ) -> tuple[list[GeneratedSpan], dict]:
-    """Select candidate lengths, expand masks, and sample residues for every draw."""
+    """Return (generated spans, length metadata) under a fixed, bounded or inferred policy.
+
+    Steps:
+      1. Use the fixed length, or ask length_predictor to select one length per draw.
+      2. Group draws with the same length and build one masked prompt per group.
+      3. Sample residues and place each GeneratedSpan back in its original draw order.
+
+    Example:
+      selected lengths: [8, 10, 8] -> prompt groups: {8: [0, 2], 10: [1]}
+      returned spans:   [length 8, length 10, length 8]
+
+    Notes:
+      * No native loop or native length is required by this interface.
+      * Bounded/inferred policies require the checkpoint's fitted length predictor.
+      * temperature=0 produces one draw; length_temperature separately controls
+        length selection by the predictor.
+      * Metadata records the policy, selected lengths and prompt counts by length.
+    """
     if num_samples <= 0:
         raise ValueError("num_samples must be positive")
     actual_samples = 1 if temperature == 0 else num_samples

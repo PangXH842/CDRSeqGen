@@ -34,7 +34,7 @@ from cdrseqgen.artifacts import (
 )
 from cdrseqgen.datasets.dataset_common import evaluation_context_view
 from cdrseqgen.methods.registry import decoding_choices, resolve as resolve_method, checkpoint_method
-from cdrseqgen.train.logging import configure_logging
+from cdrseqgen.methods.common.logging import configure_logging
 from cdrseqgen.methods.common.arguments import parse_config_dict
 
 # Entrypoints configure their own logging. This used to arrive for free by importing train.py, which
