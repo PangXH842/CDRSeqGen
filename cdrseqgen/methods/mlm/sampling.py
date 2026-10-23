@@ -1,13 +1,14 @@
 """Fill MLM masks and score completed candidate loops.
 
 Functions:
+  * sample_masked_span    -- select the independent or iterative decoder for a masked prompt
   * sample_independent    -- fill all positions from one forward pass over a masked prompt
   * sample_iterative      -- fill one position per draw per pass, in confidence order
   * pseudo_log_likelihood -- re-mask each candidate position and return (PLL, pseudo-ppl)
   * _logits_of            -- extract logits from a dict or model-output object
 
 Callers:
-  * mlm.generation dispatches candidate generation to the two decoders.
+  * mlm.generation and fixed-native MLM evaluation call sample_masked_span.
   * MLM evaluation strategies use pseudo_log_likelihood for generator self-scoring.
   * eval.generative uses the same scorer for the shared masked-LM judge.
 
@@ -16,9 +17,54 @@ Notes:
   * Both decoders exclude banned_ids and return one candidate at temperature=0.
   * Tensor comments use S=prompt length, L=loop length, V=vocabulary size, N=draws.
 """
+
+from __future__ import annotations
+
+from typing import Any
+
 import torch
+
 from cdrseqgen.methods.common import NEG_INF, ban_tokens, warp_logits
 
+
+def sample_masked_span(
+    model,
+    tokenizer,
+    device,
+    generator,
+    input_ids: list[int],
+    mask_positions: list[int],
+    *,
+    decoding: str,
+    num_samples: int,
+    temperature: float,
+    top_k: int,
+    top_p: float,
+) -> list[list[int]]:
+    """Return candidate token-ID lists for an already assembled masked prompt.
+
+    Dispatch:
+      decoding="independent" -> sample_independent
+      otherwise              -> sample_iterative
+
+    The caller validates the decoder name. Both decoders exclude tokenizer.special_ids
+    and return one greedy candidate when temperature=0, regardless of num_samples.
+    """
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "input_ids": input_ids,
+        "mask_positions": mask_positions,
+        "banned_ids": tokenizer.special_ids,
+        "device": device,
+        "num_samples": num_samples,
+        "temperature": temperature,
+        "top_k": top_k,
+        "top_p": top_p,
+        "generator": generator,
+    }
+    if decoding == "independent":
+        return sample_independent(**kwargs)
+    return sample_iterative(**kwargs, mask_id=tokenizer.mask_id)
 
 
 def _logits_of(outputs):

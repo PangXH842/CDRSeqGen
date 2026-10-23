@@ -1,4 +1,4 @@
-"""Own the MLM generation workflow and reusable prompt/sampling helpers.
+"""Own the MLM generation workflow and reusable length/prompt helpers.
 
 Command workflow:
   generate.py -> gen_cli.main -> run_generation -> common.generation lifecycle
@@ -13,7 +13,6 @@ Workflow functions:
 
 Reusable inference helpers (also used by evaluation and benchmark callers):
   * prepare_fixed_length_prompt   -- encode context and insert the selected number of masks
-  * sample_masked_span            -- dispatch an assembled prompt to an MLM decoder
   * sample_length_conditioned_spans -- select lengths, build prompts and collect candidate draws
 
 Data classes:
@@ -25,19 +24,19 @@ Workflow:
                          -> assemble prompts -> sampling.py decoder -> GeneratedSpan objects
 
 Sequence measurements and dataset scoring/reporting are supplied by cdrseqgen.eval.
-case_generation assembles individual case records; evaluation coordinates dataset runs.
+sampling.sample_masked_span selects the residue decoder. case_generation assembles
+individual case records; evaluation coordinates dataset runs.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any
 
 from cdrseqgen.datasets.dataset_mlm import assemble_masked_input, inject_context
 from cdrseqgen.methods.mlm.length import LengthPolicy, fixed_length, resolve_length_policy
 from cdrseqgen.methods.mlm.length_predictor import LengthPredictor
-from cdrseqgen.methods.mlm.sampling import sample_independent, sample_iterative
+from cdrseqgen.methods.mlm.sampling import sample_masked_span
 
 
 def run_generation(args, config):
@@ -81,12 +80,18 @@ def resolve_case_length(case, args):
 def prepare_generation(args, cases, config):
     """Validate MLM command options and return one length policy per supplied case.
 
-    Sets the existing iterative decoder default in args. config is accepted as
-    part of the shared method-command interface; MLM does not use it here.
+    Resolve decoding from the explicit request or a compatible saved setting,
+    falling back to independent. Recorded iterative decoding is used automatically
+    only for mixed-mask training; full_span/missing metadata keeps the legacy guard.
     """
     if getattr(args, 'max_new_tokens', None) is not None:
         raise ValueError('--max_new_tokens applies to autoregressive decoding, not masked infilling')
-    args.decoding = args.decoding or 'iterative'  # preserve the qualitative tool's existing default
+    if args.decoding is None:
+        args.decoding = 'independent'
+        recorded = config.get('gen_decoding')
+        policy = (config.get('masking_policy') or 'full_span').strip().lower()
+        if policy == 'mixed' and recorded in {'independent', 'iterative'}:
+            args.decoding = recorded
     if args.decoding == 'causal':
         raise ValueError('Masked infilling requires independent or iterative decoding')
     return [resolve_case_length(case, args)[1] for case in cases]
@@ -190,46 +195,6 @@ def prepare_fixed_length_prompt(
         pt1_truncated_tokens=original_pt1_len - len(pt1_ids),
         pt2_truncated_tokens=original_pt2_len - len(pt2_ids),
     )
-
-
-def sample_masked_span(
-    model,
-    tokenizer,
-    device,
-    generator,
-    input_ids: list[int],
-    mask_positions: list[int],
-    *,
-    decoding: str,
-    num_samples: int,
-    temperature: float,
-    top_k: int,
-    top_p: float,
-) -> list[list[int]]:
-    """Return candidate token-ID lists for an already assembled masked prompt.
-
-    Dispatch:
-      decoding="independent" -> sample_independent
-      otherwise              -> sample_iterative
-
-    The caller validates the decoder name. Both decoders exclude tokenizer.special_ids
-    and return one greedy candidate when temperature=0, regardless of num_samples.
-    """
-    kwargs: dict[str, Any] = {
-        "model": model,
-        "input_ids": input_ids,
-        "mask_positions": mask_positions,
-        "banned_ids": tokenizer.special_ids,
-        "device": device,
-        "num_samples": num_samples,
-        "temperature": temperature,
-        "top_k": top_k,
-        "top_p": top_p,
-        "generator": generator,
-    }
-    if decoding == "independent":
-        return sample_independent(**kwargs)
-    return sample_iterative(**kwargs, mask_id=tokenizer.mask_id)
 
 
 @dataclass(frozen=True)

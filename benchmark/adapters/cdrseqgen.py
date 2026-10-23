@@ -82,12 +82,24 @@ def validate_checkpoint_contract(run_config: dict[str, Any], manifest: dict[str,
 
 
 def resolve_decoding(run_config, requested=None):
-    """Resolve a method decoder before loading weights; default follows its masking policy."""
+    """Resolve a method decoder before loading weights.
+
+    MLM uses an explicit request or a compatible saved gen_decoding, falling back
+    to independent. A recorded iterative choice requires mixed-mask training;
+    explicit iterative requests remain allowed for full_span/legacy checkpoints.
+    AR/S2S retain their registered decoder defaults.
+    """
     from cdrseqgen.methods.registry import checkpoint_method
     method = checkpoint_method(run_config)
     if requested is None:
-        requested = ('independent' if run_config.get('masking_policy', 'full_span') == 'full_span'
-                     else 'iterative') if method.name == 'mlm' else method.decoders[0]
+        if method.name == 'mlm':
+            requested = 'independent'
+            recorded = run_config.get('gen_decoding')
+            policy = (run_config.get('masking_policy') or 'full_span').strip().lower()
+            if policy == 'mixed' and recorded in {'independent', 'iterative'}:
+                requested = recorded
+        else:
+            requested = method.decoders[0]
     if requested not in method.decoders:
         raise ValueError(f'{method.name} decoding must be one of {method.decoders}, got {requested!r}')
     return requested

@@ -14,8 +14,9 @@ from unit_tests.test_cdrseqgen_adapter import FakeSampler, manifest_record
 
 
 class BenchmarkMethodTests(unittest.TestCase):
-    def test_decoders_resolve_from_checkpoint_method_and_masking_policy(self):
-        for config, expected in [({}, 'independent'), ({'masking_policy': 'mixed'}, 'iterative'),
+    def test_decoders_resolve_from_checkpoint_method_and_saved_settings(self):
+        for config, expected in [({}, 'independent'), ({'masking_policy': 'mixed'}, 'independent'),
+                                 ({'masking_policy': 'mixed', 'gen_decoding': 'iterative'}, 'iterative'),
                                  ({'method': 'ar'}, 'causal'), ({'method': 's2s'}, 'seq2seq')]:
             self.assertEqual(resolve_decoding(config), expected)
         with self.assertRaisesRegex(ValueError, 'ar decoding'):

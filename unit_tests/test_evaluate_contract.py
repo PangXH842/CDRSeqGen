@@ -7,7 +7,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from cdrseqgen.methods.mlm.eval_cli import resolve_decoding
+from benchmark.adapters.cdrseqgen import resolve_decoding as benchmark_decoding
+from cdrseqgen.methods.mlm.eval_cli import prepare_evaluation, resolve_decoding
+from cdrseqgen.methods.mlm.gen_cli import prepare_generation
 from evaluate import (
     compatibility_problems,
     default_output_path,
@@ -76,7 +78,7 @@ class DecoderContractTests(unittest.TestCase):
             "independent",
         )
 
-    def test_mixed_policy_uses_its_recorded_decoder_or_iterative(self):
+    def test_mixed_policy_uses_its_recorded_decoder_or_independent(self):
         self.assertEqual(
             resolve_decoding(
                 None,
@@ -86,7 +88,7 @@ class DecoderContractTests(unittest.TestCase):
         )
         self.assertEqual(
             resolve_decoding(None, run_config={"masking_policy": "mixed"}),
-            "iterative",
+            "independent",
         )
 
     def test_explicit_off_distribution_request_remains_possible(self):
@@ -97,6 +99,40 @@ class DecoderContractTests(unittest.TestCase):
             ),
             "iterative",
         )
+
+    def test_mlm_commands_and_benchmark_share_decoder_precedence(self):
+        cases = [
+            ({}, None, "independent"),
+            ({"masking_policy": "full_span", "gen_decoding": "iterative"}, None, "independent"),
+            ({"gen_decoding": "iterative"}, None, "independent"),
+            ({"masking_policy": None, "gen_decoding": "iterative"}, None, "independent"),
+            ({"masking_policy": "mixed"}, None, "independent"),
+            ({"masking_policy": "mixed", "gen_decoding": None}, None, "independent"),
+            ({"masking_policy": "mixed", "gen_decoding": ""}, None, "independent"),
+            ({"masking_policy": "mixed", "gen_decoding": "invalid"}, None, "independent"),
+            ({"masking_policy": "mixed", "gen_decoding": "independent"}, None, "independent"),
+            ({"masking_policy": "mixed", "gen_decoding": "iterative"}, None, "iterative"),
+            ({"masking_policy": " Mixed ", "gen_decoding": "iterative"}, None, "iterative"),
+            ({"masking_policy": "mixed", "gen_decoding": "iterative"}, "independent", "independent"),
+            ({"masking_policy": "mixed", "gen_decoding": "independent"}, "iterative", "iterative"),
+            ({"masking_policy": "full_span"}, "iterative", "iterative"),
+        ]
+        for config, requested, expected in cases:
+            with self.subTest(config=config, requested=requested):
+                generation_args = SimpleNamespace(
+                    decoding=requested, max_new_tokens=None, target_length=None,
+                    min_length=None, max_length=None, use_native_length=False,
+                )
+                evaluation_args = SimpleNamespace(
+                    decoding=requested, length_mode="fixed_native", max_new_tokens=None,
+                    min_length=None, max_length=None,
+                )
+                with patch("builtins.print"):
+                    prepare_generation(generation_args, [{"target_length": 2}], config)
+                    prepare_evaluation(evaluation_args, config)
+                self.assertEqual(generation_args.decoding, expected)
+                self.assertEqual(evaluation_args.decoding, expected)
+                self.assertEqual(benchmark_decoding(config, requested), expected)
 
 
 class EvaluationArtifactTests(unittest.TestCase):

@@ -1,104 +1,136 @@
-"""Own MLM evaluation setup and coordinate generated-loop scoring.
+"""Set up MLM evaluation, generate candidate loops and coordinate their scoring.
 
-Callers:
-  * evaluate.py -> mlm.eval_cli.main -> run_evaluation -> shared loading lifecycle
-                -> run_generative_eval
-  * mlm.training -> common.evaluation.post_training_generation
-                 -> mlm.eval_cli.evaluate -> run_generative_eval
-  run_generative_eval receives a loaded model, tokenizer, dataset and optional judge.
+Entry paths:
+  * Standalone: evaluate.py -> mlm.eval_cli.main
+               -> common.evaluation.run_evaluation_pipeline -> run_generative_eval
+  * After training: mlm.training -> common.evaluation.post_training_generation
+                    -> mlm.eval_cli.evaluate (alias for run_generative_eval)
+  Both paths supply a loaded model, tokenizer, dataset and optional judge.
 
-Command workflow:
-  * run_evaluation     -- master standalone workflow using common.evaluation
-  * prepare_evaluation -- validate options and resolve length/decoder defaults
-  * evaluation_options -- load the optional length head and return evaluator kwargs
-  * resolve_decoding   -- choose the decoder from an override or checkpoint metadata
+CLI setup (defined here and re-exported by mlm.eval_cli):
+  * prepare_evaluation(args, config)
+      Set length/decoder defaults in args and check MLM-specific options.
+      Calls resolve_generation_length_policy() and resolve_decoding().
+  * resolve_decoding(requested, ...)
+      Choose an explicit decoder, a compatible saved choice, or independent.
+      Called by prepare_evaluation(); returns the decoder name.
+  * evaluation_options(args, device)
+      Load LengthPredictor for bounded/inferred modes and return evaluator kwargs.
+      For fixed_native, the returned length_predictor is None.
+  The shared standalone pipeline calls prepare_evaluation before loading resources,
+  then evaluation_options after loading the model. Post-training callers supply
+  their evaluator options directly.
 
-Evaluation functions/classes:
-  * masked_view         -- extract prompt tokens, supervised positions and native tokens
-  * FixedNativeStrategy -- fill the dataset's existing masks, exposing the native length
-  * run_generative_eval -- select examples, choose a strategy, score and return the payload
+run_generative_eval (main evaluation flow):
+  1. Put the model in evaluation mode, validate anchor_trim and seed sampling.
+  2. select_indices() -> framework indices, optionally balanced by native length.
+  3. resolve_generation_length_policy() -> choose the generation strategy:
+       fixed_native     -> FixedNativeStrategy (native mask count)
+       bounded/inferred -> VariableLengthStrategy (fitted length head)
+  4. run_eval_loop(strategy, selected) -> one scored record per returned Draw:
+       strategy.draw(i)      -> candidate sequences and their prompts
+       metrics.calculate()  -> sequence, length and diversity measurements
+       strategy.self_scores -> optional generator pseudo-perplexities
+       score_with_judge()   -> optional judge scores via strategy.judge_inputs()
+       positional/confidence metrics -> candidate details + framework record
+  5. log_report() -> overall and length-bucket report.
+     aggregate() -> summary means across contributing framework records.
+     write_payload() / write_confidence_figure() -> optional JSON/PNG output.
+     Return the payload dict, including records, settings and supplied metadata.
 
-Workflow:
-  fixed_native     -> FixedNativeStrategy
-  bounded/inferred -> variable_length_evaluation.VariableLengthStrategy
-                   -> eval.generative.run_eval_loop -> report + JSON/figure output
+Functions behind candidate generation:
+  * FixedNativeStrategy.draw -> masked_view -> sampling.sample_masked_span
+      masked_view extracts prompt IDs, supervised positions and native token IDs.
+      Existing mask positions expose the native loop length to generation.
+  * VariableLengthStrategy.draw -> datasets.dataset_mlm.framework_for_dataset
+      -> generation.sample_length_conditioned_spans
+      Framework context and the length head determine candidate lengths; native
+      sequences/lengths remain available for selection and scoring.
+  * Both strategies return Draw objects and implement self_scores(), judge_inputs()
+    and payload_length_policy() for the shared scoring loop and output metadata.
 
-Shared responsibilities:
-  * cdrseqgen.eval.metrics calculates sequence measurements.
-  * cdrseqgen.eval.generative owns the scoring loop, aggregation and output helpers.
-    Its imported helpers remain available here for existing callers.
-  * mlm.generation fills masked spans; mlm.sampling supplies MLM pseudo-perplexity.
-  * mlm.recovery supplies Trainer validation metrics, a separate evaluation stage.
+Ownership:
+  * common.evaluation handles checkpoint checks, resource loading and context views.
+  * cdrseqgen.eval.metrics defines measurements; eval.generative owns the scoring
+    loop, aggregation and output helpers. Imported helpers remain re-exported here.
+  * mlm.sampling supplies residue decoders and pseudo_log_likelihood().
+  * mlm.recovery calculates Trainer validation metrics during training; this module
+    evaluates generated candidates in a separate stage.
+
+Logging:
+  * Root evaluate.py calls common.logging.configure_logging() for console output.
+  * eval.generative logs reports, scoring warnings and output-write messages.
+  * Training setup attaches a train.log handler, which also records post-training
+    evaluation logs. Standalone evaluation does not attach a file handler.
+  * resolve_decoding uses print() for console messages; those bypass log handlers.
 """
-import logging
-import os
+
 import random
-import statistics
-from collections import defaultdict
-from dataclasses import dataclass, field
 
 import torch
 
-from cdrseqgen.artifacts import atomic_write_json, read_run_config
-from cdrseqgen.datasets.dataset_mlm import MaskedInfillingDataset
-from cdrseqgen.eval.metrics import (
-    amino_acid_recovery,
-    blosum_provenance,
-    calculate,
-    confidence_metrics,
-    core_anchor_indices,
-    recovery_at_indices,
+from cdrseqgen.artifacts import read_run_config
+from cdrseqgen.eval import ANCHOR_TRIM
+from cdrseqgen.eval.generative import (  # noqa: F401 (compatibility re-exports)
+    SUMMARY_KEYS,
+    Draw,
+    aggregate,
+    bucket_of,
+    build_judge,
+    format_report,
+    log_report,
+    run_eval_loop,
+    score_with_judge,
+    select_indices,
+    write_confidence_figure,
+    write_payload,
 )
-from cdrseqgen.methods.mlm.recovery import ANCHOR_TRIM
-from cdrseqgen.eval.generative import (  # noqa: F401  (re-exported for callers)
-    Draw, build_judge, SUMMARY_KEYS, aggregate, bucket_of, format_report, log_report,
-    run_eval_loop, score_with_judge, select_indices, write_confidence_figure,
-    write_payload)
-from cdrseqgen.methods.mlm.generation import sample_masked_span
+from cdrseqgen.eval.metrics import (
+    LENGTH_BUCKETS,  # noqa: F401 (compatibility re-export)
+    blosum_provenance,
+)
 from cdrseqgen.methods.mlm.length import (
     native_mask_length,
     resolve_generation_length_policy,
 )
 from cdrseqgen.methods.mlm.length_predictor import LengthPredictor
-from cdrseqgen.methods.mlm.sampling import pseudo_log_likelihood
-
-logger = logging.getLogger(__name__)
-
-# Shared native-length reporting buckets; also re-exported for existing callers.
-from cdrseqgen.eval.metrics import LENGTH_BUCKETS  # noqa: E402
-
-
-def run_evaluation(args, config, run_config=None):
-    """Run standalone checkpoint evaluation with MLM's setup and candidate strategy.
-
-    common.evaluation checks compatibility/output paths and loads data/model/judge.
-    This module supplies decoder/length setup and run_generative_eval().
-    """
-    from cdrseqgen.methods.common.evaluation import run_evaluation_pipeline
-
-    return run_evaluation_pipeline(
-        "mlm", args, config, run_config,
-        prepare_evaluation=prepare_evaluation,
-        evaluation_options=evaluation_options,
-        evaluate=run_generative_eval,
-    )
+from cdrseqgen.methods.mlm.sampling import pseudo_log_likelihood, sample_masked_span
 
 
 def resolve_decoding(requested, model_dir=None, run_config=None):
-    """Pick a decoder that is compatible with the checkpoint's masking policy.
+    """Resolve an MLM decoder, using independent decoding as the fallback.
 
-    Missing policy metadata means an older full-span checkpoint. A recorded iterative decoder must
-    not silently override that training contract; callers can still request it explicitly for an
-    intentional off-distribution experiment.
+    Generation decoders:
+      * independent -- fill all masks from one forward pass over the same prompt. (default)
+      * iterative   -- fill the most-confident remaining mask per pass; filled
+                       residues become context for later predictions.
+
+    Training masking policies:
+      * full_span -- hide the entire target loop. (default)
+      * mixed     -- mix fully masked loops with partially revealed native loops.
+
+    Selection:
+      1. Use an explicitly requested decoder.
+      2. Otherwise use a compatible saved gen_decoding.
+      3. Otherwise fall back to independent, including for mixed checkpoints.
+
+    Notes:
+      * run_config takes precedence over metadata read from model_dir.
+      * Missing masking metadata is treated as full_span. A recorded iterative
+        choice is used automatically only with mixed training; this preserves
+        the safeguard against legacy full-span iterative defaults. An explicit
+        iterative request still overrides it.
+      * The caller validates decoder names; this function does not reject them.
+      * Prints the selection and returns the decoder name without generating
+        candidates.
     """
     meta = run_config if run_config is not None else (read_run_config(model_dir) or {})
     recorded = meta.get("gen_decoding")
     policy = (meta.get("masking_policy") or "full_span").strip().lower()
     if requested is None:
-        if policy == "mixed":
-            chosen = recorded if recorded in {"independent", "iterative"} else "iterative"
-        else:
-            chosen = "independent"
+        chosen = "independent"
+        if policy == "mixed" and recorded in {"independent", "iterative"}:
+            chosen = recorded
         source = f"masking_policy={policy!r}"
         if recorded and recorded != chosen:
             source += f"; ignored incompatible recorded gen_decoding={recorded!r}"
@@ -109,15 +141,21 @@ def resolve_decoding(requested, model_dir=None, run_config=None):
             print(f"🎲 Decoding: {chosen} (CLI override; the run recorded '{recorded}')")
         else:
             print(f"🎲 Decoding: {chosen}")
-    if chosen == "iterative" and policy != "mixed":
-        print(f"⚠️  Iterative decoding on a {policy} checkpoint: the model never saw a partially "
-              "revealed loop in training, so this is off distribution and roughly halves core "
-              "recovery. Train with masking_policy: mixed for iterative decoding.")
     return chosen
 
 
 def prepare_evaluation(args, config):
-    """Validate MLM evaluation options and set resolved length/decoder modes in args."""
+    """Resolve MLM command options in place before the shared pipeline loads resources.
+
+    Example: args.length_mode=None, args.decoding=None, config={}
+      length_mode -> fixed_native
+      decoding    -> independent
+
+    Calls length.resolve_generation_length_policy() to check the length request,
+    then resolve_decoding() to apply the explicit/saved/fallback decoder choice.
+    Rejects max_new_tokens and causal decoding, which do not apply to MLM.
+    Returns None; subsequent stages read the updated args.
+    """
     args.length_mode = args.length_mode or 'fixed_native'
     if args.max_new_tokens is not None:
         raise ValueError('--max_new_tokens applies to autoregressive decoding, not masked infilling')
@@ -128,7 +166,17 @@ def prepare_evaluation(args, config):
 
 
 def evaluation_options(args, device):
-    """Return evaluator kwargs, loading the saved head for bounded/inferred modes."""
+    """Build run_generative_eval kwargs from the resolved command options.
+
+    Length mode       length_predictor in returned dict
+      fixed_native    None
+      bounded         LengthPredictor.load(args.model_dir, device=device)
+      inferred        LengthPredictor.load(args.model_dir, device=device)
+
+    Called by the shared standalone pipeline after prepare_evaluation() and model
+    loading. Also forwards decoding, bounds and length_temperature. The saved
+    length head is loaded here; framework selection and generation happen later.
+    """
     predictor = None
     if args.length_mode != 'fixed_native':
         predictor = LengthPredictor.load(args.model_dir, device=device)
@@ -246,22 +294,41 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
                         judge_dataset=None, judge_name=None,
                         anchor_trim=ANCHOR_TRIM,
                         output_path=None, meta=None, title=""):
-    """Generate and score loops from a supplied evaluation dataset; return a payload dict.
+    """Generate candidate loops, score them and return an evaluation payload dict.
 
-    Steps:
-      1. Set model.eval(), seed sampling and select evaluation frameworks.
-      2. Choose native-length prompts or a bounded/inferred strategy with a length head.
-      3. Run shared sequence, optional self-perplexity and optional judge scoring.
-      4. Log the report, assemble the payload and call the JSON/figure writers.
+    Inputs:
+      Loaded model/tokenizer/eval_dataset, sampling settings and device.
+      Bounded/inferred modes also need a fitted length_predictor. Judge scoring
+      needs judge_model, judge_tokenizer and the corresponding judge_dataset.
+      eval_cli.evaluate is an alias for this function.
+
+    Flow:
+      1. model.eval(), validate anchor_trim and seed Torch/local sampling RNGs.
+      2. Read target_len from the dataset and call select_indices() using
+         num_examples, stratify and a seeded Python RNG.
+      3. Resolve the length policy and construct one strategy for the run:
+           fixed_native     -> FixedNativeStrategy
+           bounded/inferred -> VariableLengthStrategy
+      4. run_eval_loop() calls the strategy for each selected framework:
+           draw -> sequence metrics -> optional self/judge scores
+                -> positional/confidence metrics -> framework record
+      5. Log the report; combine records, aggregate means, decoding/length settings,
+         BLOSUM provenance and caller metadata; invoke the JSON/figure writers.
+
+    Example: two selected frameworks, num_samples=20, both draws succeed
+      records:     2 framework records, each with 20 candidate sequences
+      n_generated: 2                 (framework records, not candidate count)
+      summary:     metric means across contributing framework records
 
     Notes:
-      * The caller loads the model, datasets and optional judge before this function.
-      * Native lengths support selection/reporting; only fixed_native exposes them
-        to generation. Bounded/inferred generation requires length_predictor.
-      * skip_perplexity disables generator self-scoring; judge scoring is independent.
-      * n_generated counts framework records, each containing its candidate draws.
-      * Errors propagate to the caller. Model evaluation mode and the Torch seed
-        are set here and are not restored on return.
+      * Native lengths support selection/reporting. Only fixed_native supplies
+        the native mask count to generation; bounded/inferred use the length head.
+      * skip_perplexity disables self-scoring; judge scoring is independent.
+      * A strategy returning None contributes no record.
+      * output_path=None skips file output; the payload is still returned.
+      * Generation/scoring errors propagate. Output helpers handle some write/plot
+        failures with warnings. Model evaluation mode and the Torch seed are not
+        restored on return.
     """
     model.eval()
     if isinstance(anchor_trim, bool) or not isinstance(anchor_trim, int) or anchor_trim < 0:

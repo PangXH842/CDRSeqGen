@@ -4,7 +4,7 @@
 **Date Updated:** 2026-10-23
 **Status:** iAIM 2026 abstract submitted through the portal on **23 October**. Resume manual code reclamation and develop the framework manuscript from the completed validation evidence.
 
-**Next priority:** review the **MLM evaluation/generation block**, starting with `gen_cli.py` → `generation.run_generation()`. The MLM model and training block are already marked reclaimed in the manual checklist. Manuscript integration and final held-out evaluation remain separate tasks; completed batches need no completion rerun.
+**Next priority:** review the **MLM generation path**, starting with `gen_cli.py` → `generation.run_generation()`, then `case_generation`, sampling and length handling. The manual checklist marks the MLM model, training block and `eval_cli`/`evaluation` reclaimed. Manuscript integration and final held-out evaluation remain separate tasks; completed batches need no completion rerun.
 
 **MLM ESM-2 controls — audited complete, 22 October:** [two trials](results/reviews/20261022-mlm-esm2-no-partner-controls.md), seeds 42/43, 6,000 returned canonical candidates and full judge coverage. Edit similarity is **0.3891/0.3883**; both models select epoch 5 and stop at epoch 8. Table 8 now has ten no-partner controls, and its length figure/provenance are updated. These rows use the control table’s partner-present judge; they are separate from the heavy-only external benchmark. No completion rerun is needed.
 
@@ -38,11 +38,12 @@ The abstract was submitted on **23 October**, as confirmed by the user. The curr
 
 The current matched OAS4 benchmark has used validation; historical test-selection caveats remain documented below. All current contrasts are exploratory. The newer analysis resamples training seeds and framework groups, while older intervals fix checkpoints; candidate-generation variability is not estimated by either. The seven-seed study covers no-partner scratch checkpoints, **not seven-seed dropout experiments**. Historical MLM training evaluations lack attempt-validity accounting; the benchmark adapters record every attempt. Different-length/gapped homology and [external pretraining membership](benchmark/pretraining_overlap.md) remain unresolved.
 
-**Manual code review — resume MLM evaluation/generation.** The manual checklist marks the MLM model and training block complete, including `train_cli`, `arguments`, `backbones`, `losses`, `training` and `recovery`. The evaluation/generation entrypoints were restructured before the abstract work; they still await manual review. Start with [gen_cli](cdrseqgen/methods/mlm/gen_cli.py) and [generation.run_generation](cdrseqgen/methods/mlm/generation.py), then follow `case_generation`, sampling and length handling. Continue with [eval_cli](cdrseqgen/methods/mlm/eval_cli.py), [evaluation](cdrseqgen/methods/mlm/evaluation.py) and `variable_length_evaluation`.
+**Manual code review — continue with MLM generation.** The manual checklist now also marks [eval_cli](cdrseqgen/methods/mlm/eval_cli.py) and [evaluation](cdrseqgen/methods/mlm/evaluation.py) reclaimed on **23 October**. Their docstrings map CLI setup, framework selection, generation strategies, shared scoring and reporting. Continue with [gen_cli](cdrseqgen/methods/mlm/gen_cli.py) → [generation.run_generation](cdrseqgen/methods/mlm/generation.py), then `case_generation`, `sampling`, `length`, `length_predictor` and `variable_length_evaluation`. The shared masked-span dispatcher now lives in `mlm/sampling.py` and serves generation and evaluation.
 
 ```text
 generate.py → mlm/gen_cli.main() → mlm/generation.run_generation()
-evaluate.py → mlm/eval_cli.main() → mlm/evaluation.run_evaluation()
+evaluate.py → mlm/eval_cli.main() → common/evaluation.run_evaluation_pipeline()
+                               → mlm/evaluation.run_generative_eval()
 ```
 
 Both workflows call shared loading/setup lifecycles in `methods/common/`. Follow those dependencies while reading, then compare method implementations through MLM → AR → S2S → common using the [workflow map](cdrseqgen/methods/common/README.md). Shared code remains pending in the manual checklist; passing tests and completed refactors do not mark it reclaimed. The manual checkboxes remain the record of your own review.
@@ -75,7 +76,7 @@ Current implemented features include:
 - **Batch experiment runner**: `run.sh list|plan|run|status|resume` exposes named recipes, suites and sweeps through one planner/executor; related recipes share base settings. It shards trials across GPUs, freezes each batch as a `plan.json` (merged configs, dataset hashes, source identity), verifies completion artifacts and writes tables/dashboards. Batch resume skips complete trials and restarts unfinished training; checkpoint recovery is separate. See the [experiment guide](configs/experiments/README.md).
 
 **Generation**
-- **Sampling**: independent / iterative (Mask-Predict) decoding for MLM; autoregressive decoding to EOS for AR/S2S. Temperature (`0` = greedy), top-k and top-p control candidate sampling.
+- **Sampling**: independent or iterative decoding for MLM, with explicit requests taking precedence over compatible saved settings and independent as the fallback. AR/S2S decode autoregressively to EOS. Temperature (`0` = greedy), top-k and top-p control candidate sampling.
 - **Length policies**: fixed, bounded, and inferred-length MLM generation; inferred mode classifies one gap sentinel and expands it into residue masks without reading the native loop length
 
 **Evaluation**
@@ -86,7 +87,7 @@ Current implemented features include:
 - **Variability and reference analysis**: the completed `benchmark variability` analysis combines training seeds, fixed-seed repeats, capacity, IgCraft sampling sensitivity and retrieval references from saved artifacts. It reports crossed seed/framework intervals separately from the older fixed-pool comparisons; generation-pool variance remains unmeasured.
 
 **Engineering**
-- **Logging & visualization**: per-run `train.log` (the whole run's record, including the generative-eval table and any uncaught traceback), TensorBoard logging, csv metric extraction, multi-line graph plotter
+- **Logging & visualization**: training-run `train.log` includes post-training evaluation reports and uncaught tracebacks; standalone evaluation configures console logging without attaching a file handler. Shared scoring helpers log reports and output messages; decoder-selection `print()` messages bypass log handlers. TensorBoard, CSV metric extraction and plotting support training analysis.
 - **Extensible architecture**: method packages isolate each method's assumptions so a new one reuses shared data, metrics, artifacts, and benchmark contracts. Every method exposes `train_cli.py`, `eval_cli.py` and `gen_cli.py` for the corresponding root commands. Method selection, `--decoding` choices and dashboard families derive from `methods/registry.py`.
 
 ---
@@ -158,10 +159,11 @@ The root-to-method command paths use the same names for MLM, AR and S2S:
 | `evaluate.py` | `methods/<method>/eval_cli.main()` | Validate evaluation options, prepare method-specific state and call the evaluator. |
 | `generate.py` | `methods/<method>/gen_cli.main()` | Validate supplied cases, prepare method-specific state and generate each case. |
 
-For MLM, these entry functions call `training.run_training()`,
-`evaluation.run_evaluation()` and `generation.run_generation()`. Shared standalone
-loading, compatibility and output handling live in `methods/common/evaluation.py`
-and `methods/common/generation.py`.
+For MLM, the training and generation entry functions call `training.run_training()`
+and `generation.run_generation()`. `eval_cli.main()` connects the setup helpers and
+`evaluation.run_generative_eval()` to `common.evaluation.run_evaluation_pipeline()`.
+Shared standalone loading, compatibility and output handling live in
+`methods/common/evaluation.py` and `methods/common/generation.py`.
 
 ```text
 CDRSeqGen/
@@ -255,14 +257,14 @@ CDRSeqGen/
 │   │   └── mlm/                # Masked-LM training, generation, and native evaluation
 │   │       ├── arguments.py        # MLM args: shared bases + loss_type/core/anchor weights
 │   │       ├── train_cli.py        # Logging/config/CLI setup -> training.run_training()
-│   │       ├── eval_cli.py         # main(): saved-checkpoint evaluation entrypoint
+│   │       ├── eval_cli.py         # main(): connect MLM setup/scoring to the common lifecycle
 │   │       ├── gen_cli.py          # main(): supplied-framework generation entrypoint
 │   │       ├── backbones.py        # Masked-LM registry — resolve(model_type) -> Backbone
 │   │       ├── losses.py           # Shared loss registry + Trainer bridge for every MLM backbone
 │   │       ├── training.py         # MLM workflow: datasets, model/Trainer, training and extensions
 │   │       ├── recovery.py         # Position recovery, anchor/core split, core coverage
-│   │       ├── sampling.py         # Independent/iterative decoding + pseudo-perplexity
-│   │       ├── evaluation.py       # Standalone MLM evaluation workflow and candidate strategies
+│   │       ├── sampling.py         # Masked-span dispatch, independent/iterative decoders, pseudo-ppl
+│   │       ├── evaluation.py       # MLM setup + generated-loop evaluation and candidate strategies
 │   │       ├── variable_length_evaluation.py # Bounded/inferred held-out evaluation
 │   │       ├── generation.py       # MLM generation workflow, length selection and mask filling
 │   │       ├── case_generation.py  # One framework -> candidates and metrics
@@ -1296,7 +1298,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 - **The causal method's plausibility advantage is judge-specific, and a native-referenced metric contradicts it.** On OAS4 H3 the causal model reaches judge perplexity 3.15 against masked 9.35 at equal recovery — but BLOSUM62 global alignment over retained non-empty candidates puts it behind: 0.146 against 0.199. The two disagree because both are confounded by length in opposite directions: the aligned score charges gap penalties for the 93% of causal draws whose length is wrong, while the masked arm is handed the native length and never pays one; judge perplexity is length-blind and native-free, so it is indifferent to exactly what causal is bad at. Neither is a clean method comparison until both arms predict their own length (the `compare` suite). Also worth recording: **core BLOSUM is ~0 for every H3 model** (causal 0.020, masked -0.001, ESM-2 0.003) — core substitutions are on average no better than the matrix expects between unrelated residues, which exact-match core recovery of ~0.20 made look like partial credit.
 - **The judge shares the eval distribution.** IgBert was trained on OAS paired repertoires — the same distribution as the OAS eval split it judges. It's applied identically to every model, so the *comparison* is fair, but absolute perplexities are OAS-flavoured; an off-distribution judge would be a stronger check.
 - **Generative sweep is H3/OAS only.** The matrix covered CDR-H3 on OAS (150 held-out frameworks × 4 models). L-chain loops, SAbDab2, and the antigen configs have not been swept generatively.
-- **Sampler is marginal-based, not learned-joint — now measured.** The `iterative` (Mask-Predict) decoder approximates the loop joint by conditioning on committed residues, but the model is still a masked-LM trained on independent-position recovery. As of 2026-07-28 this is no longer a suspicion: iterative and `independent` are **within noise on every metric** on H3/OAS/ESM-2 (recovery 0.4057 vs 0.4072; judge-ppl 7.14 vs 7.23) at ~15× the compute. The conditioning buys nothing because the learned marginals are already near-independent — AR and S2S now provide autoregressive training paths; their free-running evaluations must be assessed separately from this historical MLM decoding comparison.
+- **Historical iterative decoding showed little improvement.** On the July H3/OAS/ESM-2 comparison, iterative and independent decoding had similar mean recovery (0.4057 vs 0.4072) and judge pseudo-perplexity (7.14 vs 7.23), at roughly 15× the compute for iterative decoding. These observations do not establish statistical equivalence or independence of residue predictions, and do not establish the best decoder for mixed-mask checkpoints. AR/S2S free-running evaluations remain separate comparisons.
 - **Three runs hit their epoch ceiling, all of them context runs.** `h1_OAS_LC`, `h1_SD2_LC` and `l3_OAS_HC` (all scratch) peaked at their final epoch, 20 of 20, in [`20260818_192606`](results/runs/20260818_192606) — the batch the Findings tables quote. Their numbers are lower bounds, so the §4 partner-chain penalty (−0.0102) is an upper bound on the true effect. A scratch-only sweep at 30–40 epochs would settle it (~1 hour; scratch is 60 of the batch's 226 minutes). The earlier 07-29 batch had five such runs; `h2_OAS_LC`, `h3_OAS_LC` and `l1_OAS_HC` no longer hit the ceiling in the 08-18 re-run.
 - **Uncertainty coverage depends on the study.** The expanded no-partner scratch benchmark has seven seeds per method and paired seed/framework analysis (§17). Historical context/dropout, loss, LR and PLM comparisons retain their original replication levels. Do not apply the seven-seed benchmark's uncertainty to those studies or claim equivalence from an interval that includes zero.
 - **Every batch through 2026-08-17 selected checkpoints on the test split.** Not just the 07-29 runs: `eval_split` defaulted to empty, which fell back to "every non-train entry", and `processed_oas_data.json` has only `train`/`test` — so early stopping, `load_best_model_at_end`, the reported `eval_*` metrics, and `generation_eval.json` all read the final holdout. The 08-17 post-refactor batch (`results/runs/20260817_200051`) is affected too; its logs read `2111 eval (split: all non-train)`. **Fixed 2026-08-18**: `get_datasets` now refuses an unset `eval_split` whenever a `test` split exists, and the 36 OAS configs declare `processed_oas_tuning.json` + `eval_split: validation`. **Resolved for OAS 2026-08-31**: the matrix was re-run as `results/runs/20260818_192606` and every Findings table now quotes it, so the OAS numbers are validation-selected and the test partition is untouched. Two things still stand: the **SAbDab2** rows come from configs declaring `eval_split: test` and remain selection-on-holdout (see the SAbDab2 entry below), and any figure elsewhere in this README still sourced from a pre-08-18 batch — the Step 4 decoding table, the §12 confidence numbers, and the §3 position breakdown — has not been re-derived and stays exploratory.
@@ -1331,7 +1333,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
   | anchor | — | 0.8397 |
 
   The whole-loop number is carried by the anchors (0.84): they are largely V/J-determined, so a model that had learned nothing about the hypervariable middle would still post a respectable whole-loop AAR. Judge the core column. Against baselines fitted on train and evaluated on validation over the same 26,205 core positions — matched to the sampling protocol, since an argmax baseline is not comparable to a sampled model — sampling from H3's marginal core amino-acid frequencies expects **0.084**, and sampling from a per-`(length, position)` frequency table expects **0.146**. At 0.204 the model beats the lookup table by ~40% relative, which is a real but modest margin, and the honest headline for free-running H3 core design.
-- **The decoder must match the checkpoint's masking policy.** `iterative` decoding re-masks and resamples positions one at a time, which assumes the model saw partially revealed loops — true only under `masking_policy: mixed`. On the same `full_span` checkpoint and protocol, iterative decoding costs whole-loop 0.370 -> 0.253 and core **0.204 -> 0.077**, dropping it below even the 0.084 marginal-sampling baseline. `evaluate.py` therefore resolves the default from `masking_policy` (missing legacy metadata means `full_span` → `independent`) and warns when iterative decoding is requested explicitly off distribution.
+- **Decoder choice and training masking are separate settings.** Iterative decoding fills one remaining mask per pass, exposing committed residues to later predictions. Mixed masking includes partially revealed loops during training; full-span masking hides the entire loop. A historical full-span comparison showed lower whole-loop/core recovery with iterative decoding (0.370 → 0.253 / 0.204 → 0.077). Current evaluation, generation and benchmark setup use an explicit decoder request first, then a compatible saved choice, then **independent**. Recorded iterative decoding is honored automatically only with mixed masking; missing masking metadata is treated as full-span. An explicit iterative request remains allowed, and mixed masking alone does not select iterative decoding.
 - **Read best-epoch, not last-epoch** — ESM-2 overfits on SAbDab2/H3; `load_best_model_at_end` saves the peak, but the last CSV row can sit well below it.
 - **Never plot OAS and SAbDab2 on shared axes** — different test sets; the `_OAS`/`_SD2` run tags enforce it, and per-dataset charts live under `results/figures/training/<batch>/*.png`.
 - **`epoch_metrics.csv` and `*_results.json` measure different models — they're *supposed* to disagree.** The CSV is the per-epoch **trajectory** (the model as it stood at each epoch); `eval_results.json`/`all_results.json` come from the post-training `trainer.evaluate()`, which with `load_best_model_at_end` runs on the **best** checkpoint while still being stamped with the final epoch number. On `h3_esm2` the CSV's epoch-10 row reads core **0.3063** (the actual last model) while `eval_results.json` reads **0.3209** (the epoch-4 best model). `save_training_csv` de-duplicates on epoch and **keeps the first** occurrence precisely so the curve keeps the real last-epoch point — keeping the last would silently redraw the best model at x=10 and erase the overfitting decay entirely.
@@ -1339,6 +1341,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
+- **2026-10-23** -- [RECLAIM] `methods/mlm/`: `eval_cli`, `evaluation` -- updated generative decoder defaults
 <!-- AI ACCESS ZONE ENDS -->
 - **2026-10-23** -- **Abstract submission to iAIM 2026**
 - **2026-10-22** -- [RECLAIM] `methods/mlm/` training block (`train_cli.py` and all relevant scripts)
@@ -1505,15 +1508,15 @@ The [results index](RESULTS.md) retains historical categories; the [current hand
     - [ ] `methods/mlm/`
       - [x] custom model (`models/transformer`) (1022)
       - [x] training block (1022)
-        - [x] `train_cli` (1022)
+        - [x] `train_cli`, `training` (1022)
         - [x] `arguments` (1007)
         - [x] `backbones` (1022)
         - [x] `losses` (1022)
-        - [x] `training` (1022)
         - [x] `recovery` (1022) 
       - [ ] evaluation/generation block
-        - [ ] `eval_cli`, `gen_cli`
-        - [ ] `evaluation`, `generation`, `case_generation`, `sampling`
+        - [x] `eval_cli`, `evaluation` (1023)
+        - [ ] `gen_cli`, `generation` 
+        - [ ] `case_generation`, `sampling`
         - [ ] length scripts (`length`, `length_predictor`, `variable_length...`)
     - [ ] `methods/ar/`
       - [ ] custom model

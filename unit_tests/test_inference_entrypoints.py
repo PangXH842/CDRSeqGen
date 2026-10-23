@@ -43,7 +43,7 @@ class InferenceEntrypointTests(unittest.TestCase):
                 test_file=None, pt1="AC", pt2="DE", target_truth="WY",
                 target_length=None, min_length=2, max_length=2, use_native_length=False,
                 partner_chain=None, antigen=None, max_new_tokens=None,
-                decoding="independent", num_samples=2, temperature=0.0,
+                decoding=None, num_samples=2, temperature=0.0,
                 top_k=0, top_p=1.0, seed=42, skip_perplexity=True,
                 show_samples=0, force=False, output=str(output),
             )
@@ -56,6 +56,8 @@ class InferenceEntrypointTests(unittest.TestCase):
 
         load_head.assert_not_called()
         self.assertEqual(args.max_len, 32)
+        self.assertEqual(args.decoding, "independent")
+        self.assertEqual(self.model.call_count, 1)
         self.assertEqual(payload["cases"], results)
         self.assertEqual(payload["cases"][0]["samples"], [
             {"seq": "AA", "length": 2, "length_match": True, "recovery": 0.0},

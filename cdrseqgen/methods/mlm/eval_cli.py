@@ -1,15 +1,22 @@
 """MLM evaluation entrypoint called by root evaluate.py.
 
 Execution:
-  evaluate.py -> main(args, config, run_config) -> evaluation.run_evaluation()
+  evaluate.py -> main(args, config, run_config)
+              -> common.evaluation.run_evaluation_pipeline()
+              -> evaluation.run_generative_eval()
 
-The workflow loads resources through common.evaluation, then runs the MLM
-candidate evaluator. The evaluate alias accepts already loaded resources for
-post-training evaluation; setup helpers remain exported for existing callers.
+Functions supplied to the shared pipeline (defined in mlm.evaluation):
+  * prepare_evaluation -- resolve/check args before resources are loaded;
+                         calls resolve_decoding to choose the MLM decoder.
+  * evaluation_options -- load the optional length head and return evaluator kwargs.
+  * evaluate           -- alias for run_generative_eval; generate, score and report.
+
+resolve_decoding is also re-exported for callers using setup stages separately.
+Post-training evaluation calls evaluate directly with already loaded resources.
+See mlm.evaluation's module docstring for the strategy and scoring call graph.
 """
 
 from cdrseqgen.methods.mlm.evaluation import (
-    run_evaluation,
     evaluation_options,
     prepare_evaluation,
     resolve_decoding,
@@ -18,8 +25,15 @@ from cdrseqgen.methods.mlm.evaluation import (
 
 
 def main(args, config, run_config=None):
-    """Hand the standalone command to evaluation.run_evaluation()."""
-    return run_evaluation(args, config, run_config)
+    """Run standalone evaluation through the shared lifecycle and MLM evaluator."""
+    from cdrseqgen.methods.common.evaluation import run_evaluation_pipeline
+
+    return run_evaluation_pipeline(
+        "mlm", args, config, run_config,
+        prepare_evaluation=prepare_evaluation,
+        evaluation_options=evaluation_options,
+        evaluate=evaluate,
+    )
 
 
 __all__ = [

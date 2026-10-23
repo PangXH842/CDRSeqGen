@@ -2,10 +2,8 @@ import unittest
 from unittest.mock import patch
 
 from cdrseqgen.datasets.dataset_mlm import AntibodyTokenizer, TokenizerAdapter
-from cdrseqgen.methods.mlm.generation import (
-    prepare_fixed_length_prompt,
-    sample_masked_span,
-)
+from cdrseqgen.methods.mlm.generation import prepare_fixed_length_prompt
+from cdrseqgen.methods.mlm.sampling import sample_masked_span
 
 
 class FixedLengthMLMGenerationTests(unittest.TestCase):
@@ -38,8 +36,8 @@ class FixedLengthMLMGenerationTests(unittest.TestCase):
         self.assertEqual(prompt.pt1_truncated_tokens, 0)
         self.assertEqual(prompt.pt2_truncated_tokens, 4)
 
-    @patch("cdrseqgen.methods.mlm.generation.sample_iterative")
-    @patch("cdrseqgen.methods.mlm.generation.sample_independent")
+    @patch("cdrseqgen.methods.mlm.sampling.sample_iterative")
+    @patch("cdrseqgen.methods.mlm.sampling.sample_independent")
     def test_decoder_dispatch_preserves_sampling_arguments(self, independent, iterative):
         independent.return_value = [[1, 2]]
         result = sample_masked_span(

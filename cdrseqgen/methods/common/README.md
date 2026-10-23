@@ -68,7 +68,7 @@ and S2S:
 | Root command | Method module | Calls | MLM implementation |
 |---|---|---|---|
 | `train.py` | `train_cli.py` | `main()` | CLI setup, then `training.run_training()` |
-| `evaluate.py` | `eval_cli.py` | `main(args, config, run_config)` | `evaluation.run_evaluation()` |
+| `evaluate.py` | `eval_cli.py` | `main(args, config, run_config)` | Connect MLM setup and scoring to `common.evaluation.run_evaluation_pipeline()` |
 | `generate.py` | `gen_cli.py` | `main(args, config)` | `generation.run_generation()` |
 
 ```mermaid
@@ -85,17 +85,18 @@ MLM's three CLI modules contain explicit entry functions:
 
 ```text
 train_cli.main() -> training.run_training()
-eval_cli.main()  -> evaluation.run_evaluation()
+eval_cli.main()  -> common.evaluation.run_evaluation_pipeline()
+                -> evaluation.run_generative_eval()
 gen_cli.main()   -> generation.run_generation()
 ```
 
 The standalone root commands parse arguments, read routing metadata and call
-one method `main()`. The method workflow supplies its setup and execution functions
+one method `main()`. The method command or workflow supplies its setup and execution functions
 to `common/evaluation.run_evaluation_pipeline()` or
 `common/generation.run_generation_pipeline()`. Those lifecycles handle shared
 compatibility checks, model/data loading and output setup. Generation preserves
 case order and delegates each scored record to the method's case producer.
-AR/S2S currently supply their existing functions directly from CLI `main()`.
+All three evaluation CLI modules supply their functions directly from `main()`.
 
 `eval_cli.evaluate` remains the lower-level evaluator for already loaded resources.
 Post-training evaluation uses it through `Method.evaluate()` and does not repeat
@@ -225,7 +226,7 @@ Paths in this table are relative to `cdrseqgen/`.
 |---|---|---|
 | Route a training request | `methods/registry.py`, root `train.py` | `<method>/train_cli.main()` |
 | Orchestrate the configured run | Shared stages called by the method workflow | MLM: `training.run_training()`; AR/S2S: `train_cli.main()` |
-| Prepare standalone evaluation | `common/evaluation.run_evaluation_pipeline()`: checks, data/model/judge loading and output setup | `eval_cli.main()`; MLM delegates to `evaluation.run_evaluation()` |
+| Prepare standalone evaluation | `common/evaluation.run_evaluation_pipeline()`: checks, data/model/judge loading and output setup | `eval_cli.main()` supplies method-specific setup and evaluator functions |
 | Generate supplied frameworks | `common/generation.run_generation_pipeline()`: checks, loading, case coordination and output writing | `gen_cli.main()`; MLM delegates to `generation.run_generation()`, with record building in `case_generation.py` |
 | Parse and validate settings | `methods/common/arguments.py`: base classes, parsing, validation, run initialization | `<method>/arguments.py`: additional fields, validation and `setup_args()` |
 | Load input views and splits | `datasets/dataset_common.py`: context and split helpers | `<method>/training.get_datasets()` and `datasets/dataset_<method>.py` |
