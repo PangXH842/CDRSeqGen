@@ -1,14 +1,14 @@
 <!-- Note to AI: Edits allowed OUTSIDE of MANUAL PROTECTION ZONES and INSIDE of AI ACCESS ZONES, and DO NOT COMMIT ON MY BEHALF -->
 # CDRSeqGen: Modular Antibody Infilling Framework
 
-**Date Updated:** 2026-10-22
-**Status:** Ready to draft the framework paper and abstract. The completed validation evidence includes seven training seeds per method, IgLM and IgCraft, empirical/retrieval references, same-seed repeats, capacity and sampling sensitivity, and context-dropout studies.
+**Date Updated:** 2026-10-23
+**Status:** iAIM 2026 abstract submitted through the portal on **23 October**. Resume manual code reclamation and develop the framework manuscript from the completed validation evidence.
 
-**Next priority:** review the revised abstract and incorporate the newer evidence into the manuscript for the **1 November abstract deadline**. Detailed manual code review resumes **after abstract submission**. Final held-out evaluation remains a separate task; completed batches need no completion rerun.
+**Next priority:** review the **MLM evaluation/generation block**, starting with `gen_cli.py` → `generation.run_generation()`. The MLM model and training block are already marked reclaimed in the manual checklist. Manuscript integration and final held-out evaluation remain separate tasks; completed batches need no completion rerun.
 
 **MLM ESM-2 controls — audited complete, 22 October:** [two trials](results/reviews/20261022-mlm-esm2-no-partner-controls.md), seeds 42/43, 6,000 returned canonical candidates and full judge coverage. Edit similarity is **0.3891/0.3883**; both models select epoch 5 and stop at epoch 8. Table 8 now has ten no-partner controls, and its length figure/provenance are updated. These rows use the control table’s partner-present judge; they are separate from the heavy-only external benchmark. No completion rerun is needed.
 
-## Current handoff — 2026-10-21
+## Current handoff — 2026-10-23
 
 **Ready to reuse:** all benchmark comparisons below use the same 150 OAS4 validation frameworks and 20 attempts per framework and arm. Context studies retain their original generator/judge context and source/runtime provenance. Counts overlap across analyses; do not add them as independent experiments.
 
@@ -25,22 +25,31 @@
 
 **What the paper can now show.** The framework makes allowed inputs, length policy, attempt accounting and scoring populations explicit across methods. The expanded results add a useful reference: primary flank retrieval reaches **0.3589** edit similarity versus **0.2817** for unconditional sampling. Seven-seed scratch means are **0.3918 MLM**, **0.3868 AR** and **0.3882 S2S**; IgLM scores **0.3880** and IgCraft **0.3769**. See [§17](#17-expanded-validation-evidence-seeds-retrieval-and-capacity) for the completed analyses and limits. The earlier eight-arm table in §16 is the original subset.
 
-**Writing order before submission:**
+**Abstract submitted; writing and presentation work:**
 
-1. Review the **348-word canonical abstract** in [sections/0_abstract.tex](../iAIM/sections/0_abstract.tex) and its [one-page PDF](../iAIM/abstract.pdf), completed on October 22. It emphasizes the framework workflow, data preparation and headline findings; capacity detail is deferred to the paper. Both LaTeX entry points share that source; `abstract_v2.txt` is historical. The [paper outline](../iAIM/PAPER_OUTLINE.md) maps sections, displays, evidence and remaining work.
+The abstract was submitted on **23 October**, as confirmed by the user. The current local [canonical abstract](../iAIM/sections/0_abstract.tex) is **410 words**, and its [one-page PDF](../iAIM/abstract.pdf) and [plain-text copy](../iAIM/abstract_submission.txt) were refreshed that day. The [coauthor review kit](../iAIM/COAUTHOR_HANDOFF.md), prepared on October 22, provides a [five-slide overview](../iAIM/coauthor_brief.pdf), [editable slides](../iAIM/coauthor_brief.tex) and [email introduction](../iAIM/coauthor_email.md). Its dated notes and archives precede the final abstract edits.
+
+1. Keep subsequent abstract revisions in the canonical source shared by both LaTeX entry points, and refresh the PDF/plain-text copy together. `abstract_v2.txt` is historical. The [paper outline](../iAIM/PAPER_OUTLINE.md) maps sections, displays, evidence and remaining work.
 2. Bring the manuscript's methods, results, figures and discussion up to the verified October 9–12 evidence. Centre the unified framework; use retrieval, variability and context dropout as empirical demonstrations.
-3. State exploratory status, scoring populations, provenance and limitations; complete author details and obtain advisor/coauthor review.
-4. Review the rebuilt [main.pdf](../iAIM/main.pdf) and [October 22 working archive](../iAIM/iaim-draft-20261022.zip): Table 8 and Figure 5 now include MLM ESM-2, while the main external-comparison tables still need the expanded evidence integrated. The [October 8 archive](../iAIM/iaim-draft-20261008.zip) remains historical; the standalone abstract PDF is current.
+3. Explain the shared workflow and extension contract, expand related work, and obtain advisor/coauthor review. Retain exploratory status, scoring populations, provenance and limitations. Prepare the poster from the resulting evidence narrative.
+4. Review the rebuilt [main.pdf](../iAIM/main.pdf): Table 8 and Figure 5 include MLM ESM-2, while the main external-comparison tables still need the expanded evidence integrated. The [October 22 working archive](../iAIM/iaim-draft-20261022.zip) and [October 8 archive](../iAIM/iaim-draft-20261008.zip) are dated snapshots; regenerate a distribution archive after the manuscript updates.
 
 **Remaining experiment decision — final held-out evaluation.** Freeze the cohort, participating systems, checkpoint choices, decoding settings, primary comparisons and reporting before final inference. The 14,818 audit-eligible records are a candidate pool, not a frozen final manifest. Decide common length support, including IgCraft's 30-slot H3 support, and disclose unknown external pretraining membership. The current batch runner still selects validation; the final path needs preparation before execution. Further training follows a specific retained claim or necessary split revision, rather than another broad sweep.
 
 The current matched OAS4 benchmark has used validation; historical test-selection caveats remain documented below. All current contrasts are exploratory. The newer analysis resamples training seeds and framework groups, while older intervals fix checkpoints; candidate-generation variability is not estimated by either. The seven-seed study covers no-partner scratch checkpoints, **not seven-seed dropout experiments**. Historical MLM training evaluations lack attempt-validity accounting; the benchmark adapters record every attempt. Different-length/gapped homology and [external pretraining membership](benchmark/pretraining_overlap.md) remain unresolved.
 
-**Manual code review — deferred until after abstract submission.** Verification of saved results and passing tests do not mark the implementation as manually reviewed. Resume at [MLM training](cdrseqgen/methods/mlm/training.py), then [shared training](cdrseqgen/methods/common/training.py), [MLM losses](cdrseqgen/methods/mlm/losses.py) and [recovery](cdrseqgen/methods/mlm/recovery.py). Continue each chunk through MLM → AR → S2S → common using the [workflow map](cdrseqgen/methods/common/README.md). The manual reclamation checkboxes remain the record of your own review.
+**Manual code review — resume MLM evaluation/generation.** The manual checklist marks the MLM model and training block complete, including `train_cli`, `arguments`, `backbones`, `losses`, `training` and `recovery`. The evaluation/generation entrypoints were restructured before the abstract work; they still await manual review. Start with [gen_cli](cdrseqgen/methods/mlm/gen_cli.py) and [generation.run_generation](cdrseqgen/methods/mlm/generation.py), then follow `case_generation`, sampling and length handling. Continue with [eval_cli](cdrseqgen/methods/mlm/eval_cli.py), [evaluation](cdrseqgen/methods/mlm/evaluation.py) and `variable_length_evaluation`.
+
+```text
+generate.py → mlm/gen_cli.main() → mlm/generation.run_generation()
+evaluate.py → mlm/eval_cli.main() → mlm/evaluation.run_evaluation()
+```
+
+Both workflows call shared loading/setup lifecycles in `methods/common/`. Follow those dependencies while reading, then compare method implementations through MLM → AR → S2S → common using the [workflow map](cdrseqgen/methods/common/README.md). Shared code remains pending in the manual checklist; passing tests and completed refactors do not mark it reclaimed. The manual checkboxes remain the record of your own review.
 
 **Reading older notes:** dated recipes, the baseline-scope memo and the results index contain preparation-time statements that precede these completions. Use this handoff, §17 and the linked saved outputs for current run status. No new broad training batch is needed before drafting. Experiment execution remains user-run.
 
-Deadlines: **1 November for abstracts; early December for posters**.
+Conference milestones: **abstract submitted 23 October** (deadline: 1 November); **poster presentations 4–5 December**. Acceptance and presentation instructions remain subject to the conference's notification.
 
 ## Project Overview
 CDRSeqGen is a computational immunology framework designed to predict antibody loop sequences given the surrounding framework context. 
@@ -84,7 +93,7 @@ Current implemented features include:
 
 ## Contents
 
-**Start here** · [Current handoff](#current-handoff--2026-10-21) · [Project overview](#project-overview) · [Repository structure](#-repository-structure) · [Environment setup](#-environment-setup)
+**Start here** · [Current handoff](#current-handoff--2026-10-23) · [Project overview](#project-overview) · [Repository structure](#-repository-structure) · [Environment setup](#-environment-setup)
 
 **[Workflow & Execution](WORKFLOW.md)** — how to run everything
 &nbsp;&nbsp;[Architecture overview](WORKFLOW.md#architecture-overview) ·
@@ -119,7 +128,7 @@ Current implemented features include:
 
 **[⚠️ Current Issues](#-current-issues)** · [Open problems](#open-problems) · [How to read the numbers](#how-to-read-the-numbers) · [Changelog](#changelog)
 
-**[⏭️ Roadmap](#-roadmap)** · [Active milestone — abstract submission](#active-milestone--abstract-submission)
+**[⏭️ Roadmap](#-roadmap)** · [Active milestone — code review and paper draft](#active-milestone--code-review-and-paper-draft)
 
 ---
 
@@ -1331,6 +1340,7 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-10-23** -- **Abstract submission to iAIM 2026**
 - **2026-10-22** -- [RECLAIM] `methods/mlm/` training block (`train_cli.py` and all relevant scripts)
 - **2026-10-22** -- [EXPERIMENTS] 2 MLM ESM-2 no-partner trials 
 - **2026-10-12** -- [BENCHMARK] Completed IgCraft, retrieval, 7 seed, repeat and capacity studies; added seed-aware analysis and independently verified saved evidence
@@ -1394,24 +1404,24 @@ The guiding constraint: **conventions are declared explicitly, never inferred.**
 ## ⏭️ Roadmap
 
 <!-- AI ACCESS ZONE BEGINS -->
-> **Current priority — 21 October:** draft and submit the framework abstract by **1 November**, using the completed evidence in §17. Detailed manual code review resumes after submission. The remaining method-specific lists below are a deferred backlog, not a requirement to complete before the abstract.
+> **Current priority — 23 October:** the iAIM abstract is submitted. Resume manual reclamation at **MLM evaluation/generation**, and integrate the completed §17 evidence into the framework manuscript and poster. The MLM training block is already marked reclaimed; shared code and the remaining method blocks still need manual review.
 
 ### Medium-term milestone — framework paper and final evaluation
 
-**Main contribution:** a unified architectural and benchmarking framework for MLM, AR and S2S, with explicit method interfaces, allowed conditioning information, length policies, attempt budgets and scoring populations. IgLM, IgCraft and training-only samplers demonstrate the external adapter/scorer contract. Retrieval, variability and context-dropout results provide empirical case studies.
+**Main contribution:** a unified framework for antibody CDR infilling and benchmarking, currently implementing MLM, AR and S2S, with explicit method interfaces, allowed conditioning information, length policies, attempt budgets and scoring populations. IgLM, IgCraft and training-only samplers demonstrate the external adapter/scorer contract. Retrieval, variability and context-dropout results provide empirical case studies.
 
 **Scope:** sequence-only H3 infilling, with length-free generation as the primary track. Native-length redesign and earlier MLM studies remain separate diagnostics. Current comparisons are validation evidence; structure-conditioned design, other loops and isolated pretraining effects are follow-ups if the paper retains those claims.
 
-1. **Before abstract submission:** consolidate the abstract, import the verified newer evidence into the manuscript, write the framework contribution and limitations, complete author details and advisor/coauthor review, then rebuild the submission artifacts. The old PDFs and October 8 archive need regeneration.
-2. **Prepare the final evaluation alongside writing:** freeze cohort selection from the audit-eligible pool, common generator support, checkpoint/seed choices, decoding settings, metrics and contrasts. Adapt the validation-only runner and manifest export for the chosen protocol. Reuse existing checkpoints where compatible; disclose external pretraining uncertainty and historical test use.
-3. **After abstract submission:** resume manual reclamation at MLM training → shared training → losses → recovery, then continue each chunk through MLM → AR → S2S → common. Review extension documentation, logging/artifacts and release packaging as their code paths are understood. Automated result checks do not complete this manual review.
+1. **Resume manual reclamation:** review MLM `gen_cli` → `generation.run_generation()`, case generation, sampling and length handling, then `eval_cli` → `evaluation` and variable-length evaluation. Follow shared dependencies, compare AR/S2S and review common ownership using the workflow map. Review extension documentation, logging/artifacts and release packaging as their code paths are understood. Automated result checks do not complete this manual review.
+2. **Develop the manuscript and poster:** integrate the verified newer evidence, explain the framework contribution and extension contract, expand related work, retain limitations and obtain advisor/coauthor review. The canonical abstract and current PDFs were refreshed on October 23; dated archives need rebuilding when the manuscript is ready to circulate.
+3. **Prepare the final evaluation alongside writing:** freeze cohort selection from the audit-eligible pool, common generator support, checkpoint/seed choices, decoding settings, metrics and contrasts. Adapt the validation-only runner and manifest export for the chosen protocol. Reuse existing checkpoints where compatible; disclose external pretraining uncertainty and historical test use.
 4. **For the planned final held-out comparison:** run the frozen evaluation and report it separately from exploratory validation. The abstract/poster can present the existing findings with their exploratory scope stated. Add experiments only for a specific unresolved claim; no new broad seed, baseline or capacity sweep is currently required.
 
 ### Experiment coverage across methods
 
-Status snapshot: **2026-10-21**. **☑** completed development evidence; **◐** partial/historical evidence; **☐** pending; **—** not applicable to the current implementation. These are experiment statuses, not manual code-review marks. Pending entries are claim-dependent options, not an abstract submission checklist.
+Evidence snapshot: **2026-10-22**; submission/review handoff updated **2026-10-23**. **☑** completed development evidence; **◐** partial/historical evidence; **☐** pending; **—** not applicable to the current implementation. These are experiment statuses, not manual code-review marks. Pending entries are claim-dependent options.
 
-The [results index](RESULTS.md) retains historical categories; the [current handoff](#current-handoff--2026-10-21) and [§17](#17-expanded-validation-evidence-seeds-retrieval-and-capacity) link the newer evidence directly. Preserve each batch's original provenance and source/runtime differences.
+The [results index](RESULTS.md) retains historical categories; the [current handoff](#current-handoff--2026-10-23) and [§17](#17-expanded-validation-evidence-seeds-retrieval-and-capacity) link the newer evidence directly. Preserve each batch's original provenance and source/runtime differences.
 
 | Experiment category | MLM | AR | S2S |
 |---|---|---|---|
@@ -1422,20 +1432,20 @@ The [results index](RESULTS.md) retains historical categories; the [current hand
 | Seed/framework uncertainty | ☑ No-partner benchmark | ☑ No-partner benchmark | ☑ No-partner benchmark |
 | Train with/without partner context | ☑ Matched scratch controls | ◐ Historical paired runs; no-partner controls complete | ◐ Historical paired runs; scratch/ESM-2 no-partner controls complete |
 | Context dropout in both inference regimes | ☑ Four trials, seeds 42/43 | ☑ Scratch screen, seeds 42/43 | ☑ Scratch/ESM-2 screens and ESM-2 confirmations at seeds 44/45 |
-| Pretrained backbones | ☑ Historical MLM studies | ☐ Pretrained causal adapter | ☑ ESM-2/IgBert/ProtBert encoder matrix |
+| Pretrained backbones | ☑ Historical studies and audited ESM-2 no-partner controls | ☐ Pretrained causal adapter | ☑ ESM-2/IgBert/ProtBert encoder matrix |
 | Same-architecture pretrained/random control | ☐ Claim-dependent | — | ☐ Claim-dependent |
 | Frozen-encoder/collapse diagnosis | ◐ Historical context studies | ◐ Context ablations | ◐ IgBert diagnostic trained; generation/replication pending |
 | Decoding and length sensitivity | ☑ Historical decoder/length-head studies | ☑ Historical temperature/length study | ☐ Controlled sampling screen if needed |
 | Target-loop-specific light-chain splits | ☐ Historical results only | ☐ | ☐ |
 | Final frozen held-out comparison | ☐ | ☐ | ☐ |
 
-### Active milestone — abstract submission
+### Active milestone — code review and paper draft
 
 **Evidence is ready for drafting.** The original eight-arm comparison, IgCraft extension, three retrieval variants, seven-seed analysis, same-seed repeats and capacity study are complete. IgCraft temperature sensitivity is also complete. See §16 for the original subset and §17 for the expanded findings. All numerical comparisons remain exploratory; uncertainty varies by study and endpoint.
 
-**Remaining writing work:** use one canonical abstract, update the main results and figures, explain the shared workflow/extension contract, expand related work and retain the limits of the data and metrics. Avoid claiming architecture superiority, equivalence or independent biological quality from these comparisons. The local split audit is complete, while final cohort selection and external pretraining membership remain unresolved.
+**Abstract submitted on 23 October.** Resume the MLM evaluation/generation review and retain the canonical abstract for any later revisions. Remaining writing work is to update the main results and figures, explain the shared workflow/extension contract, expand related work and retain the limits of the data and metrics. Avoid claiming architecture superiority, equivalence or independent biological quality from these comparisons. The local split audit is complete, while final cohort selection and external pretraining membership remain unresolved.
 
-**Deferred historical method backlog.** The following items preserve earlier implementation and research questions. Revisit their relevance after the abstract, and distinguish work already covered by §17 from genuinely different settings. They do not require new runs now.
+**Deferred historical method backlog.** The following items preserve earlier implementation and research questions. Revisit their relevance as code review and paper claims develop, and distinguish work already covered by §17 from genuinely different settings. They do not require new runs now.
 
 **General**
 
