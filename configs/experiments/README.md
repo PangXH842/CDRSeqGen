@@ -41,7 +41,7 @@ trial was recovered separately; all four confirmation trials are now complete.
 
 ## Recipes and evidence
 
-Completion status belongs in [RESULTS.md](../../RESULTS.md) and each batch's
+Completion status belongs in [RESULTS.md](../../docs/RESULTS.md) and each batch's
 `runs.tsv`. This table describes the available definitions, not a launch queue.
 
 | Name | Runs | Purpose | Recipe/details |

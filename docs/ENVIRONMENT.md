@@ -52,7 +52,7 @@ check use `bash scripts/verify_env.sh all --cpu`; this does not certify GPU read
 Checks use the repository root regardless of the shell's working directory.
 They do not download models or prove real checkpoint/data compatibility: after
 migration, also run a small saved-checkpoint evaluation and the validation smoke
-benchmark documented in [benchmark/README.md](benchmark/README.md).
+benchmark documented in [benchmark/README.md](../benchmark/README.md).
 
 Use the existing unittest runner above rather than introducing pytest as a setup
 dependency. For launchers, `scripts/run.sh` uses `$HOME/miniconda3` when available;
@@ -140,7 +140,7 @@ Offline model checks passed through the real project loaders:
 
 These are execution checks, not comparative scientific results. Evidence,
 model/data hashes and logs are saved in
-[`results/misc/restoration_20261006/report.json`](results/misc/restoration_20261006/report.json).
+[`results/misc/restoration_20261006/report.json`](../results/misc/restoration_20261006/report.json).
 Historical run configs, checkpoints and evaluation outputs were preserved.
 
 To repeat the environment check using the same GPU selection:

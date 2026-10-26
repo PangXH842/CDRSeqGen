@@ -118,4 +118,4 @@ Stage 1 has two completed rows, two generation outputs and two length-head/confi
 
 The recipes remain available for intentional new, source-versioned experiments, not completion repair. Do not resume these completed batches after the command refactor: strict source identity remains enforced. Preserve their original plans and outputs.
 
-Next priority is the [matched framework/external comparison](../../RESULTS.md#next-run-order), after freezing endpoints/populations, deciding leakage limitations and preparing uncertainty analysis. Additional MLM seeds/repeats are a targeted confirmation option if the dropout effect becomes a central claim. Training and generation remain user-run.
+Next priority is the [matched framework/external comparison](../../docs/RESULTS.md#next-work-order), after freezing endpoints/populations, deciding leakage limitations and preparing uncertainty analysis. Additional MLM seeds/repeats are a targeted confirmation option if the dropout effect becomes a central claim. Training and generation remain user-run.

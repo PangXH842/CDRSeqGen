@@ -36,4 +36,4 @@ trials are complete. The next prepared stage is `mlm_no_partner_controls` (two
 runs), followed by `mlm_dropout_screen` (four runs) if cross-method robustness is
 in scope. Both share [the MLM control base](experiments/bases/h3_mlm_scratch.json).
 See the [experiment guide](experiments/README.md) for commands and
-[RESULTS.md](../RESULTS.md) for saved evidence and status.
+[RESULTS.md](../docs/RESULTS.md) for saved evidence and status.
