@@ -33,9 +33,10 @@ The root-to-method command paths use the same names for MLM, AR and S2S:
 | `evaluate.py` | `methods/<method>/eval_cli.main()` | Validate evaluation options, prepare method-specific state and call the evaluator. |
 | `generate.py` | `methods/<method>/gen_cli.main()` | Validate supplied cases, prepare method-specific state and generate each case. |
 
-For MLM, the training and generation entry functions call `training.run_training()`
-and `generation.run_generation()`. `eval_cli.main()` connects the setup helpers and
-`evaluation.run_generative_eval()` to `common.evaluation.run_evaluation_pipeline()`.
+For MLM, `train_cli.main()` calls `training.run_training()`. The saved-checkpoint
+CLI functions connect method callbacks to the shared lifecycles: `eval_cli.main()`
+supplies evaluation setup and `evaluation.run_generative_eval()`;
+`gen_cli.main()` supplies generation setup, optional state and `generation.generate_case()`.
 Shared standalone loading, compatibility and output handling live in
 `methods/common/evaluation.py` and `methods/common/generation.py`.
 
@@ -97,7 +98,7 @@ CDRSeqGen/
 │   │   │   ├── training.py     # get_datasets + teacher-forced core/anchor metrics + Trainer.
 │   │   │   │                   #   No masking view (nothing to hide), no loss registry (§13)
 │   │   │   ├── sampling.py     # Causal decode to <eos>. Replaces the masked side's sampling +
-│   │   │   │                   #   generation + length + length_predictor: the model picks its
+│   │   │   │                   #   generation + length mechanics: the model picks its
 │   │   │   │                   #   own length, so §10's gap-sentinel head has no counterpart
 │   │   │   ├── arguments.py    # Causal args: subclasses the shared bases, adds gen_max_new_tokens
 │   │   │   ├── train_cli.py    # Training-run coordinator; root train.py calls main()
@@ -139,12 +140,10 @@ CDRSeqGen/
 │   │       ├── training.py         # MLM workflow: datasets, model/Trainer, training and extensions
 │   │       ├── recovery.py         # Position recovery, anchor/core split, core coverage
 │   │       ├── sampling.py         # Masked-span dispatch, independent/iterative decoders, pseudo-ppl
-│   │       ├── evaluation.py       # MLM setup + generated-loop evaluation and candidate strategies
-│   │       ├── variable_length_evaluation.py # Bounded/inferred held-out evaluation
-│   │       ├── generation.py       # MLM generation workflow, length selection and mask filling
+│   │       ├── evaluation.py       # MLM setup, strategy selection, scoring and reporting
+│   │       ├── generation.py       # MLM generation setup, saved-head loading and case callbacks
 │   │       ├── case_generation.py  # One framework -> candidates and metrics
-│   │       ├── length.py           # Policies, constraints, evaluation-mode validation
-│   │       ├── length_predictor.py # Gap-sentinel classifier + checkpoint artifacts
+│   │       ├── length.py           # Policies, prompts, fitted head, span sampling and eval strategies
 │   │       └── models/
 │   │           └── transformer.py  # From-scratch masked encoder — model_type "scratch"
 │   ├── eval/                   # Shared sequence metrics and strategy-based evaluation

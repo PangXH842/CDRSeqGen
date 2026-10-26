@@ -773,21 +773,25 @@ trim `gen_num_examples` for cheap runs. Cost is ~80s of sampling + ~15s to load 
 Both evaluation paths share the MLM evaluation implementation
 ([`cdrseqgen/methods/mlm/evaluation.py`](../cdrseqgen/methods/mlm/evaluation.py)); they differ only in
 where the model comes from. **Both length tracks also share one loop**: `run_eval_loop` owns example
-selection, scoring, judging, reporting, and writing, while a *strategy* owns the one thing that must
-not be shared — turning an eval index into candidates. `FixedNativeStrategy` reads the dataset's own
+scoring, judging and framework-record assembly, while a *strategy* turns an eval index into
+candidates. The method wrapper selects frameworks and handles reporting/output.
+Both strategies live in [`mlm/length.py`](../cdrseqgen/methods/mlm/length.py).
+`FixedNativeStrategy` reads the dataset's own
 masked view (so the mask count is the native one and the context is exactly what training used);
-`VariableLengthStrategy` ([`variable_length_evaluation.py`](../cdrseqgen/methods/mlm/variable_length_evaluation.py))
+`VariableLengthStrategy`
 rebuilds the framework and lets the checkpoint's length head decide. Before this, the two tracks were
 separate 130-line functions that had already drifted apart in four ways (progress bar, write guard,
 summary statistic, empty-mask guard) — differences that make two tracks quietly incomparable.
 
-Length policy, checkpoint-specific classification, mask expansion, and independent-versus-iterative
-decoder dispatch live in [`cdrseqgen/methods/mlm/`](../cdrseqgen/methods/mlm). The causal method lives
+Length policy, checkpoint-specific classification, prompt construction and span sampling live
+in [`mlm/length.py`](../cdrseqgen/methods/mlm/length.py); independent/iterative decoder dispatch
+lives in [`mlm/sampling.py`](../cdrseqgen/methods/mlm/sampling.py). The causal method lives
 beside it in `methods/ar/`; future methods can do the same without inheriting MLM mask-token,
 pseudo-perplexity, or length-expansion assumptions. The MLM primitives are shared by `generate.py`,
-both held-out evaluation paths, and the CDRSeqGen benchmark adapter — all of which now reach the
-decoder through the single `sample_length_conditioned_spans` entry point, so a fixed length is
-simply the case where the length is known before the prompt is built rather than predicted from it.
+both held-out evaluation paths, and the CDRSeqGen benchmark adapter. Case generation,
+variable-length evaluation and the benchmark use `length.sample_length_conditioned_spans`;
+fixed-native evaluation directly decodes the dataset's existing masks. Both reach the
+same `sampling.sample_masked_span` decoder dispatcher.
 `evaluate.py` stays the tool of choice for
 scoring checkpoints you already trained, or re-sweeping temperature / top-p / judge without
 retraining.

@@ -1,25 +1,23 @@
-"""MLM generation entrypoint called by root generate.py.
-
-Execution:
-  generate.py -> main(args, config) -> generation.run_generation()
-
-The workflow resolves policies, loads resources through common.generation and
-produces scored case records. Lower-level generation helpers remain exported
-for existing callers.
-"""
+"""MLM generation entrypoint called by root generate.py."""
 
 from cdrseqgen.methods.mlm.generation import (
-    run_generation,
     generate_case,
     generation_state,
     prepare_generation,
-    resolve_case_length,
 )
+from cdrseqgen.methods.mlm.length import resolve_case_length
 
 
 def main(args, config):
-    """Hand the standalone command to generation.run_generation()."""
-    return run_generation(args, config)
+    """Run generation through the shared lifecycle and MLM case producer."""
+    from cdrseqgen.methods.common.generation import run_generation_pipeline
+
+    return run_generation_pipeline(
+        "mlm", args, config,
+        prepare_generation=prepare_generation,
+        generation_state=generation_state,
+        generate_case=generate_case,
+    )
 
 
 __all__ = [

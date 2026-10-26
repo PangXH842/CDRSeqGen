@@ -1,10 +1,11 @@
 """Generate loops for supplied frameworks through the selected method's gen_cli.main().
 
 Execution:
-  parse arguments -> read checkpoint metadata -> gen_cli.main -> method generation workflow
+  parse arguments -> read checkpoint metadata -> gen_cli.main -> shared generation lifecycle
 
 Shared compatibility, loading, display and output handling live in
-methods/common/generation.py. MLM's command delegates to mlm/generation.run_generation().
+methods/common/generation.py. MLM's gen_cli.main supplies setup/state/case functions
+from mlm.generation to that lifecycle.
 
 Example:
   python generate.py --model_path results/runs/example --pt1 EVQL...YYCAR --pt2 WGQGT... \
@@ -72,8 +73,9 @@ if __name__ == "__main__":
 
     # Sampling controls
     parser.add_argument("--decoding", choices=decoding_choices(), default=None,
-                        help="independent (per-position, 1 pass) or iterative (Mask-Predict, coherent). "
-                             "--temperature 0 makes either deterministic (greedy).")
+                        help="Decoder for the selected method. MLM: independent (one pass) or "
+                             "iterative (one residue per pass); default is a compatible saved "
+                             "choice, otherwise independent.")
     parser.add_argument("--max_new_tokens", type=int, default=None, help="AR decode cap, including EOS.")
     parser.add_argument("--num_samples", type=int, default=20,
                         help="Candidate loops to sample per framework (collapses to 1 when --temperature 0)")

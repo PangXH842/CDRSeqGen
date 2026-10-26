@@ -110,17 +110,15 @@ class CDRSeqGenSampler:
                  track: str = "fixed_native_length"):
         import torch
 
-        from cdrseqgen.methods.mlm.generation import (
-            prepare_fixed_length_prompt,
-            sample_length_conditioned_spans,
-        )
         from cdrseqgen.methods.mlm.backbones import resolve
         from cdrseqgen.methods.mlm.length import (
+            LengthPredictor,
+            prepare_fixed_length_prompt,
+            sample_length_conditioned_spans,
             fixed_policy,
             native_mask_length,
             resolve_length_policy,
         )
-        from cdrseqgen.methods.mlm.length_predictor import LengthPredictor
 
         self.torch = torch
         self.prepare_fixed_length_prompt = prepare_fixed_length_prompt

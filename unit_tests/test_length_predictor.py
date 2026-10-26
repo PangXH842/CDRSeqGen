@@ -8,9 +8,9 @@ import torch
 
 from cdrseqgen.artifacts import LENGTH_CONFIG_FILENAME, LENGTH_HEAD_FILENAME
 from cdrseqgen.datasets.dataset_mlm import AntibodyTokenizer, TokenizerAdapter
-from cdrseqgen.methods.mlm.generation import sample_length_conditioned_spans
+from cdrseqgen.methods.mlm.length import sample_length_conditioned_spans
 from cdrseqgen.methods.mlm.length import resolve_length_policy
-from cdrseqgen.methods.mlm.length_predictor import (
+from cdrseqgen.methods.mlm.length import (
     SCHEMA_VERSION,
     LengthHead,
     LengthPredictor,
@@ -79,7 +79,7 @@ class LengthPredictorTests(unittest.TestCase):
             loaded = LengthPredictor.load(path, device=torch.device("cpu"))
             self.assertEqual(loaded.lengths, (2, 3, 4))
 
-    @patch("cdrseqgen.methods.mlm.generation.sample_masked_span")
+    @patch("cdrseqgen.methods.mlm.length.sample_masked_span")
     def test_variable_generator_groups_draws_by_selected_length(self, sample_span):
         def sample_for_prompt(*args, **kwargs):
             length = len(args[5])

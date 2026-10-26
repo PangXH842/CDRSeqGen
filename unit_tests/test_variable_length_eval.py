@@ -7,7 +7,7 @@ from benchmark.adapters.iglm import IgLMSampler
 from cdrseqgen.datasets.dataset_mlm import AntibodyTokenizer, TokenizerAdapter
 from cdrseqgen.methods.mlm.evaluation import run_generative_eval
 from cdrseqgen.eval.metrics import calculate
-from cdrseqgen.methods.mlm.generation import GeneratedSpan
+from cdrseqgen.methods.mlm.length import GeneratedSpan
 
 
 class FrameworkDataset:
@@ -58,7 +58,7 @@ class VariableLengthEvalTests(unittest.TestCase):
         sampler.prepare({"example_id": "x", "native_length": 100})
         self.assertIsNone(sampler.target_total_length)
 
-    @patch("cdrseqgen.methods.mlm.variable_length_evaluation.sample_length_conditioned_spans")
+    @patch("cdrseqgen.methods.mlm.length.sample_length_conditioned_spans")
     def test_held_out_inferred_mode_keeps_truth_scoring_only(self, generate):
         ids4 = self.tokenizer.encode("AAAA")
         ids3 = self.tokenizer.encode("AAA")

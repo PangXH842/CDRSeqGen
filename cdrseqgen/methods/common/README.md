@@ -26,9 +26,9 @@ have been reviewed.
 | **1. Routing and configuration** | `methods/registry.py`; common and method `arguments.py`; method `train_cli.py`, `eval_cli.py` and `gen_cli.py`; root `train.py`, `generate.py`, `evaluate.py` as callers | Which command selects the method, how are settings resolved, and which stages does it invoke? |
 | **2. Models and tokenizers** | Common and method `backbones.py`; method `models/` | How are models and tokenizers built, saved and reloaded, and what input/output contract do they expose? |
 | **3. Training and checkpoint selection** | Common and method `training.py`; common `callbacks.py` and `losses.py`; MLM `losses.py` and `recovery.py`; S2S `diagnostics.py` | What is supervised, how is loss computed, and how do validation, callbacks and checkpoint selection control the run? |
-| **4. MLM length handling** | MLM `length.py` and `length_predictor.py`; length-related call sites in arguments, command modules and generation | What length information is allowed, how is the head fitted/loaded, and how does a policy produce a chosen length? |
+| **4. MLM length handling** | MLM `length.py`: policies, prompts, fitted head, span sampling and evaluation adapters; length-related call sites in arguments, command modules and generation | What length information is allowed, how is the head fitted/loaded, and how does a policy produce a chosen length? |
 | **5. Candidate generation** | Common `generation.py` and common/method `sampling.py`; MLM `generation.py`; method `case_generation.py` | How do context and decoding settings become candidate loops, and when is a draw considered complete? |
-| **6. Generative evaluation** | Common and method `evaluation.py`; MLM `variable_length_evaluation.py`; the already-reviewed `eval/generative.py` and `eval/metrics.py` as shared dependencies | How are candidates and native references passed separately into generation/scoring, how is judge context built, and which populations contribute to reported metrics? |
+| **6. Generative evaluation** | Common and method `evaluation.py`; MLM strategies in `length.py`; the already-reviewed `eval/generative.py` and `eval/metrics.py` as shared dependencies | How are candidates and native references passed separately into generation/scoring, how is judge context built, and which populations contribute to reported metrics? |
 
 The conceptual training path is:
 
@@ -50,8 +50,8 @@ skipped. AR/S2S choose length through EOS in chunk 5.
 `training.run_training()`. `gen_cli.py` and `eval_cli.py` supply
 method-specific functions to the standalone `generate.py` and `evaluate.py`
 commands respectively. Callbacks are wired where the Trainer is constructed
-and act during training. `variable_length_evaluation.py` consumes the length
-and generation APIs while implementing an evaluation strategy. S2S diagnostics
+and act during training. MLM's fixed-native and variable-length strategies live
+beside their prompt and length APIs in `length.py`. S2S diagnostics
 are an optional training extension.
 
 For each chunk, record its callers, inputs, outputs and method-specific
@@ -69,7 +69,7 @@ and S2S:
 |---|---|---|---|
 | `train.py` | `train_cli.py` | `main()` | CLI setup, then `training.run_training()` |
 | `evaluate.py` | `eval_cli.py` | `main(args, config, run_config)` | Connect MLM setup and scoring to `common.evaluation.run_evaluation_pipeline()` |
-| `generate.py` | `gen_cli.py` | `main(args, config)` | `generation.run_generation()` |
+| `generate.py` | `gen_cli.py` | `main(args, config)` | Connect MLM setup, state and case production to `common.generation.run_generation_pipeline()` |
 
 ```mermaid
 flowchart LR
@@ -87,7 +87,8 @@ MLM's three CLI modules contain explicit entry functions:
 train_cli.main() -> training.run_training()
 eval_cli.main()  -> common.evaluation.run_evaluation_pipeline()
                 -> evaluation.run_generative_eval()
-gen_cli.main()   -> generation.run_generation()
+gen_cli.main()   -> common.generation.run_generation_pipeline()
+                -> generation.generate_case()
 ```
 
 The standalone root commands parse arguments, read routing metadata and call
@@ -96,7 +97,8 @@ to `common/evaluation.run_evaluation_pipeline()` or
 `common/generation.run_generation_pipeline()`. Those lifecycles handle shared
 compatibility checks, model/data loading and output setup. Generation preserves
 case order and delegates each scored record to the method's case producer.
-All three evaluation CLI modules supply their functions directly from `main()`.
+All three methods' evaluation and generation CLI modules supply their functions
+directly from `main()`.
 
 `eval_cli.evaluate` remains the lower-level evaluator for already loaded resources.
 Post-training evaluation uses it through `Method.evaluate()` and does not repeat
@@ -106,7 +108,7 @@ retained for callers that use the individual stages.
 AR/S2S share decoder/length validation between their two saved-checkpoint
 commands through `arguments.validate_inference_args()`. MLM's decoder-selection
 helper belongs to `evaluation.py`; its per-case length helper belongs to
-`generation.py`. Both helpers remain importable from the corresponding CLI
+`length.py`. Both helpers remain importable from the corresponding CLI
 modules for existing callers.
 
 ## Relationship graph
@@ -227,7 +229,7 @@ Paths in this table are relative to `cdrseqgen/`.
 | Route a training request | `methods/registry.py`, root `train.py` | `<method>/train_cli.main()` |
 | Orchestrate the configured run | Shared stages called by the method workflow | MLM: `training.run_training()`; AR/S2S: `train_cli.main()` |
 | Prepare standalone evaluation | `common/evaluation.run_evaluation_pipeline()`: checks, data/model/judge loading and output setup | `eval_cli.main()` supplies method-specific setup and evaluator functions |
-| Generate supplied frameworks | `common/generation.run_generation_pipeline()`: checks, loading, case coordination and output writing | `gen_cli.main()`; MLM delegates to `generation.run_generation()`, with record building in `case_generation.py` |
+| Generate supplied frameworks | `common/generation.run_generation_pipeline()`: checks, loading, case coordination and output writing | `gen_cli.main()` supplies setup, state and case functions; MLM record building lives in `case_generation.py` |
 | Parse and validate settings | `methods/common/arguments.py`: base classes, parsing, validation, run initialization | `<method>/arguments.py`: additional fields, validation and `setup_args()` |
 | Load input views and splits | `datasets/dataset_common.py`: context and split helpers | `<method>/training.get_datasets()` and `datasets/dataset_<method>.py` |
 | Load backbone and tokenizer | `methods/common/backbones.py`: checkpoint/tokenizer helpers | `<method>/backbones.py`, `<method>/models/` |

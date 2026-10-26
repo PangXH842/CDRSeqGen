@@ -1,20 +1,4 @@
-"""MLM evaluation entrypoint called by root evaluate.py.
-
-Execution:
-  evaluate.py -> main(args, config, run_config)
-              -> common.evaluation.run_evaluation_pipeline()
-              -> evaluation.run_generative_eval()
-
-Functions supplied to the shared pipeline (defined in mlm.evaluation):
-  * prepare_evaluation -- resolve/check args before resources are loaded;
-                         calls resolve_decoding to choose the MLM decoder.
-  * evaluation_options -- load the optional length head and return evaluator kwargs.
-  * evaluate           -- alias for run_generative_eval; generate, score and report.
-
-resolve_decoding is also re-exported for callers using setup stages separately.
-Post-training evaluation calls evaluate directly with already loaded resources.
-See mlm.evaluation's module docstring for the strategy and scoring call graph.
-"""
+"""MLM evaluation entrypoint called by root evaluate.py."""
 
 from cdrseqgen.methods.mlm.evaluation import (
     evaluation_options,

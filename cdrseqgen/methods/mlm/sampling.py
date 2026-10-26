@@ -8,7 +8,7 @@ Functions:
   * _logits_of            -- extract logits from a dict or model-output object
 
 Callers:
-  * mlm.generation and fixed-native MLM evaluation call sample_masked_span.
+  * mlm.length uses sample_masked_span for case/benchmark sampling and evaluation.
   * MLM evaluation strategies use pseudo_log_likelihood for generator self-scoring.
   * eval.generative uses the same scorer for the shared masked-LM judge.
 

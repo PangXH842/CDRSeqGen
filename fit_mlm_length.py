@@ -14,7 +14,7 @@ from transformers import HfArgumentParser, TrainingArguments
 from cdrseqgen.artifacts import RUN_CONFIG_FILENAMES, find_run_config
 from cdrseqgen.methods.mlm.arguments import DataArguments, GenerationArguments, ModelArguments
 from cdrseqgen.methods.mlm.backbones import resolve
-from cdrseqgen.methods.mlm.length_predictor import fit_length_predictor
+from cdrseqgen.methods.mlm.length import fit_length_predictor
 from cdrseqgen.methods.mlm.training import get_datasets
 
 

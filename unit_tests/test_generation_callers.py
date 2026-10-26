@@ -19,7 +19,7 @@ class SharedGenerationCallerTests(unittest.TestCase):
     def setUp(self):
         self.tokenizer = TokenizerAdapter.from_custom(AntibodyTokenizer())
 
-    @patch("cdrseqgen.methods.mlm.generation.sample_masked_span")
+    @patch("cdrseqgen.methods.mlm.length.sample_masked_span")
     def test_generate_uses_shared_decoder_without_changing_fixed_length(self, shared_decode):
         shared_decode.return_value = [
             self.tokenizer.encode("WY"),
@@ -56,7 +56,7 @@ class SharedGenerationCallerTests(unittest.TestCase):
         self.assertEqual(shared_decode.call_args.kwargs["decoding"], "independent")
         self.assertEqual(len(shared_decode.call_args.args[5]), 2)
 
-    @patch("cdrseqgen.methods.mlm.evaluation.sample_masked_span")
+    @patch("cdrseqgen.methods.mlm.length.sample_masked_span")
     def test_held_out_eval_uses_shared_decoder_and_native_mask_count(self, shared_decode):
         native_ids = self.tokenizer.encode("WY")
         shared_decode.return_value = [native_ids, self.tokenizer.encode("WW")]
@@ -93,7 +93,7 @@ class SharedGenerationCallerTests(unittest.TestCase):
         self.assertEqual(len(shared_decode.call_args.args[5]), 2)
 
 
-    @patch("cdrseqgen.methods.mlm.evaluation.sample_masked_span")
+    @patch("cdrseqgen.methods.mlm.length.sample_masked_span")
     def test_held_out_eval_uses_the_requested_anchor_trim(self, shared_decode):
         native_ids = self.tokenizer.encode("ACDEFG")
         shared_decode.return_value = [self.tokenizer.encode("AYDEFG")]

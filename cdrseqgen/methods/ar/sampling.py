@@ -4,7 +4,7 @@
 
 This is the whole sampler. The masked side needs two decoders, a length policy layer, a gap-sentinel
 classifier and mask expansion (``sampling.py`` + ``generation.py`` + ``length.py`` +
-``length_predictor.py``); a causal model needs none of it, because **the model chooses its own
+``mlm/length.py``); a causal model needs none of it, because **the model chooses its own
 length by emitting <eos>**. Findings §10's length head — which scores below the "always predict 15"
 baseline — exists only to work around the masked model's inability to do that.
 

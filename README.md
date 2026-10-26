@@ -47,8 +47,8 @@ Supporting guides live in [docs/](docs/README.md).
 
 ## Current handoff
 
-1. **Continue MLM generation review:** `gen_cli.py` → `generation.run_generation()` →
-   `case_generation`, `sampling`, `length`, `length_predictor` and `variable_length_evaluation`.
+1. **Continue MLM generation review:** `gen_cli.py` → shared generation lifecycle →
+   `generation.py`, `case_generation.py`, `sampling.py` and the consolidated `length.py`.
    The manual checklist marks the MLM model, training block and `eval_cli`/`evaluation`
    reclaimed. AR, S2S and shared code follow later in the review sequence.
 2. **Develop the manuscript and poster** from the completed validation evidence.
@@ -116,7 +116,8 @@ For MLM, the current paths are:
 
 ```text
 train.py    → train_cli.main() → training.run_training()
-generate.py → gen_cli.main()   → generation.run_generation()
+generate.py → gen_cli.main()   → common.generation.run_generation_pipeline()
+                             → generation.generate_case()
 evaluate.py → eval_cli.main()  → common.evaluation.run_evaluation_pipeline()
                              → evaluation.run_generative_eval()
 ```
@@ -279,8 +280,9 @@ and the detailed AI-assisted changelog in [CHANGELOG.md](docs/CHANGELOG.md).
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
-- **2026-10-23** -- [RECLAIM] `methods/mlm/`: `eval_cli`, `evaluation` -- updated generative decoder defaults
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-10-26** -- Merged MLM fixed/variable length generation mechanics into `methods/mlm/length.py`
+- **2026-10-23** -- [RECLAIM] `methods/mlm/`: `eval_cli`, `evaluation` (partial) -- updated generative decoder defaults
 - **2026-10-23** -- **Abstract submission to iAIM 2026**
 - **2026-10-22** -- [RECLAIM] `methods/mlm/` training block (`train_cli.py` and all relevant scripts)
 - **2026-10-22** -- [EXPERIMENTS] 2 MLM ESM-2 no-partner trials 

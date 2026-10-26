@@ -48,7 +48,7 @@ class InferenceEntrypointTests(unittest.TestCase):
                 show_samples=0, force=False, output=str(output),
             )
             with patch("cdrseqgen.methods.mlm.backbones.resolve", return_value=self.backbone), \
-                    patch("cdrseqgen.methods.mlm.length_predictor.LengthPredictor.load") as load_head, \
+                    patch("cdrseqgen.methods.mlm.length.LengthPredictor.load") as load_head, \
                     patch("torch.cuda.is_available", return_value=False), \
                     patch("builtins.print"):
                 results = generate.main(args)
@@ -94,7 +94,7 @@ class InferenceEntrypointTests(unittest.TestCase):
             with patch("sys.argv", argv), \
                     patch("cdrseqgen.methods.mlm.backbones.resolve", return_value=self.backbone), \
                     patch("cdrseqgen.methods.mlm.training.get_datasets", return_value=([], dataset, self.tokenizer)) as get_data, \
-                    patch("cdrseqgen.methods.mlm.length_predictor.LengthPredictor.load") as load_head, \
+                    patch("cdrseqgen.methods.mlm.length.LengthPredictor.load") as load_head, \
                     patch("torch.cuda.is_available", return_value=False), \
                     patch("builtins.print"):
                 payload = evaluate.main()

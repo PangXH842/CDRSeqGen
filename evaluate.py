@@ -26,8 +26,8 @@ def parse_args():
     ap.add_argument("--stratify", action="store_true", help="Balance the draw across H3 length buckets.")
 
     ap.add_argument("--decoding", choices=decoding_choices(), default=None,
-                    help="Default: independent for full_span checkpoints; a mixed checkpoint uses "
-                         "its recorded decoder, or iterative when none was recorded.")
+                    help="MLM default: a compatible saved decoder, otherwise independent. "
+                         "AR/S2S use their method's decoder.")
     ap.add_argument("--num_samples", type=int, default=20, help="Candidates per framework.")
     ap.add_argument("--temperature", type=float, default=1.0)
     ap.add_argument("--length_mode", choices=("fixed_native", "bounded", "inferred"),

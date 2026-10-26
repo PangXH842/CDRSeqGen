@@ -55,7 +55,7 @@ class MLMTrainingWorkflowTests(unittest.TestCase):
         self.make_trainer = self.mock_stage("MLMLossTrainer", return_value=self.trainer)
         self.lifecycle = self.mock_stage("run_training_pipeline", side_effect=self.finish_training)
         self.fit = self.enterContext(patch(
-            "cdrseqgen.methods.mlm.length_predictor.fit_length_predictor",
+            "cdrseqgen.methods.mlm.length.fit_length_predictor",
             return_value=sentinel.length_predictor))
         self.events.attach_mock(self.fit, "fit_length_predictor")
         self.generate = self.mock_stage("post_training_generation")

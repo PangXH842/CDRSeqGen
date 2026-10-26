@@ -113,7 +113,7 @@ def run_training(model_args, data_args, gen_args, training_args):
     # 4A. MLM extension: fit the length predictor
     length_predictor = None
     if training_args.do_train and data_args.train_length_predictor:
-        from cdrseqgen.methods.mlm.length_predictor import fit_length_predictor
+        from cdrseqgen.methods.mlm.length import fit_length_predictor
         length_predictor = fit_length_predictor(
             trainer.model,
             tokenizer,

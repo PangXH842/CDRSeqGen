@@ -1,14 +1,53 @@
-"""Resolve fixed, bounded, and inferred CDR-length requests for the MLM method.
+"""MLM fixed/variable-length policies, prompts, learned head and evaluation strategies.
 
-An encoder-only masked LM still needs one mask per emitted residue. Variable
-length generation therefore has two phases: a length predictor sees one gap
-sentinel, then the selected length is expanded into that many residue masks.
-This module keeps the caller's constraints separate from the eventual sampled
-length so benchmark artifacts say exactly which information was supplied.
+Reading order:
+  1. Policies/constraints -> 2. Case requests -> 3. Mask and gap prompts
+  4. Length-head inference/fitting -> 5. Residue spans -> 6. Evaluation adapters
+
+Flow:
+  fixed request -> selected length
+  bounded/inferred request -> gap features -> learned length distribution -> lengths
+  lengths -> grouped mask prompts -> residue decoder -> GeneratedSpan -> Draw
+
+Callers:
+  * training.run_training / fit_mlm_length.py -> fit_length_predictor
+  * generation callbacks -> resolve_case_length / LengthPredictor.load
+  * case_generation / benchmark adapter -> sample_length_conditioned_spans
+  * evaluation.run_generative_eval -> FixedNativeStrategy / VariableLengthStrategy
+
+Fixed-native evaluation uses the dataset's existing mask count. Variable-length
+strategies use framework context and a fitted head; native truth stays in Draw
+for scoring. The head's checkpoint filenames and schema remain unchanged.
+CLI setup, metrics, reporting and output writing belong to their calling modules.
 """
 
+from __future__ import annotations
+
+import json
+import logging
+import os
+from collections import Counter, defaultdict
 from dataclasses import dataclass
-from typing import Optional
+from pathlib import Path
+from typing import Iterable, Optional
+
+import torch
+from torch import nn
+
+from cdrseqgen.artifacts import LENGTH_CONFIG_FILENAME, LENGTH_HEAD_FILENAME
+from cdrseqgen.datasets.dataset_mlm import (
+    assemble_masked_input,
+    framework_for_dataset,
+    inject_context,
+)
+from cdrseqgen.eval.generative import Draw
+from cdrseqgen.methods.mlm.sampling import pseudo_log_likelihood, sample_masked_span
+
+logger = logging.getLogger(__name__)
+SCHEMA_VERSION = "cdrseqgen.length_predictor.v1"
+
+
+# 1. Policies and constraints
 
 
 class UnsupportedLengthPolicy(ValueError):
@@ -108,7 +147,7 @@ class LengthPolicy:
             selected = [int(length) for length in selected_lengths]
             out["selected_lengths"] = selected
             out["selected_length_counts"] = {
-                str(length): selected.count(length) for length in sorted(set(selected))
+                str(length): count for length, count in sorted(Counter(selected).items())
             }
             if selected and len(set(selected)) == 1:
                 out["selected_length"] = selected[0]
@@ -149,12 +188,7 @@ class LengthDecision:
 def fixed_length(length: int, *, source: str) -> LengthDecision:
     """Create a validated fixed-length decision."""
     length = _validate_length("length", length)
-    return LengthDecision(
-        length=length,
-        source=source,
-        minimum=length,
-        maximum=length,
-    )
+    return LengthDecision(length=length, source=source, minimum=length, maximum=length)
 
 
 def native_mask_length(length: int) -> LengthDecision:
@@ -165,12 +199,7 @@ def native_mask_length(length: int) -> LengthDecision:
 def fixed_policy(length: int, *, source: str) -> LengthPolicy:
     """Create the policy form of one exact length."""
     length = _validate_length("length", length)
-    return LengthPolicy(
-        mode="fixed",
-        source=source,
-        constraints=LengthConstraints(length, length),
-        fixed=length,
-    )
+    return LengthPolicy("fixed", source, LengthConstraints(length, length), fixed=length)
 
 
 def resolve_length_policy(
@@ -256,3 +285,763 @@ def resolve_generation_length_policy(
     if policy.mode != "bounded":
         raise ValueError("bounded mode requires non-equal min/max length bounds")
     return policy
+
+
+# 2. Case request resolution
+
+
+def resolve_case_length(case, args):
+    """Return (normalized native truth, LengthPolicy) from case/CLI options.
+
+    Equal bounds -> fixed; a range/one bound -> bounded; no bounds -> inferred.
+    A present case key overrides args even when None. Native truth determines
+    generation length only when use_native_length is explicitly enabled.
+    """
+    native = case.get("target_truth")
+    native = native.upper().strip() if native else None
+
+    def case_value(key):
+        return case[key] if key in case else getattr(args, key, None)
+
+    policy = resolve_length_policy(
+        native_length=len(native) if native else None,
+        use_native_length=bool(case_value("use_native_length")),
+        target_length=case_value("target_length"),
+        min_length=case_value("min_length"),
+        max_length=case_value("max_length"),
+    )
+    return native, policy
+
+
+# 3. Prompt types and construction
+
+
+@dataclass(frozen=True)
+class FixedLengthPrompt:
+    """A residue-mask prompt with context-side counts.
+
+    *_truncated_tokens = bare flank count - final side count; values can be
+    negative when optional context adds tokens. mask_positions marks the loop.
+    """
+
+    input_ids: list[int]
+    mask_positions: list[int]
+    target_length: int
+    max_len: int
+    pt1_tokens: int
+    pt2_tokens: int
+    pt1_truncated_tokens: int
+    pt2_truncated_tokens: int
+
+    def metadata(self) -> dict[str, int]:
+        """Return stored prompt/side counts as a JSON-ready dict."""
+        return {
+            "max_len": self.max_len,
+            "input_tokens": len(self.input_ids),
+            "pt1_tokens": self.pt1_tokens,
+            "pt2_tokens": self.pt2_tokens,
+            "pt1_truncated_tokens": self.pt1_truncated_tokens,
+            "pt2_truncated_tokens": self.pt2_truncated_tokens,
+        }
+
+
+def _prepare_masked_prompt(
+    tokenizer, pt1, pt2, *, mask_length, reserve_length,
+    partner_chain=None, antigen=None, max_len=256,
+):
+    """Assemble flanks/context with separate mask count and reserved capacity.
+
+    Residue prompt: mask_length=N, reserve_length=N.
+    Length prompt:  mask_length=1, reserve_length=longest supported class.
+    """
+    left, right = tokenizer.encode(pt1), tokenizer.encode(pt2)
+    original_left, original_right = len(left), len(right)
+    left, right = inject_context(
+        tokenizer, left, right, reserve_length,
+        partner_seq=partner_chain, antigen_seq=antigen, max_len=max_len,
+    )
+    input_ids, start = assemble_masked_input(tokenizer, left, right, mask_length)
+    return FixedLengthPrompt(
+        input_ids=input_ids, mask_positions=list(range(start, start + mask_length)),
+        target_length=mask_length, max_len=max_len,
+        pt1_tokens=len(left), pt2_tokens=len(right),
+        pt1_truncated_tokens=original_left - len(left),
+        pt2_truncated_tokens=original_right - len(right),
+    )
+
+
+def prepare_fixed_length_prompt(
+    tokenizer, pt1: str, pt2: str, target_length: int, *,
+    partner_chain: str | None = None, antigen: str | None = None, max_len: int = 256,
+) -> FixedLengthPrompt:
+    """Build pt1 + target_length residue masks + pt2, with context and wrappers.
+
+    Example: pt1="AC", pt2="FG", target_length=3 -> AC [mask x 3] FG.
+    The caller has already selected the length; this function validates it.
+    """
+    length = fixed_length(target_length, source="prompt_argument").length
+    return _prepare_masked_prompt(
+        tokenizer, pt1, pt2, mask_length=length, reserve_length=length,
+        partner_chain=partner_chain, antigen=antigen, max_len=max_len,
+    )
+
+
+@dataclass(frozen=True)
+class GapPrompt:
+    """One sentinel prompt and the position whose hidden state predicts length."""
+
+    input_ids: list[int]
+    gap_position: int
+    reserve_length: int
+
+
+def prepare_gap_prompt(
+    tokenizer, pt1: str, pt2: str, *, partner_chain: str | None = None,
+    antigen: str | None = None, max_len: int = 256, reserve_length: int,
+) -> GapPrompt:
+    """Build one sentinel while reserving capacity for the longest length class.
+
+    The constant reservation keeps fitting/inference truncation independent of
+    the unknown native length. Only one actual mask enters the length head.
+    """
+    if reserve_length <= 0:
+        raise ValueError("reserve_length must be positive")
+    prompt = _prepare_masked_prompt(
+        tokenizer, pt1, pt2, mask_length=1, reserve_length=reserve_length,
+        partner_chain=partner_chain, antigen=antigen, max_len=max_len,
+    )
+    return GapPrompt(prompt.input_ids, prompt.mask_positions[0], reserve_length)
+
+
+# 4. Learned length head: inference and fitting
+
+
+def _hidden_states_of(outputs):
+    if isinstance(outputs, dict):
+        hidden_states = outputs.get("hidden_states")
+    else:
+        hidden_states = getattr(outputs, "hidden_states", None)
+    if not hidden_states:
+        raise ValueError(
+            "backbone did not return hidden states; length prediction requires "
+            "output_hidden_states=True support"
+        )
+    return hidden_states[-1]
+
+
+@torch.no_grad()
+def extract_gap_features(model, input_ids, attention_mask, gap_positions):
+    """Return final-layer hidden vectors at each batch row's sentinel position."""
+    outputs = model(
+        input_ids=input_ids,
+        attention_mask=attention_mask,
+        output_hidden_states=True,
+        return_dict=True,
+    )
+    hidden = _hidden_states_of(outputs)
+    rows = torch.arange(hidden.size(0), device=hidden.device)
+    return hidden[rows, gap_positions]
+
+
+class LengthHead(nn.Module):
+    """Small classifier trained on frozen sequence-model sentinel features."""
+
+    def __init__(self, feature_dim: int, n_lengths: int):
+        super().__init__()
+        self.normalization = nn.LayerNorm(feature_dim)
+        self.classifier = nn.Linear(feature_dim, n_lengths)
+
+    def forward(self, features):
+        return self.classifier(self.normalization(features))
+
+
+class LengthPredictor:
+    """Checkpoint artifact that selects fixed masks under optional bounds."""
+
+    def __init__(self, head: LengthHead, config: dict):
+        self.head = head
+        self.config = config
+        self.lengths = tuple(int(length) for length in config["supported_lengths"])
+        self.reserve_length = int(config["reserve_length"])
+
+    @classmethod
+    def load(cls, checkpoint: str | os.PathLike, *, device=None) -> "LengthPredictor":
+        from safetensors.torch import load_file
+
+        checkpoint = Path(checkpoint)
+        config_path = checkpoint / LENGTH_CONFIG_FILENAME
+        weights_path = checkpoint / LENGTH_HEAD_FILENAME
+        if not config_path.exists() or not weights_path.exists():
+            raise FileNotFoundError(
+                f"variable-length generation requires {LENGTH_CONFIG_FILENAME} and "
+                f"{LENGTH_HEAD_FILENAME} in {checkpoint}; fit them with fit_mlm_length.py"
+            )
+        with config_path.open() as handle:
+            config = json.load(handle)
+        if config.get("schema_version") != SCHEMA_VERSION:
+            raise ValueError(f"unsupported length predictor schema {config.get('schema_version')!r}")
+        head = LengthHead(int(config["feature_dim"]), len(config["supported_lengths"]))
+        head.load_state_dict(load_file(str(weights_path)), strict=True)
+        if device is not None:
+            head.to(device)
+        head.eval()
+        return cls(head, config)
+
+    def _allowed(self, constraints: LengthConstraints) -> list[bool]:
+        allowed = [constraints.contains(length) for length in self.lengths]
+        if not any(allowed):
+            observed = f"{min(self.lengths)}..{max(self.lengths)}"
+            raise ValueError(
+                f"length bounds {constraints.minimum}..{constraints.maximum} contain no "
+                f"class learned by this checkpoint (observed {observed})"
+            )
+        return allowed
+
+    @torch.no_grad()
+    def distribution(
+        self,
+        model,
+        tokenizer,
+        device,
+        *,
+        pt1: str,
+        pt2: str,
+        policy: LengthPolicy,
+        partner_chain: str | None = None,
+        antigen: str | None = None,
+        max_len: int = 256,
+        temperature: float = 1.0,
+    ) -> tuple[torch.Tensor, GapPrompt]:
+        """Return the constraint-renormalized length distribution."""
+        if not policy.requires_predictor:
+            raise ValueError("a fixed policy does not require the length predictor")
+        if temperature < 0:
+            raise ValueError("length temperature must be non-negative")
+        prompt = prepare_gap_prompt(
+            tokenizer,
+            pt1,
+            pt2,
+            partner_chain=partner_chain,
+            antigen=antigen,
+            max_len=max_len,
+            reserve_length=self.reserve_length,
+        )
+        ids = torch.tensor([prompt.input_ids], dtype=torch.long, device=device)
+        attention = torch.ones_like(ids)
+        positions = torch.tensor([prompt.gap_position], dtype=torch.long, device=device)
+        features = extract_gap_features(model, ids, attention, positions)
+        self.head.to(device)
+        logits = self.head(features)[0]
+        allowed = torch.tensor(self._allowed(policy.constraints), dtype=torch.bool, device=device)
+        logits = logits.masked_fill(~allowed, float("-inf"))
+        scaled = logits if temperature == 0 else logits / temperature
+        return torch.softmax(scaled, dim=-1), prompt
+
+    def select(
+        self,
+        model,
+        tokenizer,
+        device,
+        generator,
+        *,
+        pt1: str,
+        pt2: str,
+        policy: LengthPolicy,
+        num_samples: int,
+        partner_chain: str | None = None,
+        antigen: str | None = None,
+        max_len: int = 256,
+        temperature: float = 1.0,
+    ) -> tuple[list[int], dict[int, float], GapPrompt]:
+        """Select one length per requested candidate, preserving stochastic draws."""
+        if num_samples <= 0:
+            raise ValueError("num_samples must be positive")
+        probabilities, prompt = self.distribution(
+            model,
+            tokenizer,
+            device,
+            pt1=pt1,
+            pt2=pt2,
+            policy=policy,
+            partner_chain=partner_chain,
+            antigen=antigen,
+            max_len=max_len,
+            temperature=temperature,
+        )
+        if temperature == 0:
+            indices = [int(probabilities.argmax())] * num_samples
+        else:
+            indices = torch.multinomial(
+                probabilities,
+                num_samples,
+                replacement=True,
+                generator=generator,
+            ).tolist()
+        selected = [self.lengths[index] for index in indices]
+        distribution = {
+            length: float(probabilities[index].detach().cpu())
+            for index, length in enumerate(self.lengths)
+            if probabilities[index] > 0
+        }
+        return selected, distribution, prompt
+
+
+def _batched(values: list, batch_size: int) -> Iterable[list]:
+    for start in range(0, len(values), batch_size):
+        yield values[start:start + batch_size]
+
+
+def _length_scores(predicted, native):
+    """Return exact-length accuracy and MAE, or (None, None) for an empty set."""
+    if not len(native):
+        return None, None
+    return (
+        float((predicted == native).float().mean()),
+        float((predicted - native).abs().float().mean()),
+    )
+
+
+@torch.no_grad()
+def _extract_dataset_features(
+    model,
+    tokenizer,
+    dataset,
+    *,
+    device,
+    batch_size: int,
+    reserve_length: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    prompts = []
+    labels = []
+    for index in range(len(dataset)):
+        framework = framework_for_dataset(dataset, index)
+        prompts.append(prepare_gap_prompt(
+            tokenizer,
+            framework["pt1"],
+            framework["pt2"],
+            partner_chain=framework.get("partner_chain"),
+            antigen=framework.get("antigen"),
+            max_len=framework["max_len"],
+            reserve_length=reserve_length,
+        ))
+        labels.append(int(framework["target_length"]))
+
+    if not prompts:
+        return torch.empty((0, 0)), torch.empty((0,), dtype=torch.long)
+    features = []
+    for prompt_batch in _batched(prompts, batch_size):
+        tensors = [torch.tensor(prompt.input_ids, dtype=torch.long) for prompt in prompt_batch]
+        ids = torch.nn.utils.rnn.pad_sequence(
+            tensors, batch_first=True, padding_value=tokenizer.pad_id
+        ).to(device)
+        attention = (ids != tokenizer.pad_id).long()
+        positions = torch.tensor(
+            [prompt.gap_position for prompt in prompt_batch], dtype=torch.long, device=device
+        )
+        features.append(extract_gap_features(model, ids, attention, positions).cpu())
+    return torch.cat(features), torch.tensor(labels, dtype=torch.long)
+
+
+def fit_length_predictor(
+    model,
+    tokenizer,
+    train_dataset,
+    eval_dataset,
+    *,
+    output_dir: str | os.PathLike,
+    device,
+    epochs: int = 20,
+    learning_rate: float = 1e-2,
+    batch_size: int = 256,
+    seed: int = 42,
+) -> LengthPredictor:
+    """Fit a frozen-backbone length head and persist it beside the checkpoint."""
+    from safetensors.torch import save_file
+
+    if epochs <= 0 or batch_size <= 0 or learning_rate <= 0:
+        raise ValueError("length predictor epochs, batch size, and learning rate must be positive")
+    if not len(train_dataset):
+        raise ValueError("cannot fit a length predictor on an empty training dataset")
+
+    supported_lengths = sorted({
+        int(framework_for_dataset(train_dataset, index)["target_length"])
+        for index in range(len(train_dataset))
+    })
+    reserve_length = max(supported_lengths)
+    was_training = model.training
+    model.eval()
+    logger.info(
+        "📏 Extracting gap-sentinel features for %d train / %d eval frameworks...",
+        len(train_dataset), len(eval_dataset),
+    )
+    train_x, train_lengths = _extract_dataset_features(
+        model, tokenizer, train_dataset, device=device, batch_size=batch_size,
+        reserve_length=reserve_length,
+    )
+    eval_x, eval_lengths = _extract_dataset_features(
+        model, tokenizer, eval_dataset, device=device, batch_size=batch_size,
+        reserve_length=reserve_length,
+    )
+    if was_training:
+        model.train()
+
+    class_of = {length: index for index, length in enumerate(supported_lengths)}
+    train_y = torch.tensor([class_of[int(length)] for length in train_lengths])
+    eval_supported = torch.tensor([int(length) in class_of for length in eval_lengths])
+
+    torch.manual_seed(seed)
+    head = LengthHead(train_x.size(1), len(supported_lengths)).to(device)
+    optimizer = torch.optim.AdamW(head.parameters(), lr=learning_rate)
+    loss_fn = nn.CrossEntropyLoss()
+    generator = torch.Generator().manual_seed(seed)
+    head.train()
+    final_loss = None
+    for _epoch in range(epochs):
+        order = torch.randperm(len(train_x), generator=generator)
+        for indices in _batched(order.tolist(), batch_size):
+            x = train_x[indices].to(device)
+            y = train_y[indices].to(device)
+            optimizer.zero_grad()
+            loss = loss_fn(head(x), y)
+            loss.backward()
+            optimizer.step()
+            final_loss = float(loss.detach().cpu())
+
+    head.eval()
+    with torch.no_grad():
+        class_lengths = torch.tensor(supported_lengths, dtype=torch.long)
+        train_predictions = class_lengths[head(train_x.to(device)).argmax(-1).cpu()]
+        train_accuracy, train_length_mae = _length_scores(train_predictions, train_lengths)
+        if len(eval_x):
+            eval_predictions = class_lengths[head(eval_x.to(device)).argmax(-1).cpu()]
+            eval_accuracy, eval_length_mae = _length_scores(eval_predictions, eval_lengths)
+            eval_prediction_counts = Counter(int(length) for length in eval_predictions)
+            if eval_supported.any():
+                eval_supported_accuracy = float(
+                    (eval_predictions[eval_supported] == eval_lengths[eval_supported])
+                    .float()
+                    .mean()
+                )
+            else:
+                eval_supported_accuracy = None
+        else:
+            eval_accuracy = None
+            eval_supported_accuracy = None
+            eval_length_mae = None
+            eval_prediction_counts = Counter()
+
+    train_length_counts = Counter(int(length) for length in train_lengths)
+    eval_length_counts = Counter(int(length) for length in eval_lengths)
+    mode_length = min(
+        supported_lengths,
+        key=lambda length: (-train_length_counts[length], length),
+    )
+    if len(eval_lengths):
+        mode_predictions = torch.full_like(eval_lengths, mode_length)
+        eval_mode_accuracy, eval_mode_length_mae = _length_scores(mode_predictions, eval_lengths)
+    else:
+        eval_mode_accuracy = None
+        eval_mode_length_mae = None
+
+    config = {
+        "schema_version": SCHEMA_VERSION,
+        "feature_type": "last_hidden_state_at_gap_sentinel",
+        "feature_dim": int(train_x.size(1)),
+        "supported_lengths": supported_lengths,
+        "reserve_length": reserve_length,
+        "train_examples": len(train_dataset),
+        "eval_examples": len(eval_dataset),
+        "eval_supported_examples": int(eval_supported.sum()),
+        "eval_unseen_lengths": sorted(set(eval_length_counts) - set(supported_lengths)),
+        "train_length_counts": {
+            str(length): train_length_counts[length] for length in supported_lengths
+        },
+        "eval_length_counts": {
+            str(length): eval_length_counts[length] for length in sorted(eval_length_counts)
+        },
+        "eval_prediction_counts": {
+            str(length): eval_prediction_counts[length] for length in sorted(eval_prediction_counts)
+        },
+        "train_mode_length": mode_length,
+        "epochs": epochs,
+        "learning_rate": learning_rate,
+        "batch_size": batch_size,
+        "seed": seed,
+        "final_batch_loss": final_loss,
+        "train_accuracy": train_accuracy,
+        "train_length_mae": train_length_mae,
+        "eval_accuracy": eval_accuracy,
+        "eval_supported_accuracy": eval_supported_accuracy,
+        "eval_length_mae": eval_length_mae,
+        "eval_mode_baseline_accuracy": eval_mode_accuracy,
+        "eval_mode_baseline_length_mae": eval_mode_length_mae,
+    }
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    save_file(
+        {key: value.detach().cpu().contiguous() for key, value in head.state_dict().items()},
+        str(output_dir / LENGTH_HEAD_FILENAME),
+    )
+    with (output_dir / LENGTH_CONFIG_FILENAME).open("w") as handle:
+        json.dump(config, handle, indent=2)
+        handle.write("\n")
+    logger.info(
+        "📏 Length predictor saved: train accuracy %.3f, eval accuracy %s "
+        "(mode baseline %s), eval MAE %s, classes=%s",
+        train_accuracy,
+        f"{eval_accuracy:.3f}" if eval_accuracy is not None else "n/a",
+        f"{eval_mode_accuracy:.3f}" if eval_mode_accuracy is not None else "n/a",
+        f"{eval_length_mae:.3f}" if eval_length_mae is not None else "n/a",
+        supported_lengths,
+    )
+    return LengthPredictor(head, config)
+
+
+# 5. Length-conditioned residue sampling
+
+
+@dataclass(frozen=True)
+class GeneratedSpan:
+    """One candidate's token IDs, selected length and scoring prompt.
+
+    input_ids/mask_positions preserve its exact context for later self-scoring.
+    """
+
+    token_ids: list[int]
+    length: int
+    input_ids: list[int]
+    mask_positions: list[int]
+    prompt_metadata: dict[str, int]
+
+
+def sample_length_conditioned_spans(
+    model, tokenizer, device, generator, *, pt1: str, pt2: str, policy: LengthPolicy,
+    length_predictor=None, partner_chain: str | None = None, antigen: str | None = None,
+    max_len: int = 256, decoding: str, num_samples: int, temperature: float,
+    top_k: int, top_p: float, length_temperature: float = 1.0,
+) -> tuple[list[GeneratedSpan], dict]:
+    """Select lengths, decode grouped prompts and return ordered spans plus metadata.
+
+    Example: selected lengths [8, 10, 8] -> groups {8: [0, 2], 10: [1]}.
+    Returned spans retain order [8, 10, 8] and their individual scoring prompts.
+
+    Fixed policies repeat their selected length; bounded/inferred policies need
+    the saved head. Residue temperature=0 gives one draw. length_temperature
+    independently controls length sampling. No native truth enters this API.
+    """
+    if num_samples <= 0:
+        raise ValueError("num_samples must be positive")
+    count = 1 if temperature == 0 else num_samples
+    context = dict(
+        pt1=pt1, pt2=pt2, partner_chain=partner_chain, antigen=antigen, max_len=max_len,
+    )
+    probabilities = gap_prompt = None
+    if policy.requires_predictor:
+        if length_predictor is None:
+            raise FileNotFoundError(
+                "bounded/inferred generation requires this checkpoint's trained length predictor"
+            )
+        lengths, probabilities, gap_prompt = length_predictor.select(
+            model, tokenizer, device, generator, policy=policy, num_samples=count,
+            temperature=length_temperature, **context,
+        )
+    else:
+        lengths = [policy.length] * count
+
+    groups = defaultdict(list)
+    for index, length in enumerate(lengths):
+        groups[length].append(index)
+    results, prompts = [None] * count, {}
+    for length, positions in groups.items():
+        prompt = prepare_fixed_length_prompt(tokenizer, target_length=length, **context)
+        prompts[str(length)] = prompt.metadata()
+        sampled = sample_masked_span(
+            model, tokenizer, device, generator, prompt.input_ids, prompt.mask_positions,
+            decoding=decoding, num_samples=len(positions), temperature=temperature,
+            top_k=top_k, top_p=top_p,
+        )
+        for index, ids in zip(positions, sampled):
+            results[index] = GeneratedSpan(
+                token_ids=ids, length=length, input_ids=prompt.input_ids,
+                mask_positions=prompt.mask_positions, prompt_metadata=prompt.metadata(),
+            )
+
+    metadata = policy.as_dict(selected_lengths=lengths, probabilities=probabilities)
+    metadata.update(length_temperature=length_temperature, prompts_by_length=prompts)
+    if gap_prompt is not None:
+        metadata["gap_prompt"] = dict(
+            input_tokens=len(gap_prompt.input_ids),
+            gap_position=gap_prompt.gap_position,
+            reserve_length=gap_prompt.reserve_length,
+        )
+    return results, metadata
+
+
+# 6. Fixed-native and variable-length evaluation adapters
+
+
+def masked_view(item):
+    """Return prompt IDs, supervised positions and native IDs.
+
+    Example: labels [-100, 3, 4, -100] -> positions [1, 2], native [3, 4].
+    Positions follow labels; fixed-native evaluation expects fully masked inputs.
+    """
+    input_ids = item["input_ids"].tolist()
+    labels = item["labels"].tolist()
+    mask_positions = [p for p, l in enumerate(labels) if l != -100]
+    native_ids = [labels[p] for p in mask_positions]
+    return input_ids, mask_positions, native_ids
+
+
+class _EvaluationStrategy:
+    """Shared MLM evaluation state, candidate self-scoring and Subset index mapping."""
+
+    def __init__(self, *, model, tokenizer, device, generator, eval_dataset, judge_dataset,
+                 judge_tokenizer, decoding, num_samples, temperature, top_k, top_p):
+        self.model, self.tokenizer, self.device = model, tokenizer, device
+        self.generator = generator
+        self.eval_dataset, self.judge_dataset = eval_dataset, judge_dataset
+        self.judge_tokenizer = judge_tokenizer
+        self.decoding, self.num_samples = decoding, num_samples
+        self.temperature, self.top_k, self.top_p = temperature, top_k, top_p
+        self._judge_cache = (None, None)
+
+    def self_scores(self, drawn):
+        """Re-mask each candidate position and return pseudo-perplexities in draw order."""
+        return [
+            pseudo_log_likelihood(
+                self.model, ids, positions, tokens, self.tokenizer.special_ids,
+                self.tokenizer.mask_id, self.device,
+            )[1]
+            for ids, positions, tokens in drawn.spans
+        ]
+
+    def _full_index(self, i):
+        return self.eval_dataset.indices[i] if hasattr(self.eval_dataset, "indices") else i
+
+
+class FixedNativeStrategy(_EvaluationStrategy):
+    """Fill the dataset's masks using the native loop length.
+
+    Generator context comes from eval_dataset; judge prompts use judge_dataset.
+    """
+
+    supplies_native_length = True
+
+    def payload_length_policy(self):
+        """Describe the native-mask-count policy for the evaluation payload."""
+        return {"mode": "fixed", "source": "native_mask_count"}
+
+    def draw(self, i):
+        """Return candidates and scoring prompts for index i, or None if no masks exist."""
+        input_ids, mask_positions, native_ids = masked_view(self.eval_dataset[i])
+        if not mask_positions:
+            return None
+        length_decision = native_mask_length(len(mask_positions))
+        native = self.tokenizer.decode(native_ids).upper().strip()
+        sampled_ids = sample_masked_span(
+            self.model, self.tokenizer, self.device, self.generator,
+            input_ids, mask_positions,
+            decoding=self.decoding, num_samples=self.num_samples,
+            temperature=self.temperature, top_k=self.top_k, top_p=self.top_p,
+        )
+        spans = [(input_ids, mask_positions, ids) for ids in sampled_ids]
+        seqs = [self.tokenizer.decode(ids).upper().strip() for ids in sampled_ids]
+        return Draw(
+            native=native,
+            seqs=seqs,
+            spans=spans,
+            target_len=length_decision.length,
+            length_policy=length_decision.as_dict(),
+            record_extra={},
+        )
+
+    def judge_inputs(self, i, _seq):
+        """Cache the judge's native-length masked prompt for framework i.
+
+        Candidate sequence does not change its mask count; map one outer Subset.
+        """
+        cached_index, cached_prompt = self._judge_cache
+        if cached_index == i:
+            return cached_prompt
+        # Resolve one outer Subset layer; the judge dataset uses the full corpus order.
+        full_idx = self._full_index(i)
+        judge_input, judge_mask_positions, _ = masked_view(self.judge_dataset[full_idx])
+        self._judge_cache = (i, (judge_input, judge_mask_positions))
+        return self._judge_cache[1]
+
+
+class VariableLengthStrategy(_EvaluationStrategy):
+    """Select lengths from the fitted head before filling residue masks.
+
+    Each candidate retains its own prompt; the native loop is scoring-only.
+    """
+
+    supplies_native_length = False
+
+    def __init__(self, *, length_predictor, length_policy, length_temperature, **shared_options):
+        super().__init__(**shared_options)
+        self.length_predictor = length_predictor
+        self.length_policy = length_policy
+        self.length_temperature = length_temperature
+
+    def payload_length_policy(self):
+        """Return the requested policy and length-sampling temperature for the payload."""
+        return {**self.length_policy.as_dict(), "length_temperature": self.length_temperature}
+
+    def draw(self, i):
+        """Generate from framework context and retain native truth only in the Draw."""
+        framework = framework_for_dataset(self.eval_dataset, i)
+        native = framework["target"].upper().strip()
+        generated, length_metadata = sample_length_conditioned_spans(
+            self.model,
+            self.tokenizer,
+            self.device,
+            self.generator,
+            pt1=framework["pt1"],
+            pt2=framework["pt2"],
+            policy=self.length_policy,
+            length_predictor=self.length_predictor,
+            partner_chain=framework.get("partner_chain"),
+            antigen=framework.get("antigen"),
+            max_len=framework["max_len"],
+            decoding=self.decoding,
+            num_samples=self.num_samples,
+            temperature=self.temperature,
+            top_k=self.top_k,
+            top_p=self.top_p,
+            length_temperature=self.length_temperature,
+        )
+        seqs = [self.tokenizer.decode(span.token_ids).upper().strip() for span in generated]
+        return Draw(
+            native=native,
+            seqs=seqs,
+            spans=[(span.input_ids, span.mask_positions, span.token_ids) for span in generated],
+            # The native length labels and buckets the example; generation never received it.
+            target_len=len(native),
+            length_policy=length_metadata,
+            record_extra={"generated_lengths": [len(sequence) for sequence in seqs]},
+        )
+
+    def judge_inputs(self, i, seq):
+        """Build a judge prompt with len(seq) masks; cache its framework.
+
+        Example: native length=8, candidate length=6 -> six judge masks.
+        """
+        cached_index, cached_framework = self._judge_cache
+        if cached_index == i:
+            framework = cached_framework
+        else:
+            full_index = self._full_index(i)
+            framework = framework_for_dataset(self.judge_dataset, full_index)
+            self._judge_cache = (i, framework)
+        prompt = prepare_fixed_length_prompt(
+            self.judge_tokenizer,
+            framework["pt1"],
+            framework["pt2"],
+            len(seq),
+            partner_chain=framework.get("partner_chain"),
+            antigen=framework.get("antigen"),
+            max_len=framework["max_len"],
+        )
+        return prompt.input_ids, prompt.mask_positions

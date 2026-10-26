@@ -30,10 +30,10 @@ does not complete an item. The protection boundaries below still apply.
         - [x] `losses` (1022)
         - [x] `recovery` (1022) 
       - [ ] evaluation/generation block
-        - [x] `eval_cli`, `evaluation` (1023)
+        - [ ] `eval_cli`, `evaluation` 
         - [ ] `gen_cli`, `generation` 
         - [ ] `case_generation`, `sampling`
-        - [ ] length scripts (`length`, `length_predictor`, `variable_length...`)
+        - [ ] `length` 
     - [ ] `methods/ar/`
       - [ ] custom model
       - [ ] `arguments`, `backbones`
