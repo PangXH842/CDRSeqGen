@@ -34,8 +34,8 @@ class CommandLifecycleTests(unittest.TestCase):
 
     def test_generation_forwards_case_order_and_method_state(self):
         cases = [{"name": "first"}, {"name": "second"}]
-        config = {"model_type": "scratch", "max_len": 64}
-        args = SimpleNamespace(model_path="/tmp/checkpoint", max_len=None,
+        config = {"source": "run_config", "model_type": "scratch", "max_len": 64}
+        args = SimpleNamespace(model_dir="/tmp/checkpoint", max_len=None,
                                seed=43, force=False, output="none")
         command = Mock()
         command.prepare_generation.return_value = sentinel.policies
@@ -47,7 +47,7 @@ class CommandLifecycleTests(unittest.TestCase):
         backbones = SimpleNamespace(resolve=Mock(return_value=backbone))
         method = method_with_modules(gen_cli=command, backbones=backbones)
 
-        with patch.object(shared_generation, "get_test_case", return_value=cases), \
+        with patch.object(shared_generation, "load_test_cases", return_value=cases), \
                 patch.object(shared_generation, "check_compatibility", return_value=([], [])), \
                 patch.object(shared_generation, "resolve", return_value=method), \
                 patch.object(shared_generation.torch.cuda, "is_available", return_value=False), \
@@ -76,14 +76,14 @@ class CommandLifecycleTests(unittest.TestCase):
         command.prepare_generation.side_effect = ValueError("unsupported length policy")
         backbones = Mock()
         method = method_with_modules(gen_cli=command, backbones=backbones)
-        args = SimpleNamespace(model_path="/tmp/checkpoint", max_len=64, force=False)
-        with patch.object(shared_generation, "get_test_case", return_value=[{}]), \
+        args = SimpleNamespace(model_dir="/tmp/checkpoint", max_len=64, force=False)
+        with patch.object(shared_generation, "load_test_cases", return_value=[{}]), \
                 patch.object(shared_generation, "check_compatibility", return_value=([], [])), \
                 patch.object(shared_generation, "resolve", return_value=method), \
                 patch("builtins.print"):
             with self.assertRaisesRegex(SystemExit, "unsupported length policy"):
                 shared_generation.run_generation_pipeline(
-                    "mlm", args, {"model_type": "scratch"},
+                    "mlm", args, {"source": "run_config", "model_type": "scratch"},
                     prepare_generation=command.prepare_generation,
                     generation_state=command.generation_state,
                     generate_case=command.generate_case,
@@ -152,11 +152,11 @@ class SingleEntrypointRoutingTests(unittest.TestCase):
     def test_generation_calls_one_method_main_for_each_registered_method(self):
         for name in train.METHODS:
             with self.subTest(method=name):
-                args = SimpleNamespace(model_path="/tmp/checkpoint")
+                args = SimpleNamespace(model_dir="/tmp/checkpoint")
                 config = {"method": name}
                 command = SimpleNamespace(main=Mock(return_value=sentinel.results))
                 method = method_with_modules(gen_cli=command)
-                with patch("generate.get_configs", return_value=config), \
+                with patch("generate.read_run_config", return_value=config), \
                         patch("generate.checkpoint_method", return_value=method), \
                         patch("builtins.print"):
                     self.assertIs(generate.main(args), sentinel.results)
@@ -176,7 +176,7 @@ class SingleEntrypointRoutingTests(unittest.TestCase):
                 method.name = name
                 with patch("evaluate.parse_args", return_value=args), \
                         patch("evaluate.read_run_config", return_value=run_config), \
-                        patch("evaluate.resolve_method", return_value=method), \
+                        patch("evaluate.resolve", return_value=method), \
                         patch("evaluate.checkpoint_method") as check:
                     self.assertIs(evaluate.main(), sentinel.payload)
                 method.module.assert_called_once_with("eval_cli")

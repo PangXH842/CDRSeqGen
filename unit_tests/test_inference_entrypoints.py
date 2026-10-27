@@ -35,11 +35,12 @@ class InferenceEntrypointTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             config = {"method": "mlm", "model_type": "scratch", "target_region": "h3",
-                      "max_len": 32, "include_partner_chain": False, "include_antigen": False}
+                      "max_len": 32, "include_partner_chain": False, "include_antigen": False,
+                      "source": "cli"}
             (root / "run_config.json").write_text(json.dumps(config))
             output = root / "generated.json"
             args = SimpleNamespace(
-                model_path=directory, model_type=None, max_len=None, target_loop=None,
+                model_dir=directory, model_type=None, max_len=None, target_loop=None,
                 test_file=None, pt1="AC", pt2="DE", target_truth="WY",
                 target_length=None, min_length=2, max_length=2, use_native_length=False,
                 partner_chain=None, antigen=None, max_new_tokens=None,
@@ -66,6 +67,7 @@ class InferenceEntrypointTests(unittest.TestCase):
         self.assertEqual(payload["model"]["compatibility"], {
             "problems": [], "warnings": [], "forced": False,
         })
+        self.assertEqual(payload["model"]["expects"]["source"], "run_config")
 
     def test_evaluation_scores_fixed_native_and_refuses_repeated_output_before_loading(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -118,7 +120,7 @@ class InferenceEntrypointTests(unittest.TestCase):
                           "max_len": 32, "include_partner_chain": False, "include_antigen": False}
                 (Path(directory) / "run_config.json").write_text(json.dumps(config))
                 args = SimpleNamespace(
-                    model_path=directory, model_type=None, max_len=None, target_loop=None,
+                    model_dir=directory, model_type=None, max_len=None, target_loop=None,
                     test_file=None, pt1="AC", pt2="DE", target_truth=None,
                     target_length=None, min_length=2, max_length=2, use_native_length=False,
                     partner_chain=None, antigen=None, max_new_tokens=None,

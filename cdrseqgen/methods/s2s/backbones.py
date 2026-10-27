@@ -13,6 +13,9 @@ from typing import Callable
 
 from cdrseqgen.datasets.dataset_common import TokenizerAdapter
 from cdrseqgen.datasets.dataset_s2s import Seq2SeqTokenizer, s2s_adapter
+from cdrseqgen.methods.common.backbones import (
+    bert_tokenizer, esm_tokenizer, load_custom_pretrained as _load_custom_pretrained,
+    tokenizer_source)
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +32,6 @@ class Seq2SeqBackbone:
     fallback: bool = False
 
     def build_tokenizer(self, model_type, checkpoint_path=None) -> TokenizerAdapter:
-        from cdrseqgen.methods.common.backbones import tokenizer_source
         source = tokenizer_source(model_type, checkpoint_path)
         return self.load_tokenizer(source, self.position_type, self.uses_special_tokens)
 
@@ -51,9 +53,6 @@ def resolve(model_type: str) -> Seq2SeqBackbone:
         f"No seq2seq backbone registered for model_type={model_type!r}. "
         f"Registered backbones: {[b.id for b in REGISTRY]}. Supported PLM encoders are ESM2 and "
         f"protein BERTs; full pretrained encoder-decoders require their own adapter.")
-
-
-from cdrseqgen.methods.common.backbones import load_custom_pretrained as _load_custom_pretrained
 
 
 # --- custom from-scratch encoder-decoder ---------------------------------------------------------
@@ -93,7 +92,6 @@ register(Seq2SeqBackbone(
 
 
 def _plm_tokenizer(mt, pos, wrap, *, family):
-    from cdrseqgen.methods.common.backbones import esm_tokenizer, bert_tokenizer
     loader = esm_tokenizer if family == "esm2" else bert_tokenizer
     encoder = loader(mt, pos, wrap)
     for name in ("pad_id", "mask_id", "cls_id", "end_id", "chain_sep_id"):

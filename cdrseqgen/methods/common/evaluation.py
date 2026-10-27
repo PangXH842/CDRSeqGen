@@ -13,24 +13,23 @@ cdrseqgen.eval supplies measurements, scoring and reports.
 """
 import hashlib
 import json
+import logging
+import os
 import re
 from pathlib import Path
 
-import cdrseqgen
 import torch
 from transformers import HfArgumentParser, TrainingArguments
 
+import cdrseqgen
+from cdrseqgen import artifacts
 from cdrseqgen.artifacts import (
     RUN_CONFIG_FILENAME, file_identity, find_run_config, git_state,
     processed_metadata_path,
 )
-from cdrseqgen.methods.common.arguments import parse_config_dict
-import logging
-import os
-
-from cdrseqgen import artifacts
 from cdrseqgen.datasets.dataset_common import evaluation_context_view
 from cdrseqgen.eval.generative import build_judge
+from cdrseqgen.methods.common.arguments import parse_config_dict
 from cdrseqgen.methods.registry import resolve
 
 logger = logging.getLogger(__name__)
@@ -47,7 +46,7 @@ COMPATIBILITY_FIELDS = (
 )
 
 
-def _normalise_compatibility_value(key, value):
+def _normalize_compatibility_value(key, value):
     if key in {"include_partner_chain", "include_antigen"}:
         return bool(value)
     if key == "data_path" and value:
@@ -75,15 +74,14 @@ def compatibility_problems(run_config, model_args, data_args):
         # Old checkpoints do not carry every newer field. Absence is unknown, not disagreement.
         if key not in run_config:
             continue
-        trained = _normalise_compatibility_value(key, run_config.get(key))
-        supplied = _normalise_compatibility_value(key, requested[key])
+        trained = _normalize_compatibility_value(key, run_config.get(key))
+        supplied = _normalize_compatibility_value(key, requested[key])
         if trained != supplied:
             problems.append(
                 f"{label}: checkpoint recorded {run_config.get(key)!r}, "
                 f"but --config supplies {requested[key]!r}"
             )
     return problems
-
 
 
 def evaluation_provenance(config_path, model_dir, data_path):
@@ -159,6 +157,23 @@ def default_output_path(args):
     return os.path.join(args.model_dir, "evaluations", name)
 
 
+def _partner_context(setting, trained):
+    """Whether the partner chain is shown, for a trained/with/without setting."""
+    return bool(trained) if setting == "trained" else setting == "with"
+
+
+def _context_meta(data_args, *, partner, judge_partner):
+    """Context-regime fields recorded in every generative-evaluation payload."""
+    return {
+        "include_partner_chain": bool(partner),
+        "training_include_partner_chain": bool(data_args.include_partner_chain),
+        "training_context_dropout": data_args.context_dropout,
+        "eval_context_dropout": 0.0,
+        "judge_include_partner_chain": bool(judge_partner),
+        "include_antigen": bool(data_args.include_antigen),
+    }
+
+
 def run_evaluation_pipeline(method, args, supplied_config, run_config, *,
                             prepare_evaluation, evaluation_options, evaluate):
     """Load and evaluate a checkpoint using the supplied method functions.
@@ -212,8 +227,8 @@ def run_evaluation_pipeline(method, args, supplied_config, run_config, *,
     _, eval_dataset, tokenizer = method.module('training').get_datasets(
         model_args, data_args, training_args, backbone, checkpoint_path=args.model_dir)
 
-    partner = data_args.include_partner_chain if args.partner_context == 'trained' else args.partner_context == 'with'
-    judge_partner = data_args.include_partner_chain if args.judge_partner_context == 'trained' else args.judge_partner_context == 'with'
+    partner = _partner_context(args.partner_context, data_args.include_partner_chain)
+    judge_partner = _partner_context(args.judge_partner_context, data_args.include_partner_chain)
     eval_dataset = evaluation_context_view(eval_dataset, include_partner_chain=partner)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -254,12 +269,7 @@ def run_evaluation_pipeline(method, args, supplied_config, run_config, *,
             "target_region": data_args.target_region,        # loop this eval ran on (from --config)
             "model_trained_for": trained_for,                # loop the checkpoint was trained for (run_config)
             "eval_split": data_args.eval_split,
-            "include_partner_chain": bool(partner),
-            "training_include_partner_chain": bool(data_args.include_partner_chain),
-            "training_context_dropout": data_args.context_dropout,
-            "eval_context_dropout": 0.0,
-            "judge_include_partner_chain": bool(judge_partner),
-            "include_antigen": bool(data_args.include_antigen),
+            **_context_meta(data_args, partner=partner, judge_partner=judge_partner),
             "compatibility": {
                 "problems": problems,
                 "forced": bool(problems and args.force),
@@ -283,9 +293,8 @@ def post_training_generation(method, trainer, tokenizer, eval_dataset, data_args
     checkpoint. Evaluation errors are logged; previously saved training artifacts remain.
     """
     try:
-        judge_context = getattr(gen_args, 'gen_judge_partner_context', 'trained')
-        judge_partner = (bool(data_args.include_partner_chain) if judge_context == 'trained'
-                         else judge_context == 'with')
+        judge_partner = _partner_context(getattr(gen_args, 'gen_judge_partner_context', 'trained'),
+                                         data_args.include_partner_chain)
         judge_model = judge_tokenizer = judge_dataset = None
         if gen_args.gen_judge:
             judge_model, judge_tokenizer, judge_dataset = build_judge(
@@ -312,12 +321,7 @@ def post_training_generation(method, trainer, tokenizer, eval_dataset, data_args
                 title=f'{os.path.basename(training_args.output_dir)}   target={data_args.target_region}',
                 meta={'model_dir': training_args.output_dir, 'method': method,
                       'target_region': data_args.target_region,
-                      'include_partner_chain': partner,
-                      'training_include_partner_chain': bool(data_args.include_partner_chain),
-                      'training_context_dropout': data_args.context_dropout,
-                      'eval_context_dropout': 0.0,
-                      'judge_include_partner_chain': judge_partner,
-                      'include_antigen': bool(data_args.include_antigen)},
+                      **_context_meta(data_args, partner=partner, judge_partner=judge_partner)},
                 **(method_options or {}))
             if filename == artifacts.GENERATION_EVAL_FILENAME:
                 primary = result

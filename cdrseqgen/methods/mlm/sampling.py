@@ -5,7 +5,6 @@ Functions:
   * sample_independent    -- fill all positions from one forward pass over a masked prompt
   * sample_iterative      -- fill one position per draw per pass, in confidence order
   * pseudo_log_likelihood -- re-mask each candidate position and return (PLL, pseudo-ppl)
-  * _logits_of            -- extract logits from a dict or model-output object
 
 Callers:
   * mlm.length uses sample_masked_span for case/benchmark sampling and evaluation.
@@ -13,7 +12,7 @@ Callers:
   * eval.generative uses the same scorer for the shared masked-LM judge.
 
 Notes:
-  * ban_tokens and warp_logits are shared helpers imported from methods.common.
+  * ban_tokens, logits_of and warp_logits are shared helpers imported from methods.common.
   * Both decoders exclude banned_ids and return one candidate at temperature=0.
   * Tensor comments use S=prompt length, L=loop length, V=vocabulary size, N=draws.
 """
@@ -24,7 +23,7 @@ from typing import Any
 
 import torch
 
-from cdrseqgen.methods.common import NEG_INF, ban_tokens, warp_logits
+from cdrseqgen.methods.common import NEG_INF, ban_tokens, logits_of, warp_logits
 
 
 def sample_masked_span(
@@ -45,10 +44,11 @@ def sample_masked_span(
 
     Dispatch:
       decoding="independent" -> sample_independent
-      otherwise              -> sample_iterative
+      decoding="iterative"   -> sample_iterative
+      anything else          -> ValueError, so a mislabelled run cannot silently use another decoder
 
-    The caller validates the decoder name. Both decoders exclude tokenizer.special_ids
-    and return one greedy candidate when temperature=0, regardless of num_samples.
+    Both decoders exclude tokenizer.special_ids and return one greedy candidate
+    when temperature=0, regardless of num_samples.
     """
     kwargs: dict[str, Any] = {
         "model": model,
@@ -64,22 +64,12 @@ def sample_masked_span(
     }
     if decoding == "independent":
         return sample_independent(**kwargs)
-    return sample_iterative(**kwargs, mask_id=tokenizer.mask_id)
+    if decoding == "iterative":
+        return sample_iterative(**kwargs, mask_id=tokenizer.mask_id)
+    raise ValueError(f"unknown decoding {decoding!r}; expected 'independent' or 'iterative'")
 
 
-def _logits_of(outputs):
-    """Return dict['logits'] or outputs.logits; raise ValueError for other outputs."""
-    if isinstance(outputs, dict):
-        return outputs["logits"]
-    elif hasattr(outputs, "logits"):
-        return outputs.logits
-    else:
-        raise ValueError(f"Cannot extract logits from {type(outputs)}")
-
-
-_ban = ban_tokens   # kept as a local alias so existing call sites are untouched
-
-
+@torch.no_grad()
 def sample_independent(model, input_ids, mask_positions, banned_ids, *, device,
                      num_samples=1, temperature=1.0, top_k=0, top_p=1.0, generator=None):
     """Return candidate token-ID lists using one model forward pass.
@@ -94,8 +84,8 @@ def sample_independent(model, input_ids, mask_positions, banned_ids, *, device,
     sequence and bypasses top-k/top-p filtering.
     """
     x = torch.tensor([input_ids], dtype=torch.long, device=device)
-    logits = _logits_of(model(input_ids=x))[0]                      # [S, V]
-    mask_logits = _ban(logits[mask_positions].clone(), banned_ids)  # [L, V]
+    logits = logits_of(model(input_ids=x))[0]                           # [S, V]
+    mask_logits = ban_tokens(logits[mask_positions].clone(), banned_ids)  # [L, V]
 
     if temperature == 0:                                            # greedy: argmax, one sequence
         return [torch.argmax(mask_logits, dim=-1).tolist()]
@@ -137,8 +127,8 @@ def sample_iterative(model, input_ids, mask_positions, banned_ids, mask_id, *, d
     rows = torch.arange(N, device=device)
 
     for _ in range(L):
-        logits = _logits_of(model(input_ids=cur))                           # [N, S, V]
-        pos_logits = _ban(logits[:, mp, :].clone(), banned_ids)             # [N, L, V]
+        logits = logits_of(model(input_ids=cur))                            # [N, S, V]
+        pos_logits = ban_tokens(logits[:, mp, :].clone(), banned_ids)       # [N, L, V]
         if not greedy:
             pos_logits = warp_logits(pos_logits, temperature, top_k, top_p)
         probs = torch.softmax(pos_logits, dim=-1)                           # [N, L, V]
@@ -187,8 +177,8 @@ def pseudo_log_likelihood(model, input_ids, mask_positions, token_ids, banned_id
     rows = torch.arange(L, device=device)
     batch[rows, mp] = mask_id                                 # variant i re-masks position i only
 
-    logits = _logits_of(model(input_ids=batch))              # [L, S, V]
-    at_masked = _ban(logits[rows, mp, :].clone(), banned_ids)  # [L, V] logit rows at each masked pos
+    logits = logits_of(model(input_ids=batch))               # [L, S, V]
+    at_masked = ban_tokens(logits[rows, mp, :].clone(), banned_ids)  # [L, V] logit rows at each masked pos
     log_probs = torch.log_softmax(at_masked, dim=-1)         # amino-acid-restricted log-probs
     tok = torch.tensor(token_ids, dtype=torch.long, device=device)
     per_pos = log_probs[rows, tok]                           # [L] log p(true residue | rest)

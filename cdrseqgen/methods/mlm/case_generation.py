@@ -82,17 +82,15 @@ def generate_case_record(
         metrics["pseudo_perplexity_max"] = max(perplexities)
 
     selected_lengths = [sample["length"] for sample in samples]
-    gap_display = (
-        str(selected_lengths[0]) if len(set(selected_lengths)) == 1
-        else "/".join(str(length) for length in sorted(set(selected_lengths)))
-    ) if selected_lengths else "—"
+    distinct_lengths = sorted(set(selected_lengths))
+    gap_display = "/".join(map(str, distinct_lengths)) or "—"
     print_callback(name, pt1, pt2, gap_display, native, args, samples, metrics)
 
     return {
         "name": name,
         "pt1": pt1,
         "pt2": pt2,
-        "target_length": selected_lengths[0] if len(set(selected_lengths)) == 1 else None,
+        "target_length": distinct_lengths[0] if len(distinct_lengths) == 1 else None,
         "generated_lengths": selected_lengths,
         "length_policy": length_metadata,
         "native": native,

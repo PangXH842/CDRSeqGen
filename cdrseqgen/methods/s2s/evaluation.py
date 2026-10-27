@@ -1,7 +1,7 @@
 """Seq2seq generative evaluation: sample loops from held-out frameworks and score them.
 
-  * Seq2SeqStrategy          -- the four things the shared loop cannot do for an encoder-decoder
-  * run_s2s_generative_eval  -- select examples, run the loop, write generation_eval.json
+  * Seq2SeqStrategy     -- the four things the shared loop cannot do for an encoder-decoder
+  * run_generative_eval -- select examples, run the loop, write generation_eval.json
 
 The loop itself lives in :mod:`cdrseqgen.eval.generative` and is shared with both siblings, so an
 s2s-versus-ar-versus-mlm table is produced by one implementation. This module supplies only the
@@ -14,11 +14,12 @@ strategy, and it is deliberately near-identical to ``methods/ar/evaluation.py``:
     construction. The judge stays a masked LM, so the prompt is masked — that is the judge's format.
   * ``payload_length_policy()`` -- reports that length came from <eos>, as on the causal side.
 
-**These numbers are free-running, not teacher-forced.** ``training.s2s_compute_metrics`` reports
+**These numbers are free-running, not teacher-forced.** ``training.compute_metrics`` reports
 argmax over the true prefix and is for checkpoint selection; this samples.
 """
 import logging
 import math
+import random
 
 import torch
 
@@ -30,6 +31,7 @@ from cdrseqgen.eval.generative import (Draw, SUMMARY_KEYS, aggregate, build_mask
                                        write_confidence_figure, write_payload)
 from cdrseqgen.eval.metrics import blosum_provenance
 from cdrseqgen.methods.common import logits_of
+from cdrseqgen.methods.common.arguments import validate_anchor_trim
 from cdrseqgen.methods.s2s.sampling import sample_loops
 
 logger = logging.getLogger(__name__)
@@ -137,7 +139,7 @@ class Seq2SeqStrategy:
         single forward pass. The masked side needs one pass per position for its pseudo-perplexity;
         a proper autoregressive decoder does not.
         """
-        return s2s_perplexities(self.model, self.tokenizer, self.device, drawn.spans)
+        return perplexities(self.model, self.tokenizer, self.device, drawn.spans)
 
     def judge_inputs(self, i, seq):
         """Rebuild the judge's masked prompt at THIS candidate's length; generated lengths vary."""
@@ -147,18 +149,15 @@ class Seq2SeqStrategy:
         return build_masked_judge_prompt(self.judge_tokenizer, framework, len(seq))
 
 
-def run_s2s_generative_eval(model, tokenizer, eval_dataset, *, device, judge_dataset=None,
-                            judge_model=None, judge_tokenizer=None, num_examples=150,
-                            num_samples=20, temperature=1.0, top_k=0, top_p=1.0,
-                            max_new_tokens=S2S_DECODE_STEPS, stratify=False, seed=42,
-                            skip_perplexity=False, output_path=None, title="", judge_name=None,
-                            anchor_trim=ANCHOR_TRIM, meta=None):
+def run_generative_eval(model, tokenizer, eval_dataset, *, device, judge_dataset=None,
+                        judge_model=None, judge_tokenizer=None, num_examples=150,
+                        num_samples=20, temperature=1.0, top_k=0, top_p=1.0,
+                        max_new_tokens=S2S_DECODE_STEPS, stratify=False, seed=42,
+                        skip_perplexity=False, output_path=None, title="", judge_name=None,
+                        anchor_trim=ANCHOR_TRIM, meta=None):
     """Sample from held-out frameworks and write generation_eval.json, encoder-decoder side."""
-    import random
-
     model.eval()
-    if isinstance(anchor_trim, bool) or not isinstance(anchor_trim, int) or anchor_trim < 0:
-        raise ValueError("anchor_trim must be a non-negative integer")
+    validate_anchor_trim(anchor_trim)
 
     torch.manual_seed(seed)
     lengths = [framework_for_dataset(eval_dataset, i)["target_length"]
@@ -224,12 +223,12 @@ def run_s2s_generative_eval(model, tokenizer, eval_dataset, *, device, judge_dat
 
 
 @torch.no_grad()
-def s2s_perplexities(model, tokenizer, device, spans):
+def perplexities(model, tokenizer, device, spans):
     """Score (encoder_ids, loop_ids) pairs under the model, including the answer terminator.
 
     No shift here either: ``build_decoder_pair`` offsets the pair, so the logit at t answers the
-    label at t. This mirrors the loss in ``models/transformer.py`` and differs from the causal
-    method's ``causal_perplexities``, which must shift because its labels are aligned instead.
+    label at t. This mirrors the loss in ``models/transformer.py`` and differs from
+    ``methods/ar/evaluation.perplexities``, which must shift because its labels are aligned instead.
     """
     # Candidates from one framework arrive consecutively. Retain just its encoder output,
     # avoiding another full framework encode per candidate without growing a dataset-wide cache.

@@ -40,6 +40,9 @@ def build_callbacks(model_args, training_args, logger=None):
     Training..." and "Starting Evaluation..." with no per-epoch numbers — the exact regression fixed
     on 2026-07-29. Sharing this is what stops a second entrypoint quietly reintroducing it, which is
     precisely what the first causal entrypoint did.
+
+    The gate below would drop a patience given without ``load_best_model_at_end`` without a word;
+    ``arguments.validate_early_stopping()`` rejects that combination before a run starts.
     """
     callbacks = [LogMetricsCallback()]
     if model_args.early_stopping_patience and training_args.load_best_model_at_end:

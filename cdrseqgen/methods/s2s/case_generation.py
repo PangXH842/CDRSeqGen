@@ -1,7 +1,7 @@
 """Qualitative seq2seq generation using the same encoder input, sampler, and self-scorer as evaluation."""
 from cdrseqgen.datasets.dataset_s2s import build_encoder_input
 from cdrseqgen.eval.metrics import amino_acid_recovery, calculate
-from cdrseqgen.methods.s2s.evaluation import s2s_perplexities
+from cdrseqgen.methods.s2s.evaluation import perplexities
 from cdrseqgen.methods.s2s.sampling import sample_loops
 
 
@@ -17,7 +17,7 @@ def generate_case_record(model, tokenizer, device, args, generator, case, print_
                             top_k=args.top_k, top_p=args.top_p, max_new_tokens=args.max_new_tokens)
     valid = [r['loop'] for r in attempts if r['complete'] and r['loop']]
     native = (case.get('target_truth') or '').strip().upper() or None
-    scores = [None] * len(valid) if args.skip_perplexity else s2s_perplexities(
+    scores = [None] * len(valid) if args.skip_perplexity else perplexities(
         model, tokenizer, device, [(encoder_ids, tokenizer.encode(seq)) for seq in valid])
     samples = []
     for seq, score in zip(valid, scores):

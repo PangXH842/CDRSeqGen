@@ -1,18 +1,15 @@
-"""MLM training workflow and its dataset/evaluation helpers.
+"""MLM preparation and post-training hooks for the shared training workflow.
 
-Caller:
-  mlm.train_cli.main() -> run_training(model_args, data_args, gen_args, training_args)
+Entry path:
+  train_cli.main -> common.training.run_training_pipeline
+                 -> prepare_training -> common.training.train_and_save
+                 -> finish_training
 
-Workflow:
-  set seed -> resolve backbone -> get_datasets()
-    -> load model -> configure loss -> construct Trainer/callbacks
-    -> common.training.run_training_pipeline()
-    -> fit length predictor when requested -> generate/evaluate when requested
-
-Functions:
-  * run_training -- execute the configured MLM workflow; return its Trainer
-  * get_datasets -- return training/evaluation subsets and their tokenizer
-  * post_training_generation -- pass MLM options into common.evaluation
+Hooks and helpers:
+  * prepare_training -- seed, load data/model, configure loss and build the Trainer.
+  * finish_training -- optionally fit the length head and evaluate generated loops.
+  * get_datasets -- return training/evaluation subsets and their tokenizer.
+  * post_training_generation -- pass MLM options into common.evaluation.
 
 Notes:
   * train_cli owns logging and argument setup, including run-directory creation.
@@ -35,7 +32,6 @@ from cdrseqgen.datasets.dataset_common import (
 )
 from cdrseqgen.datasets.dataset_mlm import MaskedInfillingDataset, mlm_collate_fn
 from cdrseqgen.methods.common import build_callbacks
-from cdrseqgen.methods.common.training import run_training_pipeline
 from cdrseqgen.methods.mlm.backbones import resolve
 from cdrseqgen.methods.mlm.losses import MLMLossTrainer, loss_config_from_args
 from cdrseqgen.methods.mlm.recovery import compute_metrics
@@ -44,21 +40,16 @@ from cdrseqgen.methods.common.run_setup import update_latest_link
 logger = logging.getLogger(__name__)
 
 
-def run_training(model_args, data_args, gen_args, training_args):
-    """Build and run MLM training from the four resolved argument groups.
+def prepare_training(model_args, data_args, training_args):
+    """Return (Trainer, tokenizer) ready for the shared training lifecycle.
 
     Steps:
-      * 1. Set the seed before constructing datasets or model weights.
-      * 2. Resolve the backbone and call get_datasets(); update latest only
-           after dataset/split validation succeeds.
-      * 3. Load the model, resolve the loss and build the Trainer/callbacks.
-      * 4. Delegate training, validation and saving to run_training_pipeline().
-      * 4A. Optionally fit the length head on the resulting Trainer model.
-      * 5. Optionally run generated-sequence evaluation with that length head.
+      seed -> backbone -> datasets/tokenizer -> update latest link
+           -> model -> loss -> Trainer/callbacks
 
-    Returns the Trainer after all requested stages. Exceptions propagate from
-    setup/training/length fitting; the shared generation wrapper handles its
-    own failures after training artifacts have been saved.
+    Dataset/split validation precedes the latest-link update. The Trainer keeps
+    the datasets and loss configuration for finish_training(). Training starts
+    when the shared workflow calls train_and_save().
     """
     set_seed(training_args.seed)
 
@@ -107,18 +98,27 @@ def run_training(model_args, data_args, gen_args, training_args):
         callbacks=build_callbacks(model_args, training_args, logger),
     )
 
-    # 4. Run training/evaluation pipeline
-    run_training_pipeline(trainer, training_args, tokenizer=tokenizer)
+    return trainer, tokenizer
 
-    # 4A. MLM extension: fit the length predictor
+
+def finish_training(trainer, tokenizer, data_args, gen_args, training_args):
+    """Run MLM extensions on the selected model after training/evaluation and saving.
+
+    do_train + train_length_predictor -> fit the length head
+    run_generative_eval              -> evaluate generated loops with that head
+
+    These switches are independent. Evaluation-only commands may still generate
+    candidates, using no newly fitted head. Length-fitting errors propagate;
+    common post-training evaluation handles its own generation errors.
+    """
     length_predictor = None
     if training_args.do_train and data_args.train_length_predictor:
         from cdrseqgen.methods.mlm.length import fit_length_predictor
         length_predictor = fit_length_predictor(
             trainer.model,
             tokenizer,
-            train_dataset,
-            eval_dataset,
+            trainer.train_dataset,
+            trainer.eval_dataset,
             output_dir=training_args.output_dir,
             device=training_args.device,
             epochs=data_args.length_predictor_epochs,
@@ -127,15 +127,12 @@ def run_training(model_args, data_args, gen_args, training_args):
             seed=training_args.seed,
         )
 
-    # 5. Run generative evaluation
     if gen_args.run_generative_eval:
         post_training_generation(
-            trainer, tokenizer, eval_dataset, data_args, gen_args, training_args,
-            anchor_trim=loss_config.anchor_trim,
+            trainer, tokenizer, trainer.eval_dataset, data_args, gen_args, training_args,
+            anchor_trim=trainer.loss_config.anchor_trim,
             length_predictor=length_predictor,
         )
-
-    return trainer
 
 
 def get_datasets(

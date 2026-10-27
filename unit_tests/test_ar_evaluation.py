@@ -15,7 +15,7 @@ import torch
 from cdrseqgen.datasets.dataset_ar import CausalInfillingDataset, causal_adapter
 from cdrseqgen.eval.generative import build_masked_judge_prompt
 from cdrseqgen.methods.ar.evaluation import (CausalStrategy,
-                                             run_causal_generative_eval)
+                                             run_generative_eval)
 
 CHAIN = {"fwr1": "AAAA", "cdr1": "CC", "fwr2": "DDDD", "cdr2": "EE",
          "fwr3": "FFFF", "cdr3": "GGGGG", "fwr4": "HHHH"}
@@ -178,7 +178,7 @@ class ValidityAccountingTests(unittest.TestCase):
     def test_payload_matches_the_shared_schema_and_records_validity(self):
         path = _data()
         strategy, subset, _, adapter = _strategy(path)
-        payload = run_causal_generative_eval(
+        payload = run_generative_eval(
             strategy.model, adapter, subset, device="cpu", num_examples=1,
             num_samples=2, temperature=0, max_new_tokens=8, seed=17,
             skip_perplexity=True, judge_name="",
@@ -216,7 +216,7 @@ class ValidityAccountingTests(unittest.TestCase):
         path = _data()
         _, subset, _, adapter = _strategy(path)
         model = NeverStops(adapter.vocab_size, adapter.encode("A")[0])
-        payload = run_causal_generative_eval(
+        payload = run_generative_eval(
             model, adapter, subset, device="cpu", num_examples=1,
             temperature=0, max_new_tokens=3, skip_perplexity=True)
 

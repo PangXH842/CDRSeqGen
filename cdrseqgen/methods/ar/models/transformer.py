@@ -2,7 +2,7 @@
 
   * CausalAntibodyConfig -- PretrainedConfig subclass: the architecture spec HF saves and reloads
   * CausalAntibodyModel  -- architecture + forward; returns a {"loss", "logits"} DICT, matching the
-                            masked model so samplers can share ``_logits_of``
+                            masked model so samplers can share ``logits_of``
   * build_model          -- master function: validates args, returns model object
 
 Deliberately mirrors ``methods/mlm/models/transformer.py`` — same knobs, same dict return, same

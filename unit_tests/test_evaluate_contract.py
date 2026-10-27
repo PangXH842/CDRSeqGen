@@ -8,7 +8,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from benchmark.adapters.cdrseqgen import resolve_decoding as benchmark_decoding
-from cdrseqgen.methods.mlm.eval_cli import prepare_evaluation, resolve_decoding
+from cdrseqgen.methods.mlm.eval_cli import prepare_evaluation
+from cdrseqgen.methods.mlm.evaluation import resolve_decoding
 from cdrseqgen.methods.mlm.gen_cli import prepare_generation
 from evaluate import (
     compatibility_problems,

@@ -1,6 +1,6 @@
 """Seq2seq run configuration: only what differs from the shared bases.
 
-The 28 fields every method declares identically live in
+The fields every method declares identically live in
 :mod:`cdrseqgen.methods.common.arguments`, along with config/CLI parsing and run-directory setup.
 
 **What is deliberately absent**, because it has no encoder-decoder meaning: ``masking_policy`` /
@@ -15,7 +15,7 @@ run and an `ar` run with the same config look comparable while the former carrie
 parameters (800k vs 1.86M at the shipped defaults), and Findings §9 records what one un-audited
 hyperparameter cost across four findings at once.
 """
-import logging
+import math
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
@@ -23,18 +23,22 @@ from transformers import HfArgumentParser, TrainingArguments
 
 from cdrseqgen.datasets.dataset_s2s import S2S_DECODE_STEPS, validate_s2s_decode_steps
 from cdrseqgen.methods.common.arguments import (BaseDataArguments, BaseGenerationArguments,
-                                                BaseModelArguments, initialise_run,
+                                                BaseModelArguments, initialize_run,
                                                 parse_config_and_cli,
-                                                validate_common_args)
-
-logger = logging.getLogger(__name__)
+                                                validate_attention_heads,
+                                                validate_common_args,
+                                                validate_early_stopping)
+from cdrseqgen.methods.s2s.backbones import resolve as resolve_backbone
 
 
 @dataclass
 class ModelArguments(BaseModelArguments):
     method: str = field(default="s2s", metadata={"help": "Selects the encoder-decoder pipeline."})
-    conditioning_probe_steps: int = field(default=0, metadata={"help": "0 disables fixed validation conditioning probes."})
-    diagnostic_stop_epoch: float = field(default=0.0, metadata={"help": "Stop at this epoch without shortening the LR schedule; 0 disables."})
+    conditioning_probe_steps: int = field(
+        default=0, metadata={"help": "0 disables fixed validation conditioning probes."})
+    diagnostic_stop_epoch: float = field(
+        default=0.0,
+        metadata={"help": "Stop at this epoch without shortening the LR schedule; 0 disables."})
     encoder_init: str = field(
         default="pretrained", metadata={"help": "PLM encoder initialization: pretrained or random "
                                                 "(same-architecture control)."})
@@ -45,8 +49,12 @@ class ModelArguments(BaseModelArguments):
         default=None,
         metadata={"help": "Scratch encoder depth; leave unset for PLMs. Set both this and num_decoder_layers "
                           "to compare against an `ar` run at matched parameter count."})
-    hidden_size: int = field(default=128, metadata={"help": "Scratch width, or PLM residue decoder width."})
-    num_layers: int = field(default=4, metadata={"help": "Default scratch stack depth or PLM decoder depth."})
+    hidden_size: int = field(
+        default=BaseModelArguments.hidden_size,
+        metadata={"help": "Scratch width, or PLM residue decoder width."})
+    num_layers: int = field(
+        default=BaseModelArguments.num_layers,
+        metadata={"help": "Default scratch stack depth or PLM decoder depth."})
     num_decoder_layers: Optional[int] = field(
         default=None, metadata={"help": "Decoder depth; None = num_layers."})
 
@@ -78,19 +86,21 @@ def validate_inference_args(args):
     Called by eval_cli.prepare_evaluation and gen_cli.prepare_generation.
     """
     if args.decoding not in (None, 'seq2seq'):
-        raise ValueError('s2s checkpoints require seq2seq decoding')
+        raise ValueError('S2S checkpoints require seq2seq decoding')
     if args.min_length is not None or args.max_length is not None:
-        raise ValueError('s2s chooses length via EOS; bounded/fixed length is unsupported')
+        raise ValueError('S2S chooses length via EOS; bounded/fixed length is unsupported')
     if args.length_temperature != 1.0:
-        raise ValueError('s2s has no separate length-temperature control')
+        raise ValueError('S2S has no separate length-temperature control')
     args.decoding = 'seq2seq'
 
 
 def validate_args(model_args, data_args, gen_args):
-    """Validate seq2seq-only limits in addition to the shared method contract."""
+    """Validate the seq2seq-only limits and backbone on top of the shared method contract."""
     validate_common_args(model_args, data_args, gen_args, expected_method="s2s")
     validate_s2s_decode_steps(gen_args.gen_max_new_tokens)
-    import math
+    resolve_backbone(model_args.model_type)
+    # The residue decoder is built from these settings for every backbone, around a PLM encoder too.
+    validate_attention_heads(model_args, even_head_width=True)
     if model_args.conditioning_probe_steps < 0 or not math.isfinite(model_args.diagnostic_stop_epoch) or model_args.diagnostic_stop_epoch < 0:
         raise ValueError("Diagnostic probe interval and stop epoch must be nonnegative and finite")
     if model_args.conditioning_probe_steps and data_args.eval_split != "validation":
@@ -114,6 +124,7 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
     model_args, data_args, gen_args, training_args = parse_config_and_cli(parser)
 
     validate_args(model_args, data_args, gen_args)
+    validate_early_stopping(model_args, training_args)
 
-    initialise_run(model_args, data_args, gen_args, training_args, marker="s2s")
+    initialize_run(model_args, data_args, gen_args, training_args, marker="s2s")
     return model_args, data_args, gen_args, training_args

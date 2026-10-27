@@ -29,24 +29,18 @@ import torch
 
 from cdrseqgen.artifacts import read_run_config
 from cdrseqgen.eval import ANCHOR_TRIM
-from cdrseqgen.eval.generative import (  # noqa: F401 (compatibility re-exports)
+from cdrseqgen.eval.generative import (
     SUMMARY_KEYS,
-    Draw,
     aggregate,
-    bucket_of,
-    build_judge,
-    format_report,
     log_report,
     run_eval_loop,
-    score_with_judge,
     select_indices,
     write_confidence_figure,
     write_payload,
 )
-from cdrseqgen.eval.metrics import (
-    LENGTH_BUCKETS,  # noqa: F401 (compatibility re-export)
-    blosum_provenance,
-)
+from cdrseqgen.eval.metrics import blosum_provenance
+from cdrseqgen.methods.common.arguments import validate_anchor_trim
+from cdrseqgen.methods.mlm.arguments import validate_inference_args
 from cdrseqgen.methods.mlm.length import (
     FixedNativeStrategy,
     LengthPredictor,
@@ -78,7 +72,7 @@ def resolve_decoding(requested, model_dir=None, run_config=None):
         choice is used automatically only with mixed training; this preserves
         the safeguard against legacy full-span iterative defaults. An explicit
         iterative request still overrides it.
-      * The caller validates decoder names; this function does not reject them.
+      * Decoder names are validated by arguments.validate_inference_args(), not here.
       * Prints the selection and returns the decoder name without generating
         candidates.
     """
@@ -109,16 +103,13 @@ def prepare_evaluation(args, config):
       length_mode -> fixed_native
       decoding    -> independent
 
-    Calls length.resolve_generation_length_policy() to check the length request,
-    then resolve_decoding() to apply the explicit/saved/fallback decoder choice.
-    Rejects max_new_tokens and causal decoding, which do not apply to MLM.
+    Calls arguments.validate_inference_args() to reject AR-only options and non-MLM decoders, then
+    length.resolve_generation_length_policy() to check the length request, then
+    resolve_decoding() to apply the explicit/saved/fallback decoder choice.
     Returns None; subsequent stages read the updated args.
     """
     args.length_mode = args.length_mode or 'fixed_native'
-    if args.max_new_tokens is not None:
-        raise ValueError('--max_new_tokens applies to autoregressive decoding, not masked infilling')
-    if args.decoding == 'causal':
-        raise ValueError('Masked infilling requires independent or iterative decoding')
+    validate_inference_args(args)
     resolve_generation_length_policy(args.length_mode, min_length=args.min_length, max_length=args.max_length)
     args.decoding = resolve_decoding(args.decoding, run_config=config)
 
@@ -149,7 +140,7 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
                         length_mode="fixed_native", length_predictor=None,
                         min_length=None, max_length=None,
                         length_temperature=1.0,
-                        num_examples=200, stratify=False, seed=42,
+                        num_examples=150, stratify=False, seed=42,
                         skip_perplexity=False,
                         judge_model=None, judge_tokenizer=None,
                         judge_dataset=None, judge_name=None,
@@ -192,8 +183,7 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
         restored on return.
     """
     model.eval()
-    if isinstance(anchor_trim, bool) or not isinstance(anchor_trim, int) or anchor_trim < 0:
-        raise ValueError("anchor_trim must be a non-negative integer")
+    validate_anchor_trim(anchor_trim)
 
     torch.manual_seed(seed)
     generator = torch.Generator(device=device)
@@ -204,6 +194,12 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
     rng = random.Random(seed)
     selected = select_indices(lengths, num_examples, stratify, rng)
 
+    shared = dict(
+        model=model, tokenizer=tokenizer, device=device, generator=generator,
+        eval_dataset=eval_dataset, judge_dataset=judge_dataset, judge_tokenizer=judge_tokenizer,
+        decoding=decoding, num_samples=num_samples,
+        temperature=temperature, top_k=top_k, top_p=top_p,
+    )
     length_policy = resolve_generation_length_policy(
         length_mode, min_length=min_length, max_length=max_length,
     )
@@ -211,20 +207,11 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
         if length_predictor is None:
             raise FileNotFoundError("variable-length evaluation requires a length predictor")
         strategy = VariableLengthStrategy(
-            model=model, tokenizer=tokenizer, device=device, generator=generator,
-            eval_dataset=eval_dataset, judge_dataset=judge_dataset,
-            judge_tokenizer=judge_tokenizer, length_predictor=length_predictor,
-            length_policy=length_policy, length_temperature=length_temperature,
-            decoding=decoding, num_samples=num_samples, temperature=temperature,
-            top_k=top_k, top_p=top_p,
+            length_predictor=length_predictor, length_policy=length_policy,
+            length_temperature=length_temperature, **shared,
         )
     else:
-        strategy = FixedNativeStrategy(
-            model=model, tokenizer=tokenizer, device=device, generator=generator,
-            eval_dataset=eval_dataset, judge_dataset=judge_dataset,
-            judge_tokenizer=judge_tokenizer, decoding=decoding, num_samples=num_samples,
-            temperature=temperature, top_k=top_k, top_p=top_p,
-        )
+        strategy = FixedNativeStrategy(**shared)
 
     records = run_eval_loop(
         strategy, selected,

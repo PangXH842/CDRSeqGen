@@ -135,7 +135,7 @@ class LossContractTests(unittest.TestCase):
         # Real Trainer + SGD: compare the actual parameter update for an identical effective
         # batch. Unequal lengths also catch averaging microbatch means instead of token losses.
         from transformers import TrainingArguments
-        from cdrseqgen.methods.s2s.training import build_seq2seq_trainer
+        from cdrseqgen.methods.s2s.training import build_trainer
 
         original = _model()
         items = [
@@ -154,7 +154,7 @@ class LossContractTests(unittest.TestCase):
                     gradient_accumulation_steps=accumulation,
                     learning_rate=0.01, optim="sgd", lr_scheduler_type="constant",
                     max_grad_norm=0, report_to="none", save_strategy="no", disable_tqdm=True)
-                trainer = build_seq2seq_trainer(model, args, items, items, s2s_adapter())
+                trainer = build_trainer(model, args, items, items, s2s_adapter())
                 trainer.train()
             updates.append(torch.cat([
                 (p.detach() - q.detach()).reshape(-1)
@@ -206,7 +206,7 @@ class BuildTests(unittest.TestCase):
 
 class PerplexityTests(unittest.TestCase):
     def test_encoder_reuse_preserves_scores_and_switches_frameworks(self):
-        from cdrseqgen.methods.s2s.evaluation import s2s_perplexities
+        from cdrseqgen.methods.s2s.evaluation import perplexities
 
         model = _model()
         tok = s2s_adapter()
@@ -221,16 +221,16 @@ class PerplexityTests(unittest.TestCase):
                             labels=torch.tensor([labels]))
                 expected.append(out["loss"].exp().item())
         with patch.object(model, "encode", wraps=model.encode) as encode:
-            actual = s2s_perplexities(model, tok, torch.device("cpu"), spans)
+            actual = perplexities(model, tok, torch.device("cpu"), spans)
         self.assertEqual(encode.call_count, 3)
         torch.testing.assert_close(torch.tensor(actual), torch.tensor(expected))
 
     def test_empty_candidate_list_never_encodes(self):
-        from cdrseqgen.methods.s2s.evaluation import s2s_perplexities
+        from cdrseqgen.methods.s2s.evaluation import perplexities
 
         model = _model()
         with patch.object(model, "encode", wraps=model.encode) as encode:
-            self.assertEqual(s2s_perplexities(model, s2s_adapter(), "cpu", []), [])
+            self.assertEqual(perplexities(model, s2s_adapter(), "cpu", []), [])
         encode.assert_not_called()
 
 

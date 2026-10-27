@@ -290,7 +290,9 @@ CUDA_VISIBLE_DEVICES=0 python train.py configs/s2s/h3_s2s_esm2.json --freeze_enc
 ```
 
 `hidden_size`, `num_attention_heads`, `intermediate_size`, and `num_decoder_layers` configure
-the new decoder. Leave `num_encoder_layers` unset: encoder dimensions come from the PLM checkpoint.
+the new decoder; `hidden_size / num_attention_heads` must be a whole, even number (rotary positions),
+which `train.py` checks before it creates the run directory.
+Leave `num_encoder_layers` unset: encoder dimensions come from the PLM checkpoint.
 Frozen encoders keep dropout off during training. Random initialization retains the same encoder
 architecture, tokenizer, and parameter count, so it can help separate pretraining from capacity.
 Encoder controls and their differences are included in the shared runner's plan/resume identity.
@@ -582,7 +584,7 @@ Give it a framework with its CDR loop cut out (`pt1` / gap / `pt2`) and it fills
 library of candidate loops (default **iterative**) and prints them, each with recovery-vs-native (when
 you provide the native) and pseudo-perplexity, plus per-framework diversity/novelty. It also reports
 which CDR the checkpoint was trained for (read from `run_config.json`). Samples + metrics are written to
-`<model_path>/generation_results.json`.
+`<model_dir>/generation_results.json`.
 
 > **This is a showcase, not an evaluation.** `showcase/*.json` holds only a handful of curated
 > frameworks (mostly without natives). For numbers you can report, use **Step 5**, which draws real
@@ -618,22 +620,23 @@ which CDR the checkpoint was trained for (read from `run_config.json`). Samples 
 ```bash
 # design coherent loops for a batch of curated frameworks (default: iterative sampling)
 # results/runs/latest is the newest batch — name the config under it (here: h3_OAS_scratch)
-python generate.py --model_path ./results/runs/latest/h3_OAS_scratch --test_file showcase/h3.json --use_native_length
+# --model_dir is the checkpoint folder in generate.py, evaluate.py and fit_mlm_length.py; the first two also accept --model_path
+python generate.py --model_dir ./results/runs/latest/h3_OAS_scratch --test_file showcase/h3.json --use_native_length
 
 # more candidates + nucleus sampling
-python generate.py --model_path ./results/runs/latest/h3_OAS_scratch --test_file showcase/h3.json \
+python generate.py --model_dir ./results/runs/latest/h3_OAS_scratch --test_file showcase/h3.json \
     --use_native_length --decoding iterative --num_samples 50 --top_p 0.9
 
 # a single framework straight from the CLI (equal bounds mean an exact length)
-python generate.py --model_path ./results/runs/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... \
+python generate.py --model_dir ./results/runs/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... \
     --min_length 17 --max_length 17
 
 # constrain each sampled length to an inclusive range (one-sided bounds also work)
-python generate.py --model_path ./results/runs/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... \
+python generate.py --model_dir ./results/runs/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... \
     --min_length 11 --max_length 15 --num_samples 50
 
 # infer length from the framework: omit target_length/min_length/max_length
-python generate.py --model_path ./results/runs/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... \
+python generate.py --model_dir ./results/runs/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... \
     --num_samples 50
 ```
 
@@ -734,7 +737,8 @@ alignment-aware edit similarity, diversity, validity, runtime, and judge perplex
 > scored by one **independent** reference LM (IgBert is a good pick — antibody-specific, and independent
 > of both scratch and ESM-2). Diversity/entropy carry no such caveat; they're purely sequence-based.
 
-`--num_examples K` subsamples the split (`-1` = all; default 200); `--stratify` balances the draw across
+`--num_examples K` subsamples the split (`-1` = all; default 150, the same budget as the training-time
+`gen_num_examples`); `--stratify` balances the draw across
 short/medium/long H3 buckets so rare long loops aren't washed out. Manual results land in a
 parameter-addressed file under `<model_dir>/evaluations/`, so a temperature or seed sweep cannot
 silently replace the training-time result. Repeating the exact same output path is refused unless

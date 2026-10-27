@@ -115,7 +115,8 @@ The [workflow manual](docs/WORKFLOW.md) covers the individual commands and outpu
 For MLM, the current paths are:
 
 ```text
-train.py    → train_cli.main() → training.run_training()
+train.py    → train_cli.main() → common.training.run_training_pipeline()
+                             → training.prepare_training() / finish_training()
 generate.py → gen_cli.main()   → common.generation.run_generation_pipeline()
                              → generation.generate_case()
 evaluate.py → eval_cli.main()  → common.evaluation.run_evaluation_pipeline()
@@ -127,8 +128,9 @@ decoder request takes priority over a compatible saved setting; the fallback is
 **independent**. Recorded iterative decoding is used automatically only with mixed
 masking. Length policies and residue decoding are separate choices.
 
-Root commands configure console logging. Training additionally attaches `train.log`,
-which includes post-training evaluation logs; standalone evaluation does not attach
+Method `train_cli`, `eval_cli` and `gen_cli` entrypoints configure console logging.
+Training additionally attaches `train.log`, which includes
+post-training evaluation logs; standalone evaluation does not attach
 a file handler. Shared scoring helpers log reports and output messages, while
 decoder-selection `print()` messages bypass logging handlers.
 
@@ -281,6 +283,7 @@ and the detailed AI-assisted changelog in [CHANGELOG.md](docs/CHANGELOG.md).
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-10-27** -- Project-wide Claude fix
 - **2026-10-26** -- Merged MLM fixed/variable length generation mechanics into `methods/mlm/length.py`
 - **2026-10-23** -- [RECLAIM] `methods/mlm/`: `eval_cli`, `evaluation` (partial) -- updated generative decoder defaults
 - **2026-10-23** -- **Abstract submission to iAIM 2026**

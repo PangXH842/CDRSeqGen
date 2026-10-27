@@ -43,6 +43,7 @@ UNKNOWN_DATASET_TAG = "DS"
 
 RESULTS_ROOT_ENV = "CDRSEQGEN_RESULTS_ROOT"
 RUN_SUFFIX_ENV = "CDRSEQGEN_RUN_SUFFIX"
+SKIP_LATEST_ENV = "CDRSEQGEN_SKIP_LATEST"
 DEFAULT_RESULTS_ROOT = "./results/runs"
 LATEST_LINK = "latest"
 
@@ -90,8 +91,8 @@ def update_latest_link(run_dir: str) -> None:
     Refuses to touch results/runs/latest if it is a real directory rather than a symlink — that would
     mean deleting real results, which is never worth a convenience shortcut.
     """
-    if os.environ.get("CDRSEQGEN_SKIP_LATEST", "").strip().lower() in {"1", "true", "yes"}:
-        logger.info("Skipping results/runs/latest update (CDRSEQGEN_SKIP_LATEST is set).")
+    if os.environ.get(SKIP_LATEST_ENV, "").strip().lower() in {"1", "true", "yes"}:
+        logger.info(f"Skipping results/runs/latest update ({SKIP_LATEST_ENV} is set).")
         return
     batch_dir = os.path.dirname(os.path.abspath(run_dir))
     # Never self-link results/runs/latest -> results (would happen only if a run dir sat directly in

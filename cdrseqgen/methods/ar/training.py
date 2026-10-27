@@ -1,8 +1,8 @@
 """Causal training pipeline: dataset -> Trainer -> metrics.
 
-  * get_datasets            -- tokenizer + CausalInfillingDataset + the train/eval split
-  * causal_compute_metrics  -- teacher-forced recovery over the answer, split core/anchor
-  * build_causal_trainer    -- a plain HF Trainer; the model returns its own loss
+  * get_datasets    -- tokenizer + CausalInfillingDataset + the train/eval split
+  * compute_metrics -- teacher-forced recovery over the answer, split core/anchor
+  * build_trainer   -- a plain HF Trainer; the model returns its own loss
 
 Mirrors ``methods/mlm/training.py`` so the two are comparable, with three differences that follow
 from the objective rather than from taste:
@@ -23,6 +23,7 @@ free-running generation. Findings' "Teacher-forced accuracy is not generation ac
 too and the gap will be at least as large, so these numbers select checkpoints — they do not report
 design quality.
 """
+import functools
 import logging
 
 import numpy as np
@@ -47,12 +48,12 @@ def get_datasets(model_args, data_args, training_args, backbone, *, checkpoint_p
         target_region=data_args.target_region,
         include_partner_chain=data_args.include_partner_chain,
         include_antigen=data_args.include_antigen,
-        context_dropout=getattr(data_args, "context_dropout", 0.0),
+        context_dropout=data_args.context_dropout,
         context_dropout_seed=training_args.seed,
     )
     train_idx, eval_idx, eval_label = select_split_indices(
-        full.data, getattr(data_args, "eval_split", ""), data_path=data_args.data_path,
-        seed=training_args.seed, test_size=getattr(data_args, "test_size", 0.1))
+        full.data, data_args.eval_split, data_path=data_args.data_path,
+        seed=training_args.seed, test_size=data_args.test_size)
 
     # Share records while keeping training context dropout out of validation.
     train_ds = torch.utils.data.Subset(full, train_idx)
@@ -62,7 +63,7 @@ def get_datasets(model_args, data_args, training_args, backbone, *, checkpoint_p
     return train_ds, eval_ds, tokenizer
 
 
-def causal_compute_metrics(eval_pred, *, trim=ANCHOR_TRIM):
+def compute_metrics(eval_pred, *, trim=ANCHOR_TRIM):
     """Teacher-forced recovery over the answer: whole-loop, plus anchor-excluded core and anchor.
 
     Predictions and labels arrive UNSHIFTED, exactly as the model saw them, so the shift is redone
@@ -109,16 +110,15 @@ def causal_compute_metrics(eval_pred, *, trim=ANCHOR_TRIM):
     }
 
 
-def build_causal_trainer(model, training_args, train_ds, eval_ds, tokenizer, callbacks=None,
-                         trim=ANCHOR_TRIM):
+def build_trainer(model, training_args, train_ds, eval_ds, tokenizer, callbacks=None,
+                  trim=ANCHOR_TRIM):
     """A plain HF Trainer: unlike the masked side there is no external loss to bridge."""
-    import functools
     return Trainer(
         model=model,
         args=training_args,
         train_dataset=train_ds,
         eval_dataset=eval_ds,
         data_collator=functools.partial(causal_collate_fn, pad_token_id=tokenizer.pad_id),
-        compute_metrics=functools.partial(causal_compute_metrics, trim=trim),
+        compute_metrics=functools.partial(compute_metrics, trim=trim),
         callbacks=callbacks or [],
     )

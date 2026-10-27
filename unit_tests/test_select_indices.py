@@ -1,7 +1,7 @@
 import random
 import unittest
 
-from cdrseqgen.methods.mlm.evaluation import bucket_of, select_indices
+from cdrseqgen.eval.generative import bucket_of, select_indices
 
 
 class SelectIndicesTests(unittest.TestCase):

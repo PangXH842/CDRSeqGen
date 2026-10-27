@@ -11,7 +11,7 @@ Argument groups:
 
 Workflow:
   config JSON + optional CLI overrides, or CLI arguments alone
-    -> parse -> validate/normalize -> initialise run -> return four groups
+    -> parse -> validate/normalize -> initialize run -> return four groups
 
 Notes:
   * Base classes in common.arguments supply shared fields; the classes below
@@ -23,18 +23,22 @@ Notes:
     self-perplexity uses a different measuring stick for each generator.
 """
 from dataclasses import dataclass, field
-from typing import Tuple
+from typing import Optional, Tuple
 
 from transformers import HfArgumentParser, TrainingArguments
 
 from cdrseqgen.datasets.dataset_mlm import normalize_masking_policy
+from cdrseqgen.methods.mlm.backbones import resolve as resolve_backbone
 from cdrseqgen.methods.mlm.length import resolve_generation_length_policy
 from cdrseqgen.methods.common.arguments import (BaseDataArguments,
                                                 BaseGenerationArguments,
                                                 BaseModelArguments,
-                                                initialise_run, parse_config_and_cli,
-                                                validate_common_args)
+                                                initialize_run, parse_config_and_cli,
+                                                validate_attention_heads,
+                                                validate_common_args,
+                                                validate_early_stopping)
 from cdrseqgen.methods.mlm.losses import loss_config_from_args
+from cdrseqgen.methods.registry import resolve as resolve_method
 
 
 @dataclass
@@ -51,6 +55,7 @@ class ModelArguments(BaseModelArguments):
     Notes:
       * Plain cross_entropy ignores the core/anchor weights.
     """
+    method: str = field(default="mlm", metadata={"help": "Selects the masked-LM pipeline."})
     loss_type: str = field(
         default="cross_entropy",
         metadata={"help": "MLM objective: cross_entropy or weighted_cross_entropy."}
@@ -80,7 +85,7 @@ class DataArguments(BaseDataArguments):
     Notes:
       * mixed_full_span_probability selects the full-mask branch in mixed mode.
         Trainer validation always uses full_span masking.
-      * Length-head fitting belongs to train_cli step 4A, after sequence
+      * Length-head fitting belongs to training.finish_training(), after sequence
         training; it runs when do_train and train_length_predictor are both true.
     """
     masking_policy: str = field(
@@ -125,7 +130,7 @@ class GenerationArguments(BaseGenerationArguments):
 
     Notes:
       * bounded and inferred use the trained length predictor.
-      * These settings control train_cli step 5 (generate and score candidates).
+      * These settings control training.finish_training() (generate and score candidates).
         Trainer reconstruction validation is controlled by TrainingArguments.
     """
     gen_decoding: str = field(
@@ -138,10 +143,10 @@ class GenerationArguments(BaseGenerationArguments):
         default="fixed_native",
         metadata={"help": "Length policy for post-training eval: fixed_native, bounded, or inferred."}
     )
-    gen_min_length: int = field(
+    gen_min_length: Optional[int] = field(
         default=None, metadata={"help": "Optional lower length bound for bounded generation."}
     )
-    gen_max_length: int = field(
+    gen_max_length: Optional[int] = field(
         default=None, metadata={"help": "Optional upper length bound for bounded generation."}
     )
     gen_length_temperature: float = field(
@@ -149,8 +154,24 @@ class GenerationArguments(BaseGenerationArguments):
     )
 
 
+def validate_inference_args(args):
+    """Validate the saved-checkpoint decoder options of standalone evaluate.py / generate.py.
+
+    Same name and role as ``ar.arguments`` / ``s2s.arguments.validate_inference_args``; called by
+    ``evaluation.prepare_evaluation`` and ``generation.prepare_generation`` before any model loads.
+    Unlike the AR/S2S versions it does not set ``args.decoding``: None means "choose one" and is
+    left to ``evaluation.resolve_decoding``. The valid decoder names come from the method registry;
+    without this check any other string (a typo, or the AR/S2S names the root commands also accept)
+    would run the iterative decoder under the wrong label.
+    """
+    if getattr(args, 'max_new_tokens', None) is not None:
+        raise ValueError('--max_new_tokens applies to autoregressive decoding, not masked infilling')
+    if args.decoding is not None and args.decoding not in resolve_method('mlm').decoders:
+        raise ValueError('Masked infilling requires independent or iterative decoding')
+
+
 def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, TrainingArguments]:
-    """Parse, validate and initialise an MLM run; return the four argument groups.
+    """Parse, validate and initialize an MLM run; return the four argument groups.
 
     Example: a JSON config plus --target_region l3
       JSON target_region: h3
@@ -163,14 +184,15 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
     Notes:
       * Creates output_dir, attaches train.log and writes run_config.json.
         output_dir and run_name are set from the resolved arguments.
-      * mlm.train_cli updates latest after the datasets load successfully.
+      * mlm.training.prepare_training() updates latest after the datasets load successfully.
     """
     # 1.2.1 Parse the four groups: config + overrides, or CLI only.
     parser = HfArgumentParser((ModelArguments, DataArguments, GenerationArguments, TrainingArguments))
     model_args, data_args, gen_args, training_args = parse_config_and_cli(parser)
 
-    # 1.2.2 Validate the shared method/context/sampling contract.
+    # 1.2.2 Validate the shared method/context/sampling contract and the early-stopping switch.
     validate_common_args(model_args, data_args, gen_args, expected_method="mlm")
+    validate_early_stopping(model_args, training_args)
 
     # 1.2.3 Normalize MLM masking and validate/normalize the loss settings.
     data_args.masking_policy = normalize_masking_policy(data_args.masking_policy)
@@ -181,7 +203,10 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
     # These columns need not appear in the model's forward signature.
     training_args.remove_unused_columns = False
 
-    # 1.2.5 Check MLM masking, length-head fitting and generation-length settings.
+    # 1.2.5 Check MLM backbone, masking, length-head fitting, decoder and generation-length settings.
+    resolve_backbone(model_args.model_type)
+    if model_args.model_type == "scratch":  # a pretrained backbone brings its own width and heads
+        validate_attention_heads(model_args)
     if not 0.0 <= data_args.mixed_full_span_probability <= 1.0:
         raise ValueError("mixed_full_span_probability must be between 0 and 1")
     if (
@@ -190,6 +215,10 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
         or data_args.length_predictor_batch_size <= 0
     ):
         raise ValueError("length predictor epochs, learning rate, and batch size must be positive")
+    gen_args.gen_decoding = gen_args.gen_decoding.strip().lower()
+    decoders = resolve_method("mlm").decoders
+    if gen_args.gen_decoding not in decoders:
+        raise ValueError(f"gen_decoding must be one of {decoders}, got {gen_args.gen_decoding!r}")
     gen_args.gen_length_mode = gen_args.gen_length_mode.strip().lower()
     resolve_generation_length_policy(
         gen_args.gen_length_mode,
@@ -200,7 +229,7 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
         raise ValueError("gen_length_temperature must be non-negative")
 
     # 1.2.6 Create the run directory, file log and resolved configuration.
-    initialise_run(model_args, data_args, gen_args, training_args)
+    initialize_run(model_args, data_args, gen_args, training_args)
 
     # 1.2.7 Hand the configured groups back to train_cli.
     return model_args, data_args, gen_args, training_args

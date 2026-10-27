@@ -16,10 +16,12 @@ Candidate flow:
 
 length.py owns policies, prompt construction, length selection and span sampling.
 common.generation loads cases/model/tokenizer, seeds sampling and writes the outer
-payload. Root generate.py configures logging; this module installs no handlers.
+payload. gen_cli.main configures logging; this module installs no handlers.
 """
 
+from cdrseqgen.methods.mlm.arguments import validate_inference_args
 from cdrseqgen.methods.mlm.case_generation import generate_case_record
+from cdrseqgen.methods.mlm.evaluation import resolve_decoding
 from cdrseqgen.methods.mlm.length import LengthPredictor, resolve_case_length
 
 
@@ -27,9 +29,9 @@ def prepare_generation(args, cases, config):
     """Resolve MLM command settings before the shared pipeline loads model weights.
 
     Steps:
-      1. Reject max_new_tokens, which does not apply to masked infilling.
-      2. Set args.decoding from an explicit request or compatible saved setting;
-         otherwise use independent. Reject causal decoding.
+      1. validate_inference_args(): reject max_new_tokens and decoder names MLM lacks.
+      2. resolve_decoding(): set args.decoding from an explicit request or a
+         compatible saved setting; otherwise independent.
       3. resolve_case_length() -> one LengthPolicy per case, in input order.
 
     Example: cases request exact length 8 and inferred length
@@ -40,16 +42,8 @@ def prepare_generation(args, cases, config):
     This function updates args.decoding and checks length settings; it does not
     load a model/head or generate candidates.
     """
-    if getattr(args, 'max_new_tokens', None) is not None:
-        raise ValueError('--max_new_tokens applies to autoregressive decoding, not masked infilling')
-    if args.decoding is None:
-        args.decoding = 'independent'
-        recorded = config.get('gen_decoding')
-        policy = (config.get('masking_policy') or 'full_span').strip().lower()
-        if policy == 'mixed' and recorded in {'independent', 'iterative'}:
-            args.decoding = recorded
-    if args.decoding == 'causal':
-        raise ValueError('Masked infilling requires independent or iterative decoding')
+    validate_inference_args(args)
+    args.decoding = resolve_decoding(args.decoding, run_config=config)
     return [resolve_case_length(case, args)[1] for case in cases]
 
 
@@ -58,13 +52,13 @@ def generation_state(args, policies, device):
 
     Policies                    Returned state
       fixed only                None
-      any bounded or inferred   LengthPredictor.load(args.model_path, device=device)
+      any bounded or inferred   LengthPredictor.load(args.model_dir, device=device)
 
     The shared pipeline calls this after loading the sequence model and seeding
     sampling. The resulting state is passed to every generate_case() call.
     """
     return (
-        LengthPredictor.load(args.model_path, device=device)
+        LengthPredictor.load(args.model_dir, device=device)
         if any(p.requires_predictor for p in policies) else None
     )
 

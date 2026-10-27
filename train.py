@@ -11,9 +11,13 @@ so every pre-existing config keeps working untouched.
 **This file only routes.** Each method owns its own parser and its own ``train_cli.main()``, in
 ``cdrseqgen/methods/<method>/train_cli.py``. That is the point: a single shared parser would have to
 accept ``masking_policy`` and ``gen_length_mode`` from a causal run and ``gen_max_new_tokens`` from a
-masked one, and silently ignore whichever half did not apply. The 28 arguments the methods DO share
+masked one, and silently ignore whichever half did not apply. The arguments the methods DO share
 are inherited from ``methods/common/arguments.py``, so they cannot drift — they already had, with
 the same field called ``gen_judge_path`` on one side and ``gen_judge_weights`` on the other.
+
+``evaluate.py`` and ``generate.py`` are the opposite case: every method accepts the same standalone
+flags, so those are defined once (``common/arguments.add_sampling_arguments``) and each method's
+``prepare_evaluation`` / ``prepare_generation`` rejects what it cannot honour.
 
 Trailing flags override the JSON rather than replacing it. Batch rounds go through scripts/run.sh,
 which exports CDRSEQGEN_RESULTS_ROOT so every run of the round shares one batch folder.

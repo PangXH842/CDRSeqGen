@@ -2,7 +2,7 @@
 
   * CustomAntibodyConfig    -- PretrainedConfig subclass: the architecture spec HF saves and reloads
   * CustomAntibodyModel     -- architecture + forward; returns a {"loss", "logits"} DICT, which is
-                               why sampling.py's _logits_of accepts a dict as well as an object
+                               why the shared ``logits_of`` accepts a dict as well as an object
   * build_model             -- master function: validates args, returns model object
 
 Note:

@@ -5,7 +5,8 @@ Classes:
   * SaveTokenizerCallback -- save the tokenizer with each training checkpoint
 
 Functions:
-  * run_training_pipeline -- train/evaluate and save the standard run artifacts
+  * run_training_pipeline -- prepare resources, run the lifecycle, then method extensions
+  * train_and_save -- train/evaluate and save the standard run artifacts
 
 MLM extends ExternalLossTrainer; AR/S2S currently use their models' own losses
 through the ordinary Hugging Face Trainer.
@@ -71,7 +72,24 @@ class SaveTokenizerCallback(TrainerCallback):
         return control
 
 
-def run_training_pipeline(trainer, training_args, *, tokenizer=None):
+def run_training_pipeline(model_args, data_args, gen_args, training_args, *,
+                          prepare_training, finish_training):
+    """Run method preparation, shared training/saving and method extensions.
+
+    prepare_training -> (Trainer, tokenizer)
+      -> train_and_save -> finish_training -> return Trainer
+
+    Extensions receive the Trainer after checkpoint selection and saving. They
+    also run for evaluation-only commands and decide which optional stages apply.
+    Exceptions propagate; a failed stage prevents subsequent stages from running.
+    """
+    trainer, tokenizer = prepare_training(model_args, data_args, training_args)
+    train_and_save(trainer, training_args, tokenizer=tokenizer)
+    finish_training(trainer, tokenizer, data_args, gen_args, training_args)
+    return trainer
+
+
+def train_and_save(trainer, training_args, *, tokenizer=None):
     """Train/evaluate and persist the same metric artifacts for every method.
 
     A method owns its model, collator, and metrics; it should not own whether ``train_results.json``

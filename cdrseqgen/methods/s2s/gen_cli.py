@@ -7,6 +7,7 @@ The shared lifecycle calls prepare_generation(), generation_state() and
 generate_case() below. These supply S2S validation, EOS settings and case production.
 """
 from cdrseqgen.datasets.dataset_s2s import S2S_DECODE_STEPS, validate_s2s_decode_steps
+from cdrseqgen.methods.common.logging import configure_logging
 from cdrseqgen.methods.s2s.arguments import validate_inference_args as _validate
 
 
@@ -16,7 +17,7 @@ def prepare_generation(args, cases, config):
         for key in ('min_length', 'max_length', 'target_length', 'use_native_length'):
             value = case.get(key, getattr(args, key, None))
             if value is not None and value is not False:
-                raise ValueError(f's2s chooses length via EOS; {key} is unsupported')
+                raise ValueError(f'S2S chooses length via EOS; {key} is unsupported')
     args.max_new_tokens = getattr(args, 'max_new_tokens', None)
     if args.max_new_tokens is None:
         args.max_new_tokens = config.get('gen_max_new_tokens', S2S_DECODE_STEPS)
@@ -35,6 +36,7 @@ def generate_case(model, tokenizer, device, args, generator, case, state, print_
 
 def main(args, config):
     """Run the generation command through the shared lifecycle and S2S producers."""
+    configure_logging()
     from cdrseqgen.methods.common.generation import run_generation_pipeline
 
     return run_generation_pipeline(

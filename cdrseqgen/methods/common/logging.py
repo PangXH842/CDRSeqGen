@@ -4,8 +4,9 @@ Functions:
   * configure_logging -- configure stdout and quiet noisy dependency loggers
   * attach_file_logging -- append to a run's train.log and log uncaught exceptions
 
-Call configure_logging() from a command, then attach_file_logging() after run
-setup creates its output directory. Importing this module configures nothing.
+Call configure_logging() at the start of a method CLI's main(), then attach
+file logging after training run setup creates its output directory. Importing
+this module configures nothing.
 Run directories and provenance live in run_setup.py; Trainer metric logging
 lives in callbacks.py.
 """

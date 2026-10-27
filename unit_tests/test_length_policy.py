@@ -19,6 +19,19 @@ class LengthPolicyTest(unittest.TestCase):
         self.assertEqual(decision.length, 9)
         self.assertEqual(decision.source, "native_mask_count")
 
+    def test_native_mask_length_is_a_fixed_policy_with_the_recorded_payload(self):
+        # This dict is written into every fixed-native evaluation record.
+        policy = native_mask_length(9)
+        self.assertEqual(policy.mode, "fixed")
+        self.assertFalse(policy.requires_predictor)
+        self.assertEqual(policy.as_dict(), {
+            "mode": "fixed", "source": "native_mask_count",
+            "minimum": 9, "maximum": 9, "selected_length": 9,
+        })
+        for bad in (0, -3, True, 2.5):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, "length must be"):
+                native_mask_length(bad)
+
     def test_native_truth_takes_precedence_when_request_agrees(self):
         policy = resolve_length_policy(
             native_length=11, use_native_length=True, min_length=11, max_length=11

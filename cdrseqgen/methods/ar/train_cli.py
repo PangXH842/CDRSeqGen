@@ -9,11 +9,11 @@ from transformers import set_seed
 
 from cdrseqgen.methods.ar.arguments import setup_args
 from cdrseqgen.methods.ar.backbones import resolve, record_training_layout
-from cdrseqgen.methods.ar.training import build_causal_trainer, get_datasets
+from cdrseqgen.methods.ar.training import build_trainer, get_datasets
 from cdrseqgen.methods.common import build_callbacks
 from cdrseqgen.methods.common.logging import configure_logging
 from cdrseqgen.methods.common.run_setup import update_latest_link
-from cdrseqgen.methods.common.training import run_training_pipeline
+from cdrseqgen.methods.common.training import train_and_save
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +47,11 @@ def main():
         max_len=data_args.max_len,
     )
     record_training_layout(model, tokenizer, training_args.output_dir)
-    trainer = build_causal_trainer(model, training_args, train_dataset, eval_dataset, tokenizer,
-                                   callbacks=build_callbacks(model_args, training_args, logger),
-                                   trim=model_args.anchor_trim)
+    trainer = build_trainer(model, training_args, train_dataset, eval_dataset, tokenizer,
+                            callbacks=build_callbacks(model_args, training_args, logger),
+                            trim=model_args.anchor_trim)
 
-    run_training_pipeline(trainer, training_args, tokenizer=tokenizer)
+    train_and_save(trainer, training_args, tokenizer=tokenizer)
 
     if gen_args.run_generative_eval:
         post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_args,

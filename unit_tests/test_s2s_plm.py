@@ -12,9 +12,9 @@ from transformers import (BertConfig, BertForMaskedLM, BertTokenizer, EsmConfig,
 from cdrseqgen.datasets.dataset_s2s import (Seq2SeqInfillingDataset, build_encoder_input,
                                        s2s_adapter, s2s_collate_fn)
 from cdrseqgen.methods.s2s.backbones import resolve
-from cdrseqgen.methods.s2s.evaluation import s2s_perplexities
+from cdrseqgen.methods.s2s.evaluation import perplexities
 from cdrseqgen.methods.s2s.sampling import sample_loops
-from cdrseqgen.methods.s2s.training import build_seq2seq_trainer
+from cdrseqgen.methods.s2s.training import build_trainer
 
 RESIDUES = "ACDEFGHIKLMNPQRSTVWY"
 FRAMEWORK = dict(pt1="ACDE", pt2="WY", target="GGG", target_length=3,
@@ -157,7 +157,7 @@ class PLMTests(unittest.TestCase):
                 torch.testing.assert_close(plain["logits"][:, :2], changed["logits"][:, :2])
                 torch.testing.assert_close(plain["loss"], torch.nn.functional.cross_entropy(
                     plain["logits"].reshape(-1, 27), gold.reshape(-1)))
-                actual = s2s_perplexities(model, tok, "cpu", [(ids, [5, 6])])
+                actual = perplexities(model, tok, "cpu", [(ids, [5, 6])])
                 self.assertAlmostEqual(actual[0], plain["loss"].exp().item(), places=4)
 
     def test_save_reload_is_exact_and_uses_only_local_checkpoint_assets(self):
@@ -204,7 +204,7 @@ class PLMTests(unittest.TestCase):
             args = TrainingArguments(output_dir=directory, use_cpu=True, max_steps=1,
                                      learning_rate=0.01, report_to="none", save_strategy="no",
                                      disable_tqdm=True)
-            trainer = build_seq2seq_trainer(model, args, items, items, tok)
+            trainer = build_trainer(model, args, items, items, tok)
             trainer.train()
         self.assertFalse(torch.equal(model.lm_head.weight, decoder_before))
         for key, value in before.items():

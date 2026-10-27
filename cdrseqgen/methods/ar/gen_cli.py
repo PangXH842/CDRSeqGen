@@ -7,6 +7,7 @@ The shared lifecycle calls prepare_generation(), generation_state() and
 generate_case() below. These supply AR validation, EOS settings and case production.
 """
 from cdrseqgen.datasets.dataset_ar import CAUSAL_DECODE_STEPS, validate_causal_decode_steps
+from cdrseqgen.methods.common.logging import configure_logging
 from cdrseqgen.methods.ar.arguments import validate_inference_args as _validate
 
 
@@ -35,6 +36,7 @@ def generate_case(model, tokenizer, device, args, generator, case, state, print_
 
 def main(args, config):
     """Run the generation command through the shared lifecycle and AR producers."""
+    configure_logging()
     from cdrseqgen.methods.common.generation import run_generation_pipeline
 
     return run_generation_pipeline(

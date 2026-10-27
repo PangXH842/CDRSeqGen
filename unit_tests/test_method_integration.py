@@ -20,7 +20,7 @@ from cdrseqgen.methods.common.arguments import (
     parse_config_dict,
     validate_common_args,
 )
-from cdrseqgen.methods.common.training import run_training_pipeline
+from cdrseqgen.methods.common.training import train_and_save
 from cdrseqgen.methods.mlm.arguments import GenerationArguments as MLMGenerationArguments
 from train import resolve_method
 
@@ -220,7 +220,7 @@ class SharedTrainingLifecycleTests(unittest.TestCase):
         tokenizer = Mock()
         args = SimpleNamespace(do_train=True, do_eval=True, output_dir="/tmp/example")
 
-        run_training_pipeline(trainer, args, tokenizer=tokenizer)
+        train_and_save(trainer, args, tokenizer=tokenizer)
 
         trainer.save_model.assert_called_once_with(args.output_dir)
         trainer.save_metrics.assert_any_call("train", {"train_loss": 1.0})

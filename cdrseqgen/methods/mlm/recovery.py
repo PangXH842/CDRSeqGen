@@ -1,7 +1,7 @@
 """MLM reconstruction metrics used during Trainer validation.
 
 Caller:
-  mlm.training.run_training() -> Trainer(compute_metrics=...) -> compute_metrics()
+  mlm.training.prepare_training() -> Trainer(compute_metrics=...) -> compute_metrics()
 
 Functions:
   * compute_metrics -- argmax recovery over whole-loop, core and anchor tokens;

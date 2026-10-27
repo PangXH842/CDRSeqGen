@@ -3,6 +3,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch, sentinel
 
+from cdrseqgen.methods.common import training as shared_training
 from cdrseqgen.methods.mlm import train_cli, training
 
 
@@ -13,12 +14,14 @@ class MLMCommandTests(unittest.TestCase):
         events = Mock()
         with patch.object(train_cli, "configure_logging") as logging, \
                 patch.object(train_cli, "setup_args", return_value=arguments) as parse, \
-                patch.object(train_cli, "run_training") as run:
+                patch.object(train_cli, "run_training_pipeline") as run:
             events.attach_mock(logging, "logging")
             events.attach_mock(parse, "parse")
             events.attach_mock(run, "run")
             self.assertIsNone(train_cli.main())
-            run.assert_called_once_with(*arguments)
+            run.assert_called_once_with(
+                *arguments, prepare_training=training.prepare_training,
+                finish_training=training.finish_training)
         self.assertEqual([call[0] for call in events.mock_calls], ["logging", "parse", "run"])
 
 
@@ -52,8 +55,10 @@ class MLMTrainingWorkflowTests(unittest.TestCase):
         self.latest = self.mock_stage("update_latest_link")
         self.events.attach_mock(self.backbone.load_training_model, "load_model")
         self.callbacks = self.mock_stage("build_callbacks", return_value=[sentinel.callback])
-        self.make_trainer = self.mock_stage("MLMLossTrainer", return_value=self.trainer)
-        self.lifecycle = self.mock_stage("run_training_pipeline", side_effect=self.finish_training)
+        self.make_trainer = self.mock_stage("MLMLossTrainer", side_effect=self.make_trainer_state)
+        self.lifecycle = self.enterContext(patch.object(
+            shared_training, "train_and_save", side_effect=self.select_checkpoint))
+        self.events.attach_mock(self.lifecycle, "train_and_save")
         self.fit = self.enterContext(patch(
             "cdrseqgen.methods.mlm.length.fit_length_predictor",
             return_value=sentinel.length_predictor))
@@ -65,15 +70,26 @@ class MLMTrainingWorkflowTests(unittest.TestCase):
         self.events.attach_mock(mocked, name)
         return mocked
 
-    def finish_training(self, trainer, args, *, tokenizer):
+    def make_trainer_state(self, **kwargs):
+        self.trainer.train_dataset = kwargs["train_dataset"]
+        self.trainer.eval_dataset = kwargs["eval_dataset"]
+        self.trainer.loss_config = kwargs["loss_config"]
+        return self.trainer
+
+    def run_workflow(self):
+        return shared_training.run_training_pipeline(
+            *self.arguments, prepare_training=training.prepare_training,
+            finish_training=training.finish_training)
+
+    def select_checkpoint(self, trainer, args, *, tokenizer):
         if args.do_train:
             trainer.model = sentinel.selected_model
 
     def test_full_workflow_preserves_order_and_uses_selected_model_for_length_head(self):
-        self.assertIs(training.run_training(*self.arguments), self.trainer)
+        self.assertIs(self.run_workflow(), self.trainer)
         self.assertEqual([call[0] for call in self.events.mock_calls], [
             "set_seed", "resolve", "get_datasets", "update_latest_link", "load_model",
-            "build_callbacks", "MLMLossTrainer", "run_training_pipeline",
+            "build_callbacks", "MLMLossTrainer", "train_and_save",
             "fit_length_predictor", "post_training_generation",
         ])
         self.seed.assert_called_once_with(42)
@@ -110,7 +126,7 @@ class MLMTrainingWorkflowTests(unittest.TestCase):
 
     def test_evaluation_only_skips_length_fitting_and_keeps_generation_available(self):
         self.training_args.do_train = False
-        training.run_training(*self.arguments)
+        self.run_workflow()
         self.lifecycle.assert_called_once()
         self.fit.assert_not_called()
         self.assertIs(self.trainer.model, sentinel.initial_model)
@@ -119,21 +135,21 @@ class MLMTrainingWorkflowTests(unittest.TestCase):
     def test_extensions_can_both_be_disabled(self):
         self.data_args.train_length_predictor = False
         self.gen_args.run_generative_eval = False
-        training.run_training(*self.arguments)
+        self.run_workflow()
         self.lifecycle.assert_called_once()
         self.fit.assert_not_called()
         self.generate.assert_not_called()
 
     def test_length_fitting_does_not_depend_on_generation_being_enabled(self):
         self.gen_args.run_generative_eval = False
-        training.run_training(*self.arguments)
+        self.run_workflow()
         self.fit.assert_called_once()
         self.generate.assert_not_called()
 
     def test_dataset_failure_leaves_latest_and_model_untouched(self):
         self.datasets.side_effect = ValueError("invalid evaluation split")
         with self.assertRaisesRegex(ValueError, "invalid evaluation split"):
-            training.run_training(*self.arguments)
+            self.run_workflow()
         self.latest.assert_not_called()
         self.backbone.load_training_model.assert_not_called()
         self.make_trainer.assert_not_called()
@@ -144,7 +160,7 @@ class MLMTrainingWorkflowTests(unittest.TestCase):
     def test_training_failure_stops_before_post_training_extensions(self):
         self.lifecycle.side_effect = RuntimeError("training failed")
         with self.assertRaisesRegex(RuntimeError, "training failed"):
-            training.run_training(*self.arguments)
+            self.run_workflow()
         self.fit.assert_not_called()
         self.generate.assert_not_called()
 

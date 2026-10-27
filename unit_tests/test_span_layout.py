@@ -319,8 +319,8 @@ class CheckpointLayoutTests(unittest.TestCase):
         import torch
         from transformers import TrainingArguments
         from cdrseqgen.methods.ar.backbones import record_training_layout
-        from cdrseqgen.methods.ar.training import build_causal_trainer
-        from cdrseqgen.methods.common.training import run_training_pipeline
+        from cdrseqgen.methods.ar.training import build_trainer
+        from cdrseqgen.methods.common.training import train_and_save
 
         path = self.root / "corpus.json"
         _corpus(path)
@@ -333,8 +333,8 @@ class CheckpointLayoutTests(unittest.TestCase):
                                  max_steps=1, per_device_train_batch_size=1,
                                  save_strategy="steps", save_steps=1, logging_steps=1,
                                  report_to=[], disable_tqdm=True)
-        trainer = build_causal_trainer(model, args, ds, ds, self.adapter, callbacks=[])
-        run_training_pipeline(trainer, args, tokenizer=self.adapter)
+        trainer = build_trainer(model, args, ds, ds, self.adapter, callbacks=[])
+        train_and_save(trainer, args, tokenizer=self.adapter)
         expected = span_layout_metadata(self.adapter)
         self.assertEqual(json.loads((self.root / "run_config.json").read_text())["span_layout"], expected)
         for directory in (self.root, self.root / "checkpoint-1"):

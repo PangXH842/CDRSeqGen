@@ -1,6 +1,6 @@
 """The causal training pipeline: split selection, and the metric's alignment.
 
-The alignment test is the one that matters. `causal_compute_metrics` receives predictions and
+The alignment test is the one that matters. `compute_metrics` receives predictions and
 labels UNSHIFTED and must redo the next-token shift itself; an off-by-one there reports a different
 quantity than the masked side's `compute_metrics` while looking perfectly healthy, which would make
 every AR-vs-MLM comparison wrong in a way no other test would catch.
@@ -14,7 +14,7 @@ import numpy as np
 
 from cdrseqgen.datasets.dataset_common import select_split_indices
 from cdrseqgen.methods.ar.backbones import resolve
-from cdrseqgen.methods.ar.training import causal_compute_metrics, get_datasets
+from cdrseqgen.methods.ar.training import compute_metrics, get_datasets
 
 
 class Args:
@@ -42,7 +42,7 @@ PERFECT = np.array([[0, 0, 10, 11, 12, 13, 14, 15, 26, 0]])   # preds[t] == labe
 
 class MetricAlignmentTests(unittest.TestCase):
     def test_perfect_predictions_score_one(self):
-        m = causal_compute_metrics((PERFECT, LABELS))
+        m = compute_metrics((PERFECT, LABELS))
         self.assertEqual(m["accuracy"], 1.0)
         self.assertEqual(m["core_accuracy"], 1.0)
         self.assertEqual(m["anchor_accuracy"], 1.0)
@@ -50,14 +50,14 @@ class MetricAlignmentTests(unittest.TestCase):
     def test_a_shift_that_is_off_by_one_scores_zero(self):
         # The failure this test exists for: silently measuring position t against residue t+1.
         misaligned = np.array([[0, 10, 11, 12, 13, 14, 15, 26, 0, 0]])
-        self.assertEqual(causal_compute_metrics((misaligned, LABELS))["accuracy"], 0.0)
+        self.assertEqual(compute_metrics((misaligned, LABELS))["accuracy"], 0.0)
 
     def test_core_and_anchor_split_at_the_same_boundary_as_the_masked_side(self):
         # Loop length 6, trim 2 -> core is the middle two residues.
         broken = PERFECT.copy()
         broken[0, 4] = 99
         broken[0, 5] = 99
-        m = causal_compute_metrics((broken, LABELS))
+        m = compute_metrics((broken, LABELS))
         self.assertEqual(m["core_accuracy"], 0.0)
         self.assertEqual(m["anchor_accuracy"], 1.0)
 
@@ -65,17 +65,17 @@ class MetricAlignmentTests(unittest.TestCase):
         # Recovery must measure residue prediction, comparable with a masked model that has no eos.
         eos_wrong = PERFECT.copy()
         eos_wrong[0, 8] = 99
-        self.assertEqual(causal_compute_metrics((eos_wrong, LABELS))["accuracy"], 1.0)
+        self.assertEqual(compute_metrics((eos_wrong, LABELS))["accuracy"], 1.0)
 
     def test_logits_are_accepted_as_well_as_argmaxed_ids(self):
         logits = np.zeros((1, 10, 30), dtype=np.float32)
         for t, token in enumerate(PERFECT[0]):
             logits[0, t, token] = 1.0
-        self.assertEqual(causal_compute_metrics((logits, LABELS))["accuracy"], 1.0)
+        self.assertEqual(compute_metrics((logits, LABELS))["accuracy"], 1.0)
 
     def test_a_row_with_no_supervision_is_skipped_not_counted_as_zero(self):
         labels = np.array([[-100] * 10])
-        self.assertEqual(causal_compute_metrics((PERFECT, labels))["accuracy"], 0.0)
+        self.assertEqual(compute_metrics((PERFECT, labels))["accuracy"], 0.0)
 
 
 class SplitTests(unittest.TestCase):

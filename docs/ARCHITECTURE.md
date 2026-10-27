@@ -33,9 +33,12 @@ The root-to-method command paths use the same names for MLM, AR and S2S:
 | `evaluate.py` | `methods/<method>/eval_cli.main()` | Validate evaluation options, prepare method-specific state and call the evaluator. |
 | `generate.py` | `methods/<method>/gen_cli.main()` | Validate supplied cases, prepare method-specific state and generate each case. |
 
-For MLM, `train_cli.main()` calls `training.run_training()`. The saved-checkpoint
-CLI functions connect method callbacks to the shared lifecycles: `eval_cli.main()`
-supplies evaluation setup and `evaluation.run_generative_eval()`;
+For MLM, all three CLI functions connect method callbacks to shared workflows.
+Each method's `train_cli.main()`, `eval_cli.main()` and `gen_cli.main()` configures
+console logging; root scripts parse/read routing inputs and select the method.
+`train_cli.main()` parses arguments and passes `training.prepare_training()` and
+`training.finish_training()` to `common.training.run_training_pipeline()`.
+`eval_cli.main()` supplies evaluation setup and `evaluation.run_generative_eval()`;
 `gen_cli.main()` supplies generation setup, optional state and `generation.generate_case()`.
 Shared standalone loading, compatibility and output handling live in
 `methods/common/evaluation.py` and `methods/common/generation.py`.
@@ -89,7 +92,7 @@ CDRSeqGen/
 │   │   │   ├── sampling.py     # warp_logits / ban_tokens / logits_of — so "top_p=0.9" means the
 │   │   │   │                   #   same thing on both sides of an AR-vs-MLM table
 │   │   │   ├── callbacks.py    # LogMetricsCallback + build_callbacks; optional early stopping
-│   │   │   └── training.py     # External-loss Trainer workflow and shared train/eval lifecycle
+│   │   │   └── training.py     # Preparation/finish workflow, Trainer lifecycle and loss bridge
 │   │   ├── ar/                 # Autoregressive (2026-09-01). Data lives in datasets/dataset_ar.py;
 │   │   │   ├── backbones.py    #   this package owns model + training.
 │   │   │   │                   # Causal registry — resolve(model_type) -> CausalBackbone.
@@ -132,12 +135,12 @@ CDRSeqGen/
 │   │   │                       #   same num_layers (1.86M vs 800k) — build_model logs the count
 │   │   └── mlm/                # Masked-LM training, generation, and native evaluation
 │   │       ├── arguments.py        # MLM args: shared bases + loss_type/core/anchor weights
-│   │       ├── train_cli.py        # Logging/config/CLI setup -> training.run_training()
+│   │       ├── train_cli.py        # Logging/config/CLI setup -> common workflow + MLM hooks
 │   │       ├── eval_cli.py         # main(): connect MLM setup/scoring to the common lifecycle
 │   │       ├── gen_cli.py          # main(): supplied-framework generation entrypoint
 │   │       ├── backbones.py        # Masked-LM registry — resolve(model_type) -> Backbone
 │   │       ├── losses.py           # Shared loss registry + Trainer bridge for every MLM backbone
-│   │       ├── training.py         # MLM workflow: datasets, model/Trainer, training and extensions
+│   │       ├── training.py         # MLM preparation/finish hooks, datasets and evaluation helpers
 │   │       ├── recovery.py         # Position recovery, anchor/core split, core coverage
 │   │       ├── sampling.py         # Masked-span dispatch, independent/iterative decoders, pseudo-ppl
 │   │       ├── evaluation.py       # MLM setup, strategy selection, scoring and reporting

@@ -1,7 +1,8 @@
 """Shared generation command lifecycle for all methods.
 
 A method supplies option validation, optional state loading and its per-case
-producer. This module checks compatibility, loads cases/model/tokenizer, seeds
+producer. After gen_cli initializes logging, this module resolves/reports config,
+checks compatibility, loads cases/model/tokenizer, seeds
 sampling, preserves case order and writes the scored output payload.
 """
 import json
@@ -16,8 +17,12 @@ from cdrseqgen.methods.registry import resolve
 logger = logging.getLogger(__name__)
 
 
-def get_configs(args):
-    """Reads configs from run_config.json; if unavailable, build configs from CLI args.
+def resolve_config(args, *, run_config=None):
+    """Resolve generation settings and report checkpoint/CLI context expectations.
+
+    Reuse a preloaded run_config when supplied ({} means no saved config). Without
+    one, read it from args.model_dir. Call after CLI logging setup to retain INFO
+    messages as well as warnings.
 
     Returns a config dict, carrying a "source" key for which of the two it came from. That
     difference matters downstream: a CLI-built config only restates this invocation, so it cannot
@@ -26,45 +31,48 @@ def get_configs(args):
     # A corrupt run config is deliberately fatal. Falling back to CLI args would set
     # source="cli", which makes check_compatibility skip both context checks — the failure mode
     # that costs 0.98 -> 0.26 recovery — so an unreadable file must stop the run, not soften it.
-    try:
-        configs, _ = load_run_config(args.model_path)
-    except FileNotFoundError:
-        configs = {}
+    if run_config is None:
+        try:
+            config, _ = load_run_config(args.model_dir)
+        except FileNotFoundError:
+            config = {}
+    else:
+        config = dict(run_config)
 
-    if configs:
-        configs["source"] = "run_config"
+    if config:
+        config["source"] = "run_config"
         # --model_type picks the tokenizer as well as the backbone, so the wrong one mis-encodes
         # every residue. Only warn when a flag was actually passed and disagrees — omitting it just
         # means "use whatever this checkpoint is", which is the resolution on the next line.
-        trained_type = configs.get("model_type")
+        trained_type = config.get("model_type")
         if args.model_type and trained_type and args.model_type != trained_type:
             logger.warning(f"⚠️  Model type mismatch: checkpoint was trained as '{trained_type}', but "
                            f"--model_type says '{args.model_type}' — the tokenizer comes from that "
                            f"flag, so every residue would be encoded against the wrong vocabulary.")
-        configs["model_type"] = args.model_type or trained_type or "scratch"
+        config["model_type"] = args.model_type or trained_type or "scratch"
     else:
-        logger.info("ℹ️  No run_config.json - building configs from CLI args instead.")
-        configs = {"target_region": args.target_loop,
-                   "model_type": args.model_type or "scratch",
-                   "include_partner_chain": bool(args.partner_chain),
-                   "include_antigen": bool(args.antigen),
-                   "data_path": None,
-                   "max_len": args.max_len or 256,
-                   "source": "cli"}
+        logger.info("ℹ️  No run_config.json - building the config from CLI args instead.")
+        config = {"target_region": args.target_loop,
+                  "model_type": args.model_type or "scratch",
+                  "include_partner_chain": bool(args.partner_chain),
+                  "include_antigen": bool(args.antigen),
+                  "data_path": None,
+                  "max_len": args.max_len or 256,
+                  "source": "cli"}
 
-    # Print configs
+    # Print the config
     ctx = [n for f, n in [("include_partner_chain", "partner chain"),
-                          ("include_antigen", "antigen")] if configs.get(f)]
-    lead = "🧬 Checkpoint expects" if configs["source"] == "run_config" else "🧬 Assuming from CLI args"
-    print(f"{lead}: CDR '{configs.get('target_region') or 'unknown'}'"
+                          ("include_antigen", "antigen")] if config.get(f)]
+    lead = "🧬 Checkpoint expects" if config["source"] == "run_config" else "🧬 Assuming from CLI args"
+    print(f"{lead}: CDR '{config.get('target_region') or 'unknown'}'"
           + (f", with {' + '.join(ctx)} context" if ctx else ", framework context only"))
     if args.target_loop:
         print(f"🎯 This run is designing: CDR '{args.target_loop}'.")
 
-    return configs
+    return config
 
 
-def get_test_case(args):
+def load_test_cases(args):
     """Test cases to run: a JSON batch if --test_file, else the single case built from CLI args."""
     if args.test_file:
         with open(args.test_file, "r") as f:
@@ -107,10 +115,10 @@ def infer_loop_number(pt1_len):
     return None
 
 
-def check_compatibility(configs, cases, args):
+def check_compatibility(config, cases, args):
     """Check for arg mismatches, returns problems and warnings for logging / printing."""
     problems, warnings = [], []
-    trained_for = (configs or {}).get("target_region")
+    trained_for = (config or {}).get("target_region")
 
     # WARNING: CLI arg target_loop mismatch
     if args.target_loop and trained_for and args.target_loop.lower() != trained_for.lower():
@@ -139,24 +147,24 @@ def check_compatibility(configs, cases, args):
                 f"pt1's length; heavy vs light is not, so an h/l mix-up cannot be caught this way."
             )
 
-    # PROBLEM: missing or unexpected partner chain / antigen context
+    # PROBLEM: missing or unexpected partner chain / antigen context. Only meaningful against a
+    # real run_config. A CLI-built config sets include_* from what this run supplies, so checking
+    # one against the other would be comparing args with themselves — and would misfire outright
+    # on a test file whose cases carry their own context keys.
+    if config.get("source") != "run_config":
+        return problems, warnings
     for flag, key, name in [("include_partner_chain", "partner_chain", "partner chain"),
                             ("include_antigen", "antigen", "antigen")]:
-        # Only meaningful against a real run_config. A CLI-built config sets include_* from what this
-        # run supplies, so checking one against the other would be comparing args with themselves —
-        # and would misfire outright on a test file whose cases carry their own context keys.
-        if configs.get("source") != "run_config":
-            break
         supplied_cli = bool(getattr(args, key, None))
         with_ctx = [c.get("name", "case") for c in cases if (c.get(key) or supplied_cli)]
 
-        if configs.get(flag) and len(with_ctx) < len(cases):
+        if config.get(flag) and len(with_ctx) < len(cases):
             problems.append(
                 f"CONTEXT MISSING: checkpoint was trained WITH {name} context, but "
                 f"{len(cases) - len(with_ctx)}/{len(cases)} case(s) supply none — it will run off-"
                 f"distribution and quietly underperform. Pass --{key}, or a '{key}' field per case."
             )
-        elif not configs.get(flag) and with_ctx:
+        elif not config.get(flag) and with_ctx:
             problems.append(
                 f"CONTEXT UNEXPECTED: checkpoint was trained WITHOUT {name} context, but "
                 f"{len(with_ctx)}/{len(cases)} case(s) supply it — prepending it shifts every "
@@ -205,20 +213,25 @@ def _print_case(name, pt1, pt2, target_length, native, args, samples, metrics):
     print("=" * 72)
 
 
-def run_generation_pipeline(method, args, configs, *, prepare_generation,
+def run_generation_pipeline(method, args, config, *, prepare_generation,
                             generation_state, generate_case):
     """Validate, load and generate supplied cases; return their scored records.
 
-    Compatibility and method-option checks precede checkpoint loading. A single
+    Raw routing metadata is resolved/reported here after CLI logging setup;
+    a config with a source marker is already resolved. Compatibility and
+    method-option checks precede checkpoint loading. A single
     seeded generator and optional method state are shared across cases. Output
     retains the model/context compatibility record and original case order.
     """
     method = resolve(method)
+    print(f"🧬 Checkpoint: {args.model_dir}")
+    if 'source' not in config:
+        config = resolve_config(args, run_config=config)
     if getattr(args, 'max_len', None) is None:
-        args.max_len = configs.get('max_len', 256)
-    test_cases = get_test_case(args)
+        args.max_len = config.get('max_len', 256)
+    test_cases = load_test_cases(args)
 
-    problems, warnings = check_compatibility(configs, test_cases, args)
+    problems, warnings = check_compatibility(config, test_cases, args)
     for w in warnings:
         logger.warning(f"⚠️  {w}")
     for p in problems:
@@ -235,18 +248,18 @@ def run_generation_pipeline(method, args, configs, *, prepare_generation,
 
     # Validate method-specific options before loading any checkpoint weights.
     try:
-        policies = prepare_generation(args, test_cases, configs)
+        policies = prepare_generation(args, test_cases, config)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
 
-    # Load model for inference. model_type comes from configs, not args: --model_type is optional and
+    # Load model for inference. model_type comes from config, not args: --model_type is optional and
     # falls back to whatever the checkpoint says it is.
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model_type = configs["model_type"]
+    model_type = config["model_type"]
     print(f"🧬 Loading '{model_type}' weights onto {device}…")
     backbone = method.module("backbones").resolve(model_type)
-    tokenizer = backbone.build_tokenizer(model_type, checkpoint_path=args.model_path)
-    model = backbone.load_pretrained_model(args.model_path)
+    tokenizer = backbone.build_tokenizer(model_type, checkpoint_path=args.model_dir)
+    model = backbone.load_pretrained_model(args.model_dir)
     model.to(device)
     model.eval()
 
@@ -261,14 +274,14 @@ def run_generation_pipeline(method, args, configs, *, prepare_generation,
 
     # Persist samples + metrics for downstream analysis (mirrors train.py's per-run CSV habit).
     if args.output != "none":
-        out_path = args.output or os.path.join(args.model_path, "generation_results.json")
+        out_path = args.output or os.path.join(args.model_dir, "generation_results.json")
         # Wrap the per-case records with what produced them. Without this a generation_results.json
         # from a deliberate off-target run is indistinguishable from an on-target one later.
         payload = {
             "model": {
-                "model_path": args.model_path,
+                "model_path": args.model_dir,     # key unchanged: saved outputs and their readers use it
                 "model_type": model_type,
-                "expects": configs,
+                "expects": config,
                 "designing": args.target_loop,
                 "context_supplied": {
                     "partner_chain": bool(args.partner_chain) or any(c.get("partner_chain") for c in test_cases),

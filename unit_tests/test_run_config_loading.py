@@ -3,13 +3,14 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from cdrseqgen.artifacts import (
     RUN_CONFIG_FILENAME,
     find_run_config,
     load_run_config,
 )
-from generate import get_configs
+from generate import resolve_config
 
 
 class RunConfigLoadingTests(unittest.TestCase):
@@ -45,14 +46,14 @@ class RunConfigLoadingTests(unittest.TestCase):
 
 
 class GenerateConfigSourceTests(unittest.TestCase):
-    """get_configs marks CLI-built configs source='cli', and check_compatibility skips both
+    """resolve_config marks CLI-built configs source='cli', and check_compatibility skips both
     context checks for those — so a corrupt run config must not degrade into that path."""
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.dir = Path(self.temp.name)
         self.args = SimpleNamespace(
-            model_path=str(self.dir), model_type=None, target_loop=None,
+            model_dir=str(self.dir), model_type=None, target_loop=None,
             partner_chain=None, antigen=None, max_len=128,
         )
 
@@ -63,18 +64,32 @@ class GenerateConfigSourceTests(unittest.TestCase):
         (self.dir / RUN_CONFIG_FILENAME).write_text(json.dumps({
             "target_region": "h3", "model_type": "scratch", "include_partner_chain": True,
         }))
-        configs = get_configs(self.args)
+        configs = resolve_config(self.args)
         self.assertEqual(configs["source"], "run_config")
         self.assertTrue(configs["include_partner_chain"])
 
     def test_missing_config_falls_back_to_cli(self):
-        configs = get_configs(self.args)
+        configs = resolve_config(self.args)
         self.assertEqual(configs["source"], "cli")
+
+    def test_preloaded_snapshot_is_reused_and_override_warning_is_retained(self):
+        saved = {"model_type": "scratch", "include_partner_chain": True}
+        self.args.model_type = "other-backbone"
+        with patch("cdrseqgen.methods.common.generation.load_run_config") as reload, \
+                self.assertLogs("cdrseqgen.methods.common.generation", level="WARNING") as logs:
+            configs = resolve_config(self.args, run_config=saved)
+
+        reload.assert_not_called()
+        self.assertEqual(saved["model_type"], "scratch")
+        self.assertEqual(configs["model_type"], "other-backbone")
+        self.assertEqual(configs["source"], "run_config")
+        self.assertTrue(configs["include_partner_chain"])
+        self.assertIn("Model type mismatch", logs.output[0])
 
     def test_corrupt_config_raises_rather_than_silently_disabling_context_checks(self):
         (self.dir / RUN_CONFIG_FILENAME).write_text("{truncated")
         with self.assertRaises(json.JSONDecodeError):
-            get_configs(self.args)
+            resolve_config(self.args)
 
 
 if __name__ == "__main__":

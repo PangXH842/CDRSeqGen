@@ -31,6 +31,8 @@ from cdrseqgen.datasets.dataset_ar import (CausalTokenizer, causal_adapter, CDRS
                                          layout_for, validate_layout, span_layout_metadata)
 from cdrseqgen.artifacts import atomic_write_json, find_run_config
 from cdrseqgen.datasets.dataset_common import TokenizerAdapter
+from cdrseqgen.methods.common.backbones import (
+    load_custom_pretrained as _load_custom_pretrained, tokenizer_source)
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +115,6 @@ class CausalBackbone:
     fallback: bool = False
 
     def build_tokenizer(self, model_type, checkpoint_path=None) -> TokenizerAdapter:
-        from cdrseqgen.methods.common.backbones import tokenizer_source
         source = tokenizer_source(model_type, checkpoint_path)
         tokenizer = self.load_tokenizer(source, self.position_type, self.uses_special_tokens)
         validate_layout(layout_for(tokenizer), tokenizer)
@@ -139,9 +140,6 @@ def resolve(model_type: str) -> CausalBackbone:
         f"No causal backbone registered for model_type={model_type!r}. "
         f"Registered backbones: {[b.id for b in REGISTRY]}. Add one in methods/ar/backbones.py."
     )
-
-
-from cdrseqgen.methods.common.backbones import load_custom_pretrained as _load_custom_pretrained
 
 
 # --- custom from-scratch causal decoder ---------------------------------------------------------
@@ -185,6 +183,7 @@ def missing_sentinels(hf_tokenizer):
     vocab = hf_tokenizer.get_vocab()
     return [token for token in REQUIRED_SENTINELS if token not in vocab]
 
+
 def _prepare_hf_tokenizer(tok):
     """Install the causal layout tokens and guarantee usable EOS/padding semantics."""
     vocab = tok.get_vocab()
@@ -209,7 +208,6 @@ def _prepare_hf_tokenizer(tok):
     if tok.pad_token_id is None:
         tok.pad_token = tok.eos_token
     return added
-
 
 
 def _hf_tokenizer(mt, pos, wrap):

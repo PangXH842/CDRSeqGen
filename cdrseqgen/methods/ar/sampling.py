@@ -3,10 +3,10 @@
   * sample_loops -- batched autoregressive decode, returns one loop string per requested candidate
 
 This is the whole sampler. The masked side needs two decoders, a length policy layer, a gap-sentinel
-classifier and mask expansion (``sampling.py`` + ``generation.py`` + ``length.py`` +
-``mlm/length.py``); a causal model needs none of it, because **the model chooses its own
-length by emitting <eos>**. Findings §10's length head — which scores below the "always predict 15"
-baseline — exists only to work around the masked model's inability to do that.
+classifier and mask expansion (``mlm/sampling.py``, ``mlm/generation.py`` and ``mlm/length.py``); a
+causal model needs none of it, because **the model chooses its own length by emitting <eos>**.
+Findings §10's length head — which scores below the "always predict 15" baseline — exists only to
+work around the masked model's inability to do that.
 
 Three decisions worth stating:
 

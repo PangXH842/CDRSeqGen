@@ -1,8 +1,8 @@
 """Encoder-decoder training pipeline: dataset -> Trainer -> metrics.
 
-  * get_datasets           -- tokenizer + Seq2SeqInfillingDataset + the train/eval split
-  * s2s_compute_metrics    -- teacher-forced recovery over the loop, split core/anchor
-  * build_seq2seq_trainer  -- a plain HF Trainer; the model returns its own loss
+  * get_datasets    -- tokenizer + Seq2SeqInfillingDataset + the train/eval split
+  * compute_metrics -- teacher-forced recovery over the loop, split core/anchor
+  * build_trainer   -- a plain HF Trainer; the model returns its own loss
 
 Mirrors ``methods/ar/training.py`` so the two are comparable. Two differences, both forced:
 
@@ -44,12 +44,12 @@ def get_datasets(model_args, data_args, training_args, backbone, *, checkpoint_p
         target_region=data_args.target_region,
         include_partner_chain=data_args.include_partner_chain,
         include_antigen=data_args.include_antigen,
-        context_dropout=getattr(data_args, "context_dropout", 0.0),
+        context_dropout=data_args.context_dropout,
         context_dropout_seed=training_args.seed,
     )
     train_idx, eval_idx, eval_label = select_split_indices(
-        full.data, getattr(data_args, "eval_split", ""), data_path=data_args.data_path,
-        seed=training_args.seed, test_size=getattr(data_args, "test_size", 0.1))
+        full.data, data_args.eval_split, data_path=data_args.data_path,
+        seed=training_args.seed, test_size=data_args.test_size)
 
     # Share records while keeping training context dropout out of validation.
     train_ds = torch.utils.data.Subset(full, train_idx)
@@ -59,7 +59,7 @@ def get_datasets(model_args, data_args, training_args, backbone, *, checkpoint_p
     return train_ds, eval_ds, tokenizer
 
 
-def s2s_compute_metrics(eval_pred, *, trim=ANCHOR_TRIM):
+def compute_metrics(eval_pred, *, trim=ANCHOR_TRIM):
     """Teacher-forced recovery over the loop: whole-loop, plus anchor-excluded core and anchor.
 
     Predictions and labels arrive ALIGNED — position t of the prediction answers position t of the
@@ -103,8 +103,8 @@ def s2s_compute_metrics(eval_pred, *, trim=ANCHOR_TRIM):
     }
 
 
-def build_seq2seq_trainer(model, training_args, train_ds, eval_ds, tokenizer, callbacks=None,
-                          trim=ANCHOR_TRIM):
+def build_trainer(model, training_args, train_ds, eval_ds, tokenizer, callbacks=None,
+                  trim=ANCHOR_TRIM):
     """A plain HF Trainer: like the causal side there is no external loss to bridge."""
     return Trainer(
         model=model,
@@ -114,6 +114,6 @@ def build_seq2seq_trainer(model, training_args, train_ds, eval_ds, tokenizer, ca
         data_collator=functools.partial(
             s2s_collate_fn, pad_token_id=tokenizer.pad_id,
             encoder_pad_token_id=getattr(tokenizer, "encoder_tokenizer", tokenizer).pad_id),
-        compute_metrics=functools.partial(s2s_compute_metrics, trim=trim),
+        compute_metrics=functools.partial(compute_metrics, trim=trim),
         callbacks=callbacks or [],
     )
