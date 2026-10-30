@@ -80,7 +80,7 @@ CDRSeqGen/
 │   │   ├── common/             # What every method needs to PRODUCE output. One implementation, so
 │   │   │   │                   #   the methods cannot drift — they already had, with the same field
 │   │   │   │                   #   called gen_judge_path on one side and gen_judge_weights on the other
-│   │   │   ├── arguments.py    # The 28 shared args + config/CLI parsing + run-directory setup;
+│   │   │   ├── arguments.py    # The shared args + config/CLI parsing + run-directory setup;
 │   │   │   │                   #   each method subclasses and adds only its own
 │   │   │   ├── backbones.py    # Shared checkpoint loading and protein tokenizer helpers
 │   │   │   ├── evaluation.py   # Standalone loading/provenance and post-training evaluation setup
@@ -92,6 +92,8 @@ CDRSeqGen/
 │   │   │   ├── sampling.py     # warp_logits / ban_tokens / logits_of — so "top_p=0.9" means the
 │   │   │   │                   #   same thing on both sides of an AR-vs-MLM table
 │   │   │   ├── callbacks.py    # LogMetricsCallback + build_callbacks; optional early stopping
+│   │   │   ├── eos_decoding.py # AR/S2S only: recovery metrics, dataset split, evaluation strategy and
+│   │   │   │                   #   generation record; they differ in context, sampler and alignment
 │   │   │   └── training.py     # Preparation/finish workflow, Trainer lifecycle and loss bridge
 │   │   ├── ar/                 # Autoregressive (2026-09-01). Data lives in datasets/dataset_ar.py;
 │   │   │   ├── backbones.py    #   this package owns model + training.
@@ -110,6 +112,7 @@ CDRSeqGen/
 │   │   │   ├── evaluation.py   # CausalStrategy for the SHARED loop in eval/generative.py —
 │   │   │   │                   #   decode-to-eos draws, TRUE (not pseudo) perplexity, per-candidate
 │   │   │   │                   #   judge prompts since causal lengths vary
+│   │   │   ├── generation.py   # generate.py callbacks: EOS-only length checks, causal case record
 │   │   │   └── models/
 │   │   │       └── transformer.py  # Causal decoder, ROTARY positions (§8: absolute positions lock
 │   │   │                       #   a checkpoint to its context regime; causal prompts vary in length)
@@ -127,6 +130,7 @@ CDRSeqGen/
 │   │   │   ├── sampling.py     # Decode to <eos>. ONE encoder pass shared by every candidate, and
 │   │   │   │                   #   no padding at all — every decoder row starts at <bos>
 │   │   │   ├── evaluation.py   # Seq2SeqStrategy for the SHARED loop in eval/generative.py
+│   │   │   ├── generation.py   # generate.py callbacks: EOS-only length checks, seq2seq case record
 │   │   │   └── models/
 │   │   │       ├── plm.py      # PLM encoder + width projection + shared residue decoder;
 │   │   │       │               #   fine-tuned/frozen/random controls, complete local checkpoints
@@ -144,8 +148,7 @@ CDRSeqGen/
 │   │       ├── recovery.py         # Position recovery, anchor/core split, core coverage
 │   │       ├── sampling.py         # Masked-span dispatch, independent/iterative decoders, pseudo-ppl
 │   │       ├── evaluation.py       # MLM setup, strategy selection, scoring and reporting
-│   │       ├── generation.py       # MLM generation setup, saved-head loading and case callbacks
-│   │       ├── case_generation.py  # One framework -> candidates and metrics
+│   │       ├── generation.py       # MLM setup, saved-head loading, case generation and scoring
 │   │       ├── length.py           # Policies, prompts, fitted head, span sampling and eval strategies
 │   │       └── models/
 │   │           └── transformer.py  # From-scratch masked encoder — model_type "scratch"

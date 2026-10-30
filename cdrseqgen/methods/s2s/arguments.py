@@ -5,7 +5,8 @@ The fields every method declares identically live in
 
 **What is deliberately absent**, because it has no encoder-decoder meaning: ``masking_policy`` /
 ``mixed_full_span_probability`` (nothing is masked out of a supervised stream), the loss registry
-(§13 settled that re-weighting core against anchor moves nothing), ``gen_decoding`` (one decoder,
+(§13 settled that re-weighting core against anchor moves nothing; ``label_smoothing_factor``,
+which only that registry applies, is rejected), ``gen_decoding`` (one decoder,
 not an independent/iterative choice), and the length policy plus ``train_length_predictor`` — the
 decoder ends its own loop with ``<eos>``, so §10's gap-sentinel head has no counterpart, exactly as
 on the causal side.
@@ -27,7 +28,8 @@ from cdrseqgen.methods.common.arguments import (BaseDataArguments, BaseGeneratio
                                                 parse_config_and_cli,
                                                 validate_attention_heads,
                                                 validate_common_args,
-                                                validate_early_stopping)
+                                                validate_early_stopping,
+                                                validate_no_label_smoothing)
 from cdrseqgen.methods.s2s.backbones import resolve as resolve_backbone
 
 
@@ -101,7 +103,8 @@ def validate_args(model_args, data_args, gen_args):
     resolve_backbone(model_args.model_type)
     # The residue decoder is built from these settings for every backbone, around a PLM encoder too.
     validate_attention_heads(model_args, even_head_width=True)
-    if model_args.conditioning_probe_steps < 0 or not math.isfinite(model_args.diagnostic_stop_epoch) or model_args.diagnostic_stop_epoch < 0:
+    if (model_args.conditioning_probe_steps < 0 or not math.isfinite(model_args.diagnostic_stop_epoch)
+            or model_args.diagnostic_stop_epoch < 0):
         raise ValueError("Diagnostic probe interval and stop epoch must be nonnegative and finite")
     if model_args.conditioning_probe_steps and data_args.eval_split != "validation":
         raise ValueError("Conditioning probes require eval_split=validation")
@@ -125,6 +128,7 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
 
     validate_args(model_args, data_args, gen_args)
     validate_early_stopping(model_args, training_args)
+    validate_no_label_smoothing(training_args)
 
     initialize_run(model_args, data_args, gen_args, training_args, marker="s2s")
     return model_args, data_args, gen_args, training_args

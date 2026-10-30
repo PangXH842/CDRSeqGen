@@ -21,7 +21,7 @@ does not complete an item. The protection boundaries below still apply.
       - [x] `preprocess/` (1006)
       - [x] `dataset_<method>` (1006)
     - [x] `eval/` (`generative`, `metrics`) (1006)
-    - [ ] `methods/mlm/`
+    - [x] `methods/mlm/` (1029) 
       - [x] custom model (`models/transformer`) (1022)
       - [x] training block (1027)
         - [x] `train_cli`, `training` (1027)
@@ -29,28 +29,33 @@ does not complete an item. The protection boundaries below still apply.
         - [x] `backbones` (1022)
         - [x] `losses` (1022)
         - [x] `recovery` (1027) 
-      - [ ] evaluation/generation block
-        - [ ] `eval_cli`, `evaluation` 
-        - [ ] `gen_cli`, `generation` 
-        - [ ] `case_generation`, `sampling`
-        - [ ] `length` 
+      - [x] evaluation/generation block (1029) 
+        - [x] `eval_cli`, `evaluation` (1029) 
+        - [x] `gen_cli`, `generation` (1029)  
+        - [x] `sampling` (1029) 
+        - [x] `length` (1029) 
     - [ ] `methods/ar/`
-      - [ ] custom model
-      - [ ] `arguments`, `backbones`
-      - [ ] `cli`, `entrypoint`, `training`
-      - [ ] `evaluation`
-      - [ ] `case_generation`, `sampling`
+      - [ ] custom model (`models/transformer`)
+      - [ ] `train_cli`, `training`
+      - [ ] `arguments` 
+      - [ ] `backbones`
+      - [ ] `eval_cli`, `evaluation`
+      - [ ] `gen_cli`, `generation`
+      - [ ] `sampling`
     - [ ] `methods/s2s/`
-      - [ ] custom model
-      - [ ] `arguments`, `backbones`
-      - [ ] `cli`, `entrypoint`, `training`
-      - [ ] `evaluation`
-      - [ ] `case_generation`, `sampling`
+      - [ ] custom model (`models/transformer`)
+      - [ ] `train_cli`, `training`
+      - [ ] `arguments` 
+      - [ ] `backbones`
+      - [ ] `eval_cli`, `evaluation`
+      - [ ] `gen_cli`, `generation`
+      - [ ] `sampling`
       - [ ] `diagnostics` (??)
     - [ ] `methods/common/`
       - [ ] `arguments` 
       - [ ] `backbones`
       - [ ] `callbacks`
+      - [ ] `eos_decoding` (AR/S2S shared)
       - [ ] `evaluation`
       - [ ] `logging`, `run_setup`, `record_results` 
       - [ ] `losses`

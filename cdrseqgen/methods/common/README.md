@@ -3,13 +3,15 @@
 Use this map when reviewing `methods/`: follow one stage through MLM, AR and
 S2S, then review the shared behaviour and its placement in `common/`.
 
-MLM's three CLI modules configure logging and connect method functions to shared
-workflows. Training also parses arguments; root evaluation/generation commands
-already supply parsed inputs. `common.training.run_training_pipeline()` orders
-MLM preparation, shared training/saving and method extensions. AR/S2S currently
-assemble their training workflows directly in `train_cli.main()`. `common/` implements shared stages
-and utilities; it does not have an executable `main()` that the methods inherit
-or override. Argument classes do inherit shared base classes.
+Each method's three CLI modules configure logging and connect method functions to
+shared workflows. Training also parses arguments; root evaluation/generation commands
+already supply parsed inputs. `common.training.run_training_pipeline()` orders each
+method's preparation, shared training/saving and method extensions. `common/`
+implements shared stages and utilities; it does not have an executable `main()` that
+the methods inherit or override. Argument classes do inherit shared base classes.
+AR and S2S also share `common/eos_decoding.py`: their recovery arithmetic, dataset
+split, evaluation strategy and generation record, which differ only in the
+conditioning input, the sampler and how predictions line up with labels.
 The reference skeleton below describes the common sequence and its extension
 points using the existing callers.
 
@@ -27,10 +29,10 @@ have been reviewed.
 |---|---|---|
 | **1. Routing and configuration** | `methods/registry.py`; common and method `arguments.py`; method `train_cli.py`, `eval_cli.py` and `gen_cli.py`; root `train.py`, `generate.py`, `evaluate.py` as callers | Which command selects the method, how are settings resolved, and which stages does it invoke? |
 | **2. Models and tokenizers** | Common and method `backbones.py`; method `models/` | How are models and tokenizers built, saved and reloaded, and what input/output contract do they expose? |
-| **3. Training and checkpoint selection** | Common and method `training.py`; common `callbacks.py` and `losses.py`; MLM `losses.py` and `recovery.py`; S2S `diagnostics.py` | What is supervised, how is loss computed, and how do validation, callbacks and checkpoint selection control the run? |
+| **3. Training and checkpoint selection** | Common and method `training.py`; common `callbacks.py` and `losses.py`; MLM `losses.py` and `recovery.py`; AR/S2S metrics and dataset split in common `eos_decoding.py`; S2S `diagnostics.py` | What is supervised, how is loss computed, and how do validation, callbacks and checkpoint selection control the run? |
 | **4. MLM length handling** | MLM `length.py`: policies, prompts, fitted head, span sampling and evaluation adapters; length-related call sites in arguments, command modules and generation | What length information is allowed, how is the head fitted/loaded, and how does a policy produce a chosen length? |
-| **5. Candidate generation** | Common `generation.py` and common/method `sampling.py`; MLM `generation.py`; method `case_generation.py` | How do context and decoding settings become candidate loops, and when is a draw considered complete? |
-| **6. Generative evaluation** | Common and method `evaluation.py`; MLM strategies in `length.py`; the already-reviewed `eval/generative.py` and `eval/metrics.py` as shared dependencies | How are candidates and native references passed separately into generation/scoring, how is judge context built, and which populations contribute to reported metrics? |
+| **5. Candidate generation** | Common `generation.py` and common/method `sampling.py`; MLM and AR/S2S `generation.py` (AR/S2S records come from common `eos_decoding.py`) | How do context and decoding settings become candidate loops, and when is a draw considered complete? |
+| **6. Generative evaluation** | Common and method `evaluation.py`; MLM strategies in `length.py`; AR/S2S strategy in common `eos_decoding.py`; the already-reviewed `eval/generative.py` and `eval/metrics.py` as shared dependencies | How are candidates and native references passed separately into generation/scoring, how is judge context built, and which populations contribute to reported metrics? |
 
 The conceptual training path is:
 
@@ -202,10 +204,9 @@ This is a reading skeleton, not a runnable command. It combines command setup
 and method execution to show their stage order. MLM keeps parsing and hook wiring
 in [train_cli.py](../mlm/train_cli.py). The common workflow calls
 [training.prepare_training() / finish_training()](../mlm/training.py) around the
-shared Trainer lifecycle. AR/S2S currently keep the ordering in their commands.
-Ellipses represent each method's construction code; see
-[AR](../ar/train_cli.py) and
-[S2S](../s2s/train_cli.py).
+shared Trainer lifecycle; [AR](../ar/training.py) and [S2S](../s2s/training.py)
+supply the same two hooks, wired in their `train_cli.py`. Ellipses represent each
+method's construction code.
 
 ```python
 def reference_workflow():
@@ -241,17 +242,17 @@ Paths in this table are relative to `cdrseqgen/`.
 | Stage | Shared implementation | Method implementation or extension |
 |---|---|---|
 | Route a training request | `methods/registry.py`, root `train.py` | `<method>/train_cli.main()` |
-| Orchestrate the configured run | `common.training.run_training_pipeline()`: prepare → train/evaluate/save → finish | MLM: `train_cli.main()` supplies `prepare_training` and `finish_training`; AR/S2S call the stages inline in `train_cli.main()` |
+| Orchestrate the configured run | `common.training.run_training_pipeline()`: prepare → train/evaluate/save → finish | `train_cli.main()` supplies the method's `prepare_training` and `finish_training` |
 | Prepare standalone evaluation | `common/evaluation.run_evaluation_pipeline()`: checks, data/model/judge loading and output setup | `eval_cli.main()` supplies method-specific setup and evaluator functions |
-| Generate supplied frameworks | `common/generation.run_generation_pipeline()`: checks, loading, case coordination and output writing | `gen_cli.main()` supplies setup, state and case functions; MLM record building lives in `case_generation.py` |
+| Generate supplied frameworks | `common/generation.run_generation_pipeline()`: checks, loading, case coordination and output writing | `gen_cli.main()` supplies setup, state and case functions; each method builds and scores records in `generation.generate_case()`; AR/S2S delegate to `common/eos_decoding.eos_case_record()` |
 | Parse and validate settings | `methods/common/arguments.py`: base classes, parsing, validation, run initialization, and the flags `evaluate.py`/`generate.py` share (`add_sampling_arguments()`) | `<method>/arguments.py`: additional fields, validation and `setup_args()` |
-| Load input views and splits | `datasets/dataset_common.py`: context and split helpers | `<method>/training.get_datasets()` and `datasets/dataset_<method>.py` |
+| Load input views and splits | `datasets/dataset_common.py`: context and split helpers | `<method>/training.get_datasets()` (AR/S2S through `common/eos_decoding.get_infilling_datasets()`) and `datasets/dataset_<method>.py` |
 | Load backbone and tokenizer | `methods/common/backbones.py`: checkpoint/tokenizer helpers | `<method>/backbones.py`, `<method>/models/` |
 | Build Trainer | `methods/common/callbacks.build_callbacks()`; `methods/common/training.ExternalLossTrainer` supplies the external-loss handoff | MLM loss Trainer and recovery metrics; AR/S2S Trainer builders, collators and metrics |
 | Calculate token loss | `methods/common/losses.token_cross_entropy()`: aligned token CE | MLM loss registry and core/anchor weighting; AR/S2S models calculate their own losses |
 | Run training and teacher-forced evaluation | `methods/common/training.train_and_save()` | The supplied model and Trainer determine loss, inputs and metrics |
 | Run post-training generative evaluation | `methods/common/evaluation.post_training_generation()`: judge, context regimes and artifact setup | Method wrapper supplies decoding/length options; method evaluator supplies the strategy |
-| Draw, score and report candidates | `eval/generative.py`, `eval/metrics.py`, `methods/common/sampling.py` | Method sampling, length selection, self-scoring and judge input construction |
+| Draw, score and report candidates | `eval/generative.py`, `eval/metrics.py`, `methods/common/sampling.py` | Method sampling, length selection, self-scoring and judge input construction; AR/S2S share the strategy bookkeeping in `common/eos_decoding.py` |
 
 `<method>/` in the last column means `methods/mlm/`, `methods/ar/` or
 `methods/s2s/`. Run logging and metric exports live in `methods/common/`,
@@ -265,6 +266,7 @@ as described below.
 | `run_setup.py` | Select/name output directories, update latest, save resolved configuration/provenance, supply dataset tags | Shared argument setup, method training workflows, visualization tables |
 | `callbacks.py` | `LogMetricsCallback` records Trainer log events; `build_callbacks()` adds requested early stopping | Method Trainer construction |
 | `record_results.py` | Export the epoch trajectory CSV and training-curve PNGs | `training.train_and_save()` |
+| `eos_decoding.py` | AR/S2S only: pooled recovery metrics, infilling dataset split, evaluation strategy and payload, generation record | AR and S2S `training.py`, `evaluation.py`, `generation.py` |
 
 Run configuration remains flat, with the same artifact names and dataset tags.
 The provenance checkout is located from the `cdrseqgen` package, independently
@@ -280,9 +282,7 @@ been removed; active code imports these shared modules directly.
 | After the shared training lifecycle | When training and length-head fitting are enabled, fit the frozen-backbone length classifier | Continue to optional generation | Continue to optional generation |
 | During generation | Independent/iterative residue decoding with fixed, bounded or inferred length | Causal decoding until EOS | Encoder-decoder decoding until EOS |
 
-These are explicit composition points in the current method training workflows. A future
-shared training command could accept method-supplied construction steps and
-before/after-training hooks. Before extracting it, review the ordering and data
-passed through each stage, including the conditions under which optional steps
-run. The graph is also a checklist for finding duplicated behaviour or steps
-whose ownership is unclear.
+These are the composition points of the method training workflows: `run_training_pipeline()`
+accepts each method's preparation and finishing hooks. Review the ordering and data passed
+through each stage, including the conditions under which optional steps run. The graph is also
+a checklist for finding duplicated behaviour or steps whose ownership is unclear.

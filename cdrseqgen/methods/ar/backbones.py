@@ -198,7 +198,7 @@ def _prepare_hf_tokenizer(tok):
             tok.add_special_tokens({"eos_token": "<eos>"})
             added.append("<eos>")
 
-    layout_tokens = [token for token in ("<mask>", "<sep>") if token not in tok.get_vocab()]
+    layout_tokens = [token for token in missing_sentinels(tok) if token != "<eos>"]  # EOS is above
     if layout_tokens:
         tok.add_special_tokens({"additional_special_tokens": layout_tokens})
         added.extend(layout_tokens)

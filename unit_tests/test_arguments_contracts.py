@@ -86,6 +86,8 @@ class RejectedBeforeTheRunDirectoryTests(unittest.TestCase):
             "heads do not divide the width": (dict(hidden_size=130, num_attention_heads=8),
                                               "must be divisible by num_attention_heads=8"),
             "no heads": (dict(num_attention_heads=0), "must be divisible by num_attention_heads=0"),
+            "zero width": (dict(hidden_size=0), "hidden_size must be positive"),
+            "negative width": (dict(hidden_size=-128), "hidden_size must be positive"),
             "early stopping without best-model loading": (dict(early_stopping_patience=3),
                                                           "requires load_best_model_at_end"),
         }
@@ -126,6 +128,13 @@ class RejectedBeforeTheRunDirectoryTests(unittest.TestCase):
                                   num_attention_heads=2), "even head width")
         self.assert_accepted(dict(method="s2s", model_type=PRETRAINED, hidden_size=130,
                                   num_attention_heads=5))
+
+    def test_label_smoothing_belongs_to_the_masked_method(self):
+        for method in ("ar", "s2s"):
+            with self.subTest(method=method):
+                self.assert_rejected(dict(method=method, label_smoothing_factor=0.1),
+                                     "label_smoothing_factor is only supported by the masked method")
+        self.assert_accepted(dict(method="mlm", label_smoothing_factor=0.1))
 
     def test_the_loop_error_is_the_datasets_own_message(self):
         with self.assertRaises(ValueError) as dataset_error:

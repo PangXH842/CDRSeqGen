@@ -37,7 +37,8 @@ class ConditioningProbe(TrainerCallback):
                            projected_token_std=memory[valid].float().std(0).mean().item(),
                            finite=bool(torch.isfinite(memory[valid]).all() and torch.isfinite(original[targets]).all()),
                            swap_mean_abs_logit_change=(original-changed).abs()[targets].mean().item(),
-                           swap_argmax_change_rate=(original.argmax(-1)[targets] != changed.argmax(-1)[targets]).float().mean().item())
+                           swap_argmax_change_rate=(original.argmax(-1)[targets]
+                                                    != changed.argmax(-1)[targets]).float().mean().item())
         finally:
             model.train(was_training)
         with (Path(args.output_dir) / 'conditioning_probe.jsonl').open('a') as handle:

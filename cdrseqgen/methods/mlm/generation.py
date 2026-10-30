@@ -1,4 +1,4 @@
-"""Configure MLM case generation and connect it to the case-record builder.
+"""Configure MLM generation and build scored records for supplied frameworks.
 
 Entry path:
   generate.py -> gen_cli.main -> common.generation.run_generation_pipeline
@@ -10,8 +10,7 @@ Callbacks:
   * generate_case      -- resolve native truth/policy and build one scored record.
 
 Candidate flow:
-  generate_case -> case_generation.generate_case_record
-                -> length.sample_length_conditioned_spans -> sampling decoders
+  generate_case -> length.sample_length_conditioned_spans -> sampling decoders
                 -> metrics and optional self-scoring -> display callback -> record
 
 length.py owns policies, prompt construction, length selection and span sampling.
@@ -19,10 +18,13 @@ common.generation loads cases/model/tokenizer, seeds sampling and writes the out
 payload. gen_cli.main configures logging; this module installs no handlers.
 """
 
+from cdrseqgen.eval.metrics import amino_acid_recovery, calculate
 from cdrseqgen.methods.mlm.arguments import validate_inference_args
-from cdrseqgen.methods.mlm.case_generation import generate_case_record
 from cdrseqgen.methods.mlm.evaluation import resolve_decoding
-from cdrseqgen.methods.mlm.length import LengthPredictor, resolve_case_length
+from cdrseqgen.methods.mlm.length import (
+    LengthPredictor, resolve_case_length, sample_length_conditioned_spans,
+)
+from cdrseqgen.methods.mlm.sampling import pseudo_log_likelihood
 
 
 def prepare_generation(args, cases, config):
@@ -64,30 +66,88 @@ def generation_state(args, policies, device):
 
 
 def generate_case(model, tokenizer, device, args, generator, case, state, print_callback):
-    """Generate and score one supplied framework; return its JSON-ready case record.
+    """Generate, score and serialize one fixed, bounded or inferred-length case.
 
-    Flow:
-      resolve_case_length -> native truth + length policy
-      case_generation.generate_case_record
-        -> sample_length_conditioned_spans -> sequences
-        -> eval.metrics + optional self pseudo-perplexity -> samples and metrics
-        -> print_callback -> case record
-
-    model/tokenizer/generator are already loaded and seeded by the shared pipeline.
-    state is the optional predictor returned by generation_state(). The record
-    builder uses length.sample_length_conditioned_spans() for every length policy.
-    The shared pipeline collects records and writes the outer model/cases payload.
+    state is the optional length head returned by generation_state(). Native truth
+    is retained for scoring; an explicit native-length policy may also use its length.
+    print_callback receives the case summary before the JSON-ready record is returned.
     """
     native, length_policy = resolve_case_length(case, args)
-    return generate_case_record(
+    name = case.get("name", "Unnamed Test")
+    pt1, pt2 = case["pt1"], case["pt2"]
+    partner = case.get("partner_chain") or args.partner_chain
+    antigen = case.get("antigen") or args.antigen
+
+    generated, length_metadata = sample_length_conditioned_spans(
         model,
         tokenizer,
         device,
-        args,
         generator,
-        case,
-        native=native,
-        length_policy=length_policy,
+        pt1=pt1,
+        pt2=pt2,
+        policy=length_policy,
         length_predictor=state,
-        print_callback=print_callback,
+        partner_chain=partner,
+        antigen=antigen,
+        max_len=args.max_len,
+        decoding=args.decoding,
+        num_samples=args.num_samples,
+        temperature=args.temperature,
+        top_k=args.top_k,
+        top_p=args.top_p,
+        length_temperature=getattr(args, "length_temperature", 1.0),
     )
+
+    samples = []
+    for generated_span in generated:
+        seq = tokenizer.decode(generated_span.token_ids).upper().strip()
+        entry = {"seq": seq, "length": len(seq)}
+        if native:
+            entry["length_match"] = len(seq) == len(native)
+            if entry["length_match"]:
+                entry["recovery"] = amino_acid_recovery(seq, native)
+        if not args.skip_perplexity:
+            _, perplexity = pseudo_log_likelihood(
+                model,
+                generated_span.input_ids,
+                generated_span.mask_positions,
+                generated_span.token_ids,
+                tokenizer.special_ids,
+                tokenizer.mask_id,
+                device,
+            )
+            entry["pseudo_perplexity"] = perplexity
+        samples.append(entry)
+
+    seqs = [sample["seq"] for sample in samples]
+    metrics = calculate(seqs, native)
+    if not args.skip_perplexity and samples:
+        perplexities = [sample["pseudo_perplexity"] for sample in samples]
+        metrics["pseudo_perplexity_mean"] = sum(perplexities) / len(perplexities)
+        metrics["pseudo_perplexity_min"] = min(perplexities)
+        metrics["pseudo_perplexity_max"] = max(perplexities)
+
+    selected_lengths = [sample["length"] for sample in samples]
+    distinct_lengths = sorted(set(selected_lengths))
+    gap_display = "/".join(map(str, distinct_lengths)) or "—"
+    print_callback(name, pt1, pt2, gap_display, native, args, samples, metrics)
+
+    return {
+        "name": name,
+        "pt1": pt1,
+        "pt2": pt2,
+        "target_length": distinct_lengths[0] if len(distinct_lengths) == 1 else None,
+        "generated_lengths": selected_lengths,
+        "length_policy": length_metadata,
+        "native": native,
+        "decoding": {
+            "mode": args.decoding,
+            "temperature": args.temperature,
+            "top_k": args.top_k,
+            "top_p": args.top_p,
+            "num_samples": len(samples),
+            "seed": args.seed,
+        },
+        "samples": samples,
+        "metrics": metrics,
+    }

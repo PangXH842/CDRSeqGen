@@ -4,8 +4,8 @@
     declare identically. A method subclasses one and adds only what is its own.
   * parse_config_dict / parse_config_and_cli -- a config dict, or config JSON, or config JSON +
                              trailing CLI overrides, or bare CLI
-  * validate_common_args / validate_early_stopping / validate_attention_heads -- reject a bad config
-                             BEFORE initialize_run creates the run directory
+  * validate_common_args / validate_early_stopping / validate_attention_heads /
+    validate_no_label_smoothing -- reject a bad config BEFORE initialize_run creates the run directory
   * initialize_run         -- name the run from RESOLVED arguments, create it, start its log
   * add_sampling_arguments -- the decoder/sampling/length flags evaluate.py and generate.py share,
                               the standalone counterparts of the ``gen_*`` fields above
@@ -174,6 +174,20 @@ def validate_early_stopping(model_args, training_args):
                          "it early stopping is silently not enabled")
 
 
+def validate_no_label_smoothing(training_args):
+    """Reject label smoothing for a method whose model computes its own loss (AR, S2S).
+
+    With label_smoothing_factor on, Hugging Face's Trainer replaces the model's loss with its own
+    smoother and shifts the labels only for the models on its causal-LM list, which ours are not:
+    on AR it would train against labels one position off (measured: the smoothed loss equals the
+    UNshifted one). The masked method applies smoothing itself, in LossConfig.
+    """
+    if training_args.label_smoothing_factor:
+        raise ValueError("label_smoothing_factor is only supported by the masked method; this "
+                         "method's model computes its own loss, which the Trainer's smoother "
+                         "would replace")
+
+
 def validate_attention_heads(model_args, *, even_head_width=False):
     """Check that the heads can split the model width, before any dataset or model is built.
 
@@ -185,6 +199,8 @@ def validate_attention_heads(model_args, *, even_head_width=False):
     of channels; MLM's nn.MultiheadAttention has no such rule.
     """
     heads, width = model_args.num_attention_heads, model_args.hidden_size
+    if width < 1:
+        raise ValueError(f"hidden_size must be positive, got {width}")
     if heads < 1 or width % heads:
         raise ValueError(f"hidden_size={width} must be divisible by num_attention_heads={heads}")
     if even_head_width and (width // heads) % 2:

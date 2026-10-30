@@ -17,7 +17,7 @@ then fitting), 5 span sampling, 6 evaluation strategies (Draw producers for eval
 Callers:
   * training.finish_training / fit_mlm_length.py -> fit_length_predictor
   * generation callbacks -> resolve_case_length / LengthPredictor.load
-  * case_generation / benchmark adapter -> sample_length_conditioned_spans
+  * generation / benchmark adapter -> sample_length_conditioned_spans
   * evaluation.run_generative_eval -> FixedNativeStrategy / VariableLengthStrategy
 
 Fixed-native evaluation keeps the dataset's own mask count. Variable-length strategies see only
@@ -788,7 +788,7 @@ def fit_length_predictor(
 
 # 5. Length-conditioned residue sampling
 #    policy -> one length per candidate -> one prompt and decoder call per distinct length. The
-#    single entry point shared by generation (case_generation), evaluation and the benchmark.
+#    single entry point shared by generation, evaluation and the benchmark.
 
 
 @dataclass(frozen=True)

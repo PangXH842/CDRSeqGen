@@ -138,7 +138,7 @@ class CausalAntibodyModel(PreTrainedModel):
             module.weight.data.normal_(mean=0.0, std=0.02)
 
     def forward(self, input_ids, attention_mask=None, labels=None,
-                output_hidden_states=False, return_dict=True, **_kwargs):
+                output_hidden_states=False, return_dict=True, num_items_in_batch=None, **_kwargs):
         x = self.embedding(input_ids)
         key_padding_mask = attention_mask.bool() if attention_mask is not None else None
         for block in self.blocks:
@@ -152,8 +152,15 @@ class CausalAntibodyModel(PreTrainedModel):
             # already places -100 across the prompt, so only the answer and its <eos> contribute.
             shift_logits = logits[:, :-1, :].contiguous()
             shift_labels = labels[:, 1:].contiguous()
-            loss = nn.CrossEntropyLoss()(
-                shift_logits.view(-1, self.config.vocab_size), shift_labels.view(-1))
+            # Normalize across the full accumulation window when Trainer supplies its count. A
+            # model that takes **kwargs makes Trainer stop dividing by gradient_accumulation_steps,
+            # so a plain microbatch mean here would scale the gradient by that factor (measured:
+            # 2.02x at two steps). Direct calls and evaluation retain ordinary token-mean loss.
+            loss = nn.functional.cross_entropy(
+                shift_logits.view(-1, self.config.vocab_size), shift_labels.view(-1),
+                reduction="mean" if num_items_in_batch is None else "sum")
+            if num_items_in_batch is not None:
+                loss = loss / torch.as_tensor(num_items_in_batch, device=loss.device)
 
         output = {"loss": loss, "logits": logits}
         if output_hidden_states:

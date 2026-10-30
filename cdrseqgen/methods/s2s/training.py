@@ -1,8 +1,16 @@
-"""Encoder-decoder training pipeline: dataset -> Trainer -> metrics.
+"""Encoder-decoder training pipeline: dataset -> Trainer -> metrics, and the hooks of the shared workflow.
 
-  * get_datasets    -- tokenizer + Seq2SeqInfillingDataset + the train/eval split
-  * compute_metrics -- teacher-forced recovery over the loop, split core/anchor
-  * build_trainer   -- a plain HF Trainer; the model returns its own loss
+Entry path:
+  train_cli.main -> common.training.run_training_pipeline
+                 -> prepare_training -> common.training.train_and_save
+                 -> finish_training
+
+  * prepare_training         -- seed, load data/model, build the Trainer, attach diagnostics
+  * finish_training          -- evaluate generated loops after training
+  * get_datasets             -- tokenizer + Seq2SeqInfillingDataset + the train/eval split
+  * compute_metrics          -- teacher-forced recovery over the loop, split core/anchor
+  * build_trainer            -- a plain HF Trainer; the model returns its own loss
+  * post_training_generation -- pass the decode cap into common.evaluation
 
 Mirrors ``methods/ar/training.py`` so the two are comparable. Two differences, both forced:
 
@@ -14,6 +22,10 @@ Mirrors ``methods/ar/training.py`` so the two are comparable. Two differences, b
   * **The loop is the entire supervised stream.** There is no prompt to mask out with -100, so
     ``core_coverage`` is bounded only by loop length, not by whether a prefix was labelled.
 
+The dataset split and the recovery arithmetic are shared with the causal method in
+:mod:`cdrseqgen.methods.common.eos_decoding`; this module keeps the encoder-decoder dataset and
+collator, and the unshifted alignment in ``compute_metrics``.
+
 Metrics are teacher-forced, like both siblings' ``compute_metrics``: argmax over the true prefix,
 not free-running generation. Findings' "Teacher-forced accuracy is not generation accuracy" applies
 here too, and the gap will be at least as large as the causal one, so these numbers select
@@ -22,41 +34,88 @@ checkpoints — they do not report design quality.
 import functools
 import logging
 
-import numpy as np
-import torch
-from transformers import Trainer
+from transformers import Trainer, set_seed
 
-from cdrseqgen.datasets.dataset_common import select_split_indices, evaluation_context_view
 from cdrseqgen.datasets.dataset_s2s import Seq2SeqInfillingDataset, s2s_collate_fn
 from cdrseqgen.eval import ANCHOR_TRIM
-from cdrseqgen.eval.metrics import core_anchor_indices
+from cdrseqgen.methods.common import build_callbacks
+from cdrseqgen.methods.common.eos_decoding import eos_recovery_metrics, get_infilling_datasets
+from cdrseqgen.methods.common.run_setup import update_latest_link
+from cdrseqgen.methods.s2s.backbones import resolve
 
 logger = logging.getLogger(__name__)
 
 
+def prepare_training(model_args, data_args, training_args):
+    """Return (Trainer, tokenizer) ready for the shared training lifecycle.
+
+    Steps:
+      seed -> backbone -> datasets/tokenizer -> update latest link -> model -> Trainer/callbacks
+           -> conditioning probe, when asked for
+
+    Dataset/split validation precedes the latest-link update. Training starts when the shared
+    workflow calls train_and_save().
+    """
+    set_seed(training_args.seed)
+
+    backbone = resolve(model_args.model_type)
+    train_dataset, eval_dataset, tokenizer = get_datasets(
+        model_args, data_args, training_args, backbone)
+    # Only now: everything above can succeed for a config get_datasets then rejects.
+    update_latest_link(training_args.output_dir)
+
+    model = backbone.load_training_model(
+        model_args.model_type,
+        vocab_size=tokenizer.vocab_size,
+        hidden_size=model_args.hidden_size,
+        num_layers=model_args.num_layers,
+        num_attention_heads=model_args.num_attention_heads,
+        intermediate_size=model_args.intermediate_size,
+        max_len=data_args.max_len,
+        num_encoder_layers=model_args.num_encoder_layers,
+        num_decoder_layers=model_args.num_decoder_layers,
+        encoder_init=model_args.encoder_init,
+        freeze_encoder=model_args.freeze_encoder,
+    )
+    trainer = build_trainer(model, training_args, train_dataset, eval_dataset, tokenizer,
+                            callbacks=build_callbacks(model_args, training_args, logger),
+                            trim=model_args.anchor_trim)
+
+    if model_args.conditioning_probe_steps or model_args.diagnostic_stop_epoch:
+        from cdrseqgen.methods.s2s.diagnostics import ConditioningProbe
+        trainer.add_callback(ConditioningProbe(
+            eval_dataset, trainer.data_collator, model_args.conditioning_probe_steps,
+            model_args.diagnostic_stop_epoch))
+    return trainer, tokenizer
+
+
+def finish_training(trainer, tokenizer, data_args, gen_args, training_args, *, anchor_trim):
+    """Evaluate generated loops on the trained model when run_generative_eval is on.
+
+    anchor_trim is model_args.anchor_trim; train_cli binds it because the shared workflow does not
+    pass model_args to this hook.
+    """
+    if gen_args.run_generative_eval:
+        post_training_generation(trainer, tokenizer, trainer.eval_dataset, data_args, gen_args,
+                                 training_args, anchor_trim=anchor_trim)
+
+
+def post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_args, training_args,
+                             *, anchor_trim):
+    """Pass the decode cap into shared post-training evaluation.
+
+    common.evaluation handles judge setup, context regimes, output paths and exception logging.
+    """
+    from cdrseqgen.methods.common.evaluation import post_training_generation as evaluate
+    return evaluate('s2s', trainer, tokenizer, eval_dataset, data_args, gen_args, training_args,
+                    anchor_trim=anchor_trim,
+                    method_options={'max_new_tokens': gen_args.gen_max_new_tokens})
+
+
 def get_datasets(model_args, data_args, training_args, backbone, *, checkpoint_path=None):
     """Tokenizer, train/eval subsets. Same signature as the masked and causal pipelines'."""
-    tokenizer = backbone.build_tokenizer(model_args.model_type, checkpoint_path=checkpoint_path)
-    full = Seq2SeqInfillingDataset(
-        data_args.data_path,
-        tokenizer,
-        max_len=data_args.max_len,
-        target_region=data_args.target_region,
-        include_partner_chain=data_args.include_partner_chain,
-        include_antigen=data_args.include_antigen,
-        context_dropout=data_args.context_dropout,
-        context_dropout_seed=training_args.seed,
-    )
-    train_idx, eval_idx, eval_label = select_split_indices(
-        full.data, data_args.eval_split, data_path=data_args.data_path,
-        seed=training_args.seed, test_size=data_args.test_size)
-
-    # Share records while keeping training context dropout out of validation.
-    train_ds = torch.utils.data.Subset(full, train_idx)
-    eval_ds = torch.utils.data.Subset(evaluation_context_view(full), eval_idx)
-    logger.info(f"📊 Data loaded: {len(train_ds)} train (seq2seq), "
-                f"{len(eval_ds)} eval (split: {eval_label}).")
-    return train_ds, eval_ds, tokenizer
+    return get_infilling_datasets(Seq2SeqInfillingDataset, "seq2seq", model_args, data_args,
+                                  training_args, backbone, checkpoint_path=checkpoint_path)
 
 
 def compute_metrics(eval_pred, *, trim=ANCHOR_TRIM):
@@ -64,43 +123,12 @@ def compute_metrics(eval_pred, *, trim=ANCHOR_TRIM):
 
     Predictions and labels arrive ALIGNED — position t of the prediction answers position t of the
     label, because the dataset built the decoder pair offset by one. Do not re-shift here.
-
-    The final supervised position of each row is its <eos>; it is excluded from recovery so this
-    number measures residue prediction, comparable to both siblings, rather than being diluted by a
-    token the masked method has no equivalent of.
+    The arithmetic itself is :func:`eos_recovery_metrics`, which also drops each row's final <eos>.
     """
     predictions, labels = eval_pred
     if predictions.ndim == 3:
         predictions = predictions.argmax(-1)
-
-    whole_hits = whole_total = core_hits = core_total = anchor_hits = anchor_total = 0
-    rows_with_core = 0
-    for row_preds, row_gold in zip(predictions, labels):
-        positions = np.flatnonzero(row_gold != -100)
-        if positions.size == 0:
-            continue
-        residues = positions[:-1]                      # drop the trailing <eos>
-        if residues.size == 0:
-            continue
-        correct = row_preds[residues] == row_gold[residues]
-        whole_hits += int(correct.sum())
-        whole_total += residues.size
-
-        core, anchor = core_anchor_indices(residues.size, trim)
-        if core:
-            rows_with_core += 1
-            core_hits += int(correct[core].sum())
-            core_total += len(core)
-        anchor_hits += int(correct[anchor].sum())
-        anchor_total += len(anchor)
-
-    rows = int(sum(1 for row in labels if (row != -100).any()))
-    return {
-        "accuracy": whole_hits / whole_total if whole_total else 0.0,
-        "core_accuracy": core_hits / core_total if core_total else 0.0,
-        "anchor_accuracy": anchor_hits / anchor_total if anchor_total else 0.0,
-        "core_coverage": rows_with_core / rows if rows else 0.0,
-    }
+    return eos_recovery_metrics(predictions, labels, trim=trim)
 
 
 def build_trainer(model, training_args, train_ds, eval_ds, tokenizer, callbacks=None,

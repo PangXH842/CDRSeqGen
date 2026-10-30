@@ -5,7 +5,8 @@ The fields every method declares identically live in
 
 **What is deliberately absent**, because it has no causal meaning: ``masking_policy`` /
 ``mixed_full_span_probability`` (nothing is masked), the loss registry (§13 settled that
-re-weighting core against anchor moves nothing), ``gen_decoding`` (one causal decoder, not an
+re-weighting core against anchor moves nothing; ``label_smoothing_factor``, which only that
+registry applies correctly, is rejected), ``gen_decoding`` (one causal decoder, not an
 independent/iterative choice), and the length policy plus ``train_length_predictor`` — the model
 ends its own loop with ``<eos>``, which is the whole reason §10's gap-sentinel head has no
 counterpart here.
@@ -22,7 +23,8 @@ from cdrseqgen.methods.common.arguments import (BaseDataArguments, BaseGeneratio
                                                 parse_config_and_cli,
                                                 validate_attention_heads,
                                                 validate_common_args,
-                                                validate_early_stopping)
+                                                validate_early_stopping,
+                                                validate_no_label_smoothing)
 
 
 @dataclass
@@ -73,6 +75,7 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
 
     validate_args(model_args, data_args, gen_args)
     validate_early_stopping(model_args, training_args)
+    validate_no_label_smoothing(training_args)
 
     initialize_run(model_args, data_args, gen_args, training_args, marker="ar")
     return model_args, data_args, gen_args, training_args

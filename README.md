@@ -48,7 +48,7 @@ Supporting guides live in [docs/](docs/README.md).
 ## Current handoff
 
 1. **Continue MLM generation review:** `gen_cli.py` → shared generation lifecycle →
-   `generation.py`, `case_generation.py`, `sampling.py` and the consolidated `length.py`.
+   `generation.py` (including per-case scoring), `sampling.py` and the consolidated `length.py`.
    The manual checklist marks the MLM model, training block and `eval_cli`/`evaluation`
    reclaimed. AR, S2S and shared code follow later in the review sequence.
 2. **Develop the manuscript and poster** from the completed validation evidence.

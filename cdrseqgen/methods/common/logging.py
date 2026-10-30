@@ -49,7 +49,8 @@ def attach_file_logging(output_dir: str) -> str:
     root = logging.getLogger()
 
     for handler in root.handlers:
-        if isinstance(handler, logging.FileHandler) and getattr(handler, "baseFilename", None) == os.path.abspath(log_path):
+        if (isinstance(handler, logging.FileHandler)
+                and getattr(handler, "baseFilename", None) == os.path.abspath(log_path)):
             return log_path
 
     file_handler = logging.FileHandler(log_path, mode="a+", encoding="utf-8")
