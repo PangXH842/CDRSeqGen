@@ -3,24 +3,24 @@
 Caller:
   mlm.train_cli.main() -> setup_args()
 
-Argument groups:
-  model_args    -- backbone, architecture, loss, anchors, early stopping
-  data_args     -- corpus, target loop, context, masking, length-head fitting
-  gen_args      -- candidate sampling, generation length, independent judge
-  training_args -- Hugging Face training, validation and checkpoint settings
-
-Workflow:
-  config JSON + optional CLI overrides, or CLI arguments alone
-    -> parse -> validate/normalize -> initialize run -> return four groups
+Arguments added to common.arguments:
+  model_args
+    * loss_type                   -- cross_entropy, or weighted_cross_entropy
+    * [core/anchor]_loss_weight   -- loop-position weights of the weighted loss; only their ratio matters
+  data_args
+    * masking_policy              -- full_span, or mixed (partially revealed loops as well)
+    * mixed_full_span_probability -- under mixed, the chance that an example uses the full-span mask
+    * train_length_predictor      -- fit the length head after training
+    * length_predictor_[epochs/learning_rate/batch_size] -- settings of that fit
+  gen_args
+    * gen_decoding                -- independent, or iterative, residue decoding
+    * gen_length_mode             -- fixed_native, bounded or inferred generation length
+    * gen_[min/max]_length        -- the bounds used by bounded
+    * gen_length_temperature      -- temperature for sampling the learned length
 
 Notes:
-  * Base classes in common.arguments supply shared fields; the classes below
-    add MLM settings. TrainingArguments comes directly from transformers.
-  * Trailing flags override JSON values; omitted fields use dataclass defaults.
-    Field metadata["help"] supplies the corresponding CLI help text.
-  * gen_judge scores samples with one independent reference LM (IgBert by
-    default). Cross-run comparisons need the same judge and scoring context;
-    self-perplexity uses a different measuring stick for each generator.
+  * The length head is fitted after training, when do_train and train_length_predictor are both
+    true; bounded and inferred generation use it, fixed-native generation does not.
 """
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
@@ -28,15 +28,18 @@ from typing import Optional, Tuple
 from transformers import HfArgumentParser, TrainingArguments
 
 from cdrseqgen.datasets.dataset_mlm import normalize_masking_policy
+from cdrseqgen.methods.common.arguments import (
+    BaseDataArguments,
+    BaseGenerationArguments,
+    BaseModelArguments,
+    initialize_run,
+    parse_config_and_cli,
+    validate_attention_heads,
+    validate_common_args,
+    validate_early_stopping,
+)
 from cdrseqgen.methods.mlm.backbones import resolve as resolve_backbone
 from cdrseqgen.methods.mlm.length import resolve_generation_length_policy
-from cdrseqgen.methods.common.arguments import (BaseDataArguments,
-                                                BaseGenerationArguments,
-                                                BaseModelArguments,
-                                                initialize_run, parse_config_and_cli,
-                                                validate_attention_heads,
-                                                validate_common_args,
-                                                validate_early_stopping)
 from cdrseqgen.methods.mlm.losses import loss_config_from_args
 from cdrseqgen.methods.registry import resolve as resolve_method
 
@@ -135,8 +138,9 @@ class GenerationArguments(BaseGenerationArguments):
     """
     gen_decoding: str = field(
         default="independent",
-        metadata={"help": "independent | iterative. Independent is the safe default for full_span "
-                          "training; iterative requires masking_policy=mixed. Set gen_temperature "
+        metadata={"help": "independent | iterative. Independent fills all masks in one pass; "
+                          "iterative fills one per pass and can also be requested for full_span "
+                          "checkpoints. Set gen_temperature "
                           "to 0 for greedy decoding."}
     )
     gen_length_mode: str = field(
@@ -157,12 +161,10 @@ class GenerationArguments(BaseGenerationArguments):
 def validate_inference_args(args):
     """Validate the saved-checkpoint decoder options of standalone evaluate.py / generate.py.
 
-    Same name and role as ``ar.arguments`` / ``s2s.arguments.validate_inference_args``; called by
-    ``evaluation.prepare_evaluation`` and ``generation.prepare_generation`` before any model loads.
-    Unlike the AR/S2S versions it does not set ``args.decoding``: None means "choose one" and is
-    left to ``evaluation.resolve_decoding``. The valid decoder names come from the method registry;
-    without this check any other string (a typo, or the AR/S2S names the root commands also accept)
-    would run the iterative decoder under the wrong label.
+    Called by evaluation.prepare_evaluation() and generation.prepare_generation()
+    before loading weights. Reject AR-only options and decoder names outside the
+    MLM registry. Leave args.decoding unchanged: evaluation.resolve_decoding()
+    handles the explicit, saved or fallback choice.
     """
     if getattr(args, 'max_new_tokens', None) is not None:
         raise ValueError('--max_new_tokens applies to autoregressive decoding, not masked infilling')
@@ -186,26 +188,20 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
         output_dir and run_name are set from the resolved arguments.
       * mlm.training.prepare_training() updates latest after the datasets load successfully.
     """
-    # 1.2.1 Parse the four groups: config + overrides, or CLI only.
     parser = HfArgumentParser((ModelArguments, DataArguments, GenerationArguments, TrainingArguments))
     model_args, data_args, gen_args, training_args = parse_config_and_cli(parser)
 
-    # 1.2.2 Validate the shared method/context/sampling contract and the early-stopping switch.
     validate_common_args(model_args, data_args, gen_args, expected_method="mlm")
     validate_early_stopping(model_args, training_args)
 
-    # 1.2.3 Normalize MLM masking and validate/normalize the loss settings.
     data_args.masking_policy = normalize_masking_policy(data_args.masking_policy)
     loss_config = loss_config_from_args(model_args, training_args)
     model_args.loss_type = loss_config.loss_type
 
-    # 1.2.4 Preserve dataset metadata for the collator and MLMLossTrainer.
-    # These columns need not appear in the model's forward signature.
     training_args.remove_unused_columns = False
 
-    # 1.2.5 Check MLM backbone, masking, length-head fitting, decoder and generation-length settings.
     resolve_backbone(model_args.model_type)
-    if model_args.model_type == "scratch":  # a pretrained backbone brings its own width and heads
+    if model_args.model_type == "scratch":
         validate_attention_heads(model_args)
     if not 0.0 <= data_args.mixed_full_span_probability <= 1.0:
         raise ValueError("mixed_full_span_probability must be between 0 and 1")
@@ -224,12 +220,9 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
         gen_args.gen_length_mode,
         min_length=gen_args.gen_min_length,
         max_length=gen_args.gen_max_length,
-    )  # Validate the request here; generation resolves it for each example later.
+    )
     if gen_args.gen_length_temperature < 0:
         raise ValueError("gen_length_temperature must be non-negative")
 
-    # 1.2.6 Create the run directory, file log and resolved configuration.
     initialize_run(model_args, data_args, gen_args, training_args)
-
-    # 1.2.7 Hand the configured groups back to train_cli.
     return model_args, data_args, gen_args, training_args

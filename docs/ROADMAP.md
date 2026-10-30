@@ -2,18 +2,18 @@
 # Project roadmap
 
 [Back to README](../README.md) · [Current handoff](PROJECT_STATUS.md) ·
-[Operation Reclamation](RECLAMATION.md) · [Completed evidence](RESULTS.md)
+[Completed evidence](RESULTS.md)
 
 Research milestones, experiment options and feature plans, moved from the README on
 **26 October 2026**. Dated entries retain their original scope. Use the current handoff
 and results index for completed-run status; checkbox changes remain deliberate edits.
-The manual code-review checklist lives in [RECLAMATION.md](RECLAMATION.md).
+Detailed personal code-review records are kept locally.
 
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 ## ⏭️ Roadmap
 
 <!-- AI ACCESS ZONE BEGINS -->
-> **Current priority — 23 October:** the iAIM abstract is submitted. Resume manual reclamation at **MLM evaluation/generation**, and integrate the completed §17 evidence into the framework manuscript and poster. The MLM training block is already marked reclaimed; shared code and the remaining method blocks still need manual review.
+> **Current priority — 30 October:** the iAIM abstract is submitted, and the shared argument/backbone interfaces are aligned across all three methods. Continue with **AR's model and training block**, then its remaining runtime blocks, S2S and the remaining shared modules. Integrate the completed §17 evidence into the framework manuscript and poster.
 
 ### Medium-term milestone — framework paper and final evaluation
 
@@ -21,16 +21,16 @@ The manual code-review checklist lives in [RECLAMATION.md](RECLAMATION.md).
 
 **Scope:** sequence-only H3 infilling, with length-free generation as the primary track. Native-length redesign and earlier MLM studies remain separate diagnostics. Current comparisons are validation evidence; structure-conditioned design, other loops and isolated pretraining effects are follow-ups if the paper retains those claims.
 
-1. **Resume manual reclamation:** review MLM `gen_cli` → shared generation lifecycle → method setup/case functions, case generation, sampling and the consolidated `length.py` (policies, prompts, fitted head, span sampling and evaluation strategies), then revisit `eval_cli` → `evaluation` as their callers. Follow shared dependencies, compare AR/S2S and review common ownership using the workflow map. Review extension documentation, logging/artifacts and release packaging as their code paths are understood. Automated result checks do not complete this manual review.
+1. **Continue manual reclamation:** review AR `models/transformer` → `train_cli` → `training`, then `eval_cli`/`evaluation`, `gen_cli`/`generation` and `sampling`. Compare the corresponding S2S blocks, including its PLM model and diagnostics, then review the remaining common workflows, callbacks, sampling/loss helpers and logging/artifacts using the workflow map. Automated checks support this review rather than complete it.
 2. **Develop the manuscript and poster:** integrate the verified newer evidence, explain the framework contribution and extension contract, expand related work, retain limitations and obtain advisor/coauthor review. The canonical abstract and current PDFs were refreshed on October 23; dated archives need rebuilding when the manuscript is ready to circulate.
 3. **Prepare the final evaluation alongside writing:** freeze cohort selection from the audit-eligible pool, common generator support, checkpoint/seed choices, decoding settings, metrics and contrasts. Adapt the validation-only runner and manifest export for the chosen protocol. Reuse existing checkpoints where compatible; disclose external pretraining uncertainty and historical test use.
 4. **For the planned final held-out comparison:** run the frozen evaluation and report it separately from exploratory validation. The abstract/poster can present the existing findings with their exploratory scope stated. Add experiments only for a specific unresolved claim; no new broad seed, baseline or capacity sweep is currently required.
 
 ### Experiment coverage across methods
 
-Evidence snapshot: **2026-10-22**; submission/review handoff updated **2026-10-23**. **☑** completed development evidence; **◐** partial/historical evidence; **☐** pending; **—** not applicable to the current implementation. These are experiment statuses, not manual code-review marks. Pending entries are claim-dependent options.
+Evidence snapshot: **2026-10-22**; code-review handoff updated **2026-10-30**. **☑** completed development evidence; **◐** partial/historical evidence; **☐** pending; **—** not applicable to the current implementation. These are experiment statuses, not manual code-review marks. Pending entries are claim-dependent options.
 
-The [results index](RESULTS.md) retains historical categories; the [current handoff](PROJECT_STATUS.md#current-handoff--2026-10-23) and [§17](FINDINGS.md#17-expanded-validation-evidence-seeds-retrieval-and-capacity) link the newer evidence directly. Preserve each batch's original provenance and source/runtime differences.
+The [results index](RESULTS.md) retains historical categories; the [current handoff](PROJECT_STATUS.md#current-handoff--2026-10-30) and [§17](FINDINGS.md#17-expanded-validation-evidence-seeds-retrieval-and-capacity) link the newer evidence directly. Preserve each batch's original provenance and source/runtime differences.
 
 | Experiment category | MLM | AR | S2S |
 |---|---|---|---|

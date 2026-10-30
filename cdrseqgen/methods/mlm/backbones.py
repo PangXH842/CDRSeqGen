@@ -1,29 +1,9 @@
-"""Select tokenizers and model loaders for MLM training, generation and evaluation.
+"""Register MLM tokenizers and model loaders using common.backbones.
 
-Workflow:
-  import this module
-    -> register backbone definitions in REGISTRY
-
-  model_type -> resolve() -> Backbone
-    -> build_tokenizer()        : construct the tokenizer adapter
-    -> load_training_model()    : create scratch weights or load pretrained PLM weights
-    -> load_pretrained_model()  : restore a saved model for generation/evaluation
-
-Backbone class:
-  * id / matches -- registry name and predicate used to select this backbone
-  * load_tokenizer -- construct its tokenizer adapter
-  * load_training_model -- create scratch weights or load pretrained PLM weights
-  * load_pretrained_model -- restore a saved model for generation/evaluation
-  * position_type -- "absolute" or "relative"; determines antigen placement and context truncation, 
-    without changing the model's positional embeddings
-  * uses_special_tokens -- whether MLM inputs receive leading/trailing wrappers
-  * fallback -- mark the generic backbone, which must be registered last
-  * build_tokenizer() -- select the tokenizer source and call load_tokenizer with this backbone's 
-    position_type and uses_special_tokens settings
-
-Functions:
-  * register -- append a Backbone to REGISTRY and return it
-  * resolve  -- return the first matching Backbone object; raise ValueError if none match
+Shared API:
+  resolve(model_type) -> Backbone -> build_tokenizer(), load_training_model(),
+  load_pretrained_model(). The descriptor and registry mechanics live in common;
+  this module owns the masked-LM loaders and ordered registration blocks.
 
 Current backbones (first match wins):
   * scratch      -- custom transformer and tokenizer
@@ -37,7 +17,7 @@ Extending:
     tokenization, layout conventions or model loading are required.
   * Reuse the fallback only when its masked-LM loader, residue encoding and
     layout conventions fit the model. Matching a name does not verify these.
-  * The fallback must remain last; an import-time assertion checks this.
+  * The fallback must remain last; the shared registry checks this at import.
 
 Notes:
   * Scratch checkpoints use common.backbones.load_custom_pretrained():
@@ -46,56 +26,26 @@ Notes:
     scratch-model import; it does not load checkpoint weights or run training.
 """
 import logging
-from dataclasses import dataclass
-from typing import Callable
 
-from cdrseqgen.datasets.dataset_mlm import AntibodyTokenizer, TokenizerAdapter
+from cdrseqgen.datasets.dataset_common import TokenizerAdapter
+from cdrseqgen.datasets.dataset_mlm import AntibodyTokenizer
 
 from cdrseqgen.methods.common.backbones import (
+    Backbone,
+    BackboneRegistry,
     load_custom_pretrained as _load_custom_pretrained,
     esm_tokenizer as _esm_tokenizer, bert_tokenizer as _bert_tokenizer)
 
 logger = logging.getLogger(__name__)
 
-# --- (1) Backbone class definition ------
-@dataclass
-class Backbone:
-    id: str
-    matches: Callable[[str], bool]
-    position_type: str          # "absolute" | "relative"
-    uses_special_tokens: bool
-    load_tokenizer: Callable[[str, str, bool], TokenizerAdapter]  # (model_type, pos_type, wrap)
-    load_training_model: Callable[..., object]                    # fresh model for training
-    load_pretrained_model: Callable[[str], object]               # checkpoint for generation/eval
-    fallback: bool = False
-
-    def build_tokenizer(self, model_type, checkpoint_path=None) -> TokenizerAdapter:
-        from cdrseqgen.methods.common.backbones import tokenizer_source
-        source = tokenizer_source(model_type, checkpoint_path)
-        return self.load_tokenizer(source, self.position_type, self.uses_special_tokens)
+# --- (1) Method-local registry; shared descriptor and mechanics -----------------------------------
+_registry = BackboneRegistry("mlm", require_fallback=True)
+REGISTRY = _registry.entries
+register = _registry.register
+resolve = _registry.resolve
 
 
-# --- (2) Setup REGISTRY storage & backbone name resolve function ------
-REGISTRY = []
-
-
-def register(backbone: Backbone) -> Backbone:
-    REGISTRY.append(backbone)
-    return backbone
-
-
-def resolve(model_type: str) -> Backbone:
-    """Return the first backbone whose predicate matches, else a helpful error."""
-    for backbone in REGISTRY:
-        if backbone.matches(model_type):
-            return backbone
-    raise ValueError(
-        f"No backbone registered for model_type={model_type!r}. "
-        f"Registered backbones: {[b.id for b in REGISTRY]}. Add one in backbones.py."
-    )
-
-
-# --- (3a) local model definitions ------
+# --- (2a) local model definitions ------
 # --- custom from-scratch transformer -------------------------------------------
 def _scratch():
     from cdrseqgen.methods.mlm.models import transformer
@@ -130,7 +80,7 @@ register(Backbone(
 ))
 
 
-# --- (3b) external PLMs ------
+# --- (2b) external PLMs ------
 # --- ESM-2 -------------------------------------------------
 
 def _load_esm(name_or_path):
@@ -196,12 +146,7 @@ register(Backbone(
 ))
 
 
-# Assert fallback model (or else quietly resolves to hf_encoder)
-_fallbacks = [i for i, b in enumerate(REGISTRY) if b.fallback]
-assert _fallbacks == [len(REGISTRY) - 1], (
-    f"the generic fallback must be the LAST registered backbone; "
-    f"got fallbacks at {_fallbacks} of {[b.id for b in REGISTRY]}"
-)
+_registry.validate()
 
 # --- MAIN ---
 if __name__ == "__main__":

@@ -1,13 +1,15 @@
 # Project status and next work
 
 [Back to README](../README.md) · [Results index](RESULTS.md) · [Research notes](FINDINGS.md) ·
-[Roadmap](ROADMAP.md) · [Operation Reclamation](RECLAMATION.md)
+[Roadmap](ROADMAP.md)
 
-This guide carries forward the **23 October 2026 handoff**, reorganized on 26 October.
-Submission status is user-confirmed; dated audit and artifact notes retain their original
-scope. This documentation cleanup did not rerun experiments or regenerate manuscript artifacts.
+Updated **30 October 2026** for code and manual-review progress. Research evidence and
+manuscript tasks carry forward the **23 October handoff**; their dated audit and artifact
+notes retain their original scope. No experiments or manuscript artifacts were regenerated.
 
-## Current handoff — 2026-10-23
+<a id="current-handoff--2026-10-23"></a>
+
+## Current handoff — 2026-10-30
 
 The [completed evidence inventory](RESULTS.md#completed-validation-evidence) links the audited batches. Detailed measurements and historical caveats live in [FINDINGS.md](FINDINGS.md).
 
@@ -26,16 +28,40 @@ The abstract was submitted on **23 October**, as confirmed by the user. The [can
 
 The current matched OAS4 benchmark has used validation; historical test-selection caveats remain documented below. All current contrasts are exploratory. The newer analysis resamples training seeds and framework groups, while older intervals fix checkpoints; candidate-generation variability is not estimated by either. The seven-seed study covers no-partner scratch checkpoints, **not seven-seed dropout experiments**. Historical MLM training evaluations lack attempt-validity accounting; the benchmark adapters record every attempt. Different-length/gapped homology and [external pretraining membership](../benchmark/pretraining_overlap.md) remain unresolved.
 
-**Manual code review — continue with MLM generation.** The [manual checklist](RECLAMATION.md) marks [eval_cli](../cdrseqgen/methods/mlm/eval_cli.py) and [evaluation](../cdrseqgen/methods/mlm/evaluation.py) reclaimed on **23 October**. Continue with [gen_cli](../cdrseqgen/methods/mlm/gen_cli.py) → shared generation lifecycle → [generation](../cdrseqgen/methods/mlm/generation.py), then `sampling` and the consolidated [length module](../cdrseqgen/methods/mlm/length.py). On **26 October**, the length draft became the active `length.py`: policies, mask/gap prompts, head fitting/loading, span sampling and both evaluation strategies now live together. `evaluation.py` coordinates selection/scoring/reporting; `generation.py` supplies command callbacks and builds/scores per-case records; the separate MLM `case_generation.py` was merged into `generate_case()` on **29 October**. The old predictor/variable-evaluation modules and draft were removed. The residue dispatcher remains in `sampling.py`. This refactor does not complete manual review or regenerate research outputs.
+**Manual code review — continue with AR's model and training block.** Continue with
+[AR's model](../cdrseqgen/methods/ar/models/transformer.py) →
+[train_cli](../cdrseqgen/methods/ar/train_cli.py) →
+[training](../cdrseqgen/methods/ar/training.py), then its evaluation/generation
+and sampling blocks. Compare S2S next and revisit the remaining shared dependencies.
+
+**Current shared implementation:**
+
+- All three methods wire `prepare_training()` and `finish_training()` into
+  `common.training.run_training_pipeline()`; standalone evaluation/generation
+  likewise use shared lifecycles.
+- `common.arguments` owns base fields, config/CLI merging and shared validation.
+  Explicit overrides preserve unrelated JSON nulls, lists and dictionaries.
+  See the [argument reference](ARGUMENTS.md).
+- `common.backbones` owns `Backbone`, `BackboneRegistry` and loading helpers.
+  Method registries remain separate; AR extends tokenizer construction for its
+  span-layout checks, while S2S owns encoder/decoder assembly.
+- MLM's `length.py` owns policies, prompts, the fitted head, span sampling and
+  evaluation strategies. Its `generation.py` includes per-case scoring; the old
+  predictor/variable-evaluation modules and `case_generation.py` are retired.
 
 ```text
-generate.py → mlm/gen_cli.main() → common/generation.run_generation_pipeline()
-                               → mlm/generation.generate_case()
-evaluate.py → mlm/eval_cli.main() → common/evaluation.run_evaluation_pipeline()
-                               → mlm/evaluation.run_generative_eval()
+train.py    → method/train_cli.main() → common.training.run_training_pipeline()
+                                    → method prepare_training() / finish_training()
+generate.py → method/gen_cli.main()   → common.generation.run_generation_pipeline()
+                                    → method/generation.generate_case()
+evaluate.py → method/eval_cli.main()  → common.evaluation.run_evaluation_pipeline()
+                                    → method/evaluation.run_generative_eval()
 ```
 
-Both workflows call shared loading/setup lifecycles in `methods/common/`. Follow those dependencies while reading, then compare method implementations through MLM → AR → S2S → common using the [workflow map](../cdrseqgen/methods/common/README.md). Shared code remains pending in the manual checklist; passing tests and completed refactors do not mark it reclaimed. The manual checkboxes remain the record of your own review.
+Use the [workflow map](../cdrseqgen/methods/common/README.md) to follow stage ownership.
+The remaining common callbacks, training, evaluation/generation, sampling, loss and
+recording modules still need manual review. Passing tests or completing a refactor
+does not complete a manual review. Detailed personal review records are kept locally.
 
 **Reading older notes:** dated recipes, the baseline-scope memo and the results index contain preparation-time statements that precede these completions. Use this handoff, §17 and the linked saved outputs for current run status. No new broad training batch is needed before drafting. Experiment execution remains user-run.
 

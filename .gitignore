@@ -11,3 +11,6 @@ old/
 __pycache__/
 *.pyc
 /temp/
+
+# Personal manual-review checklist, kept locally.
+/docs/RECLAMATION.md

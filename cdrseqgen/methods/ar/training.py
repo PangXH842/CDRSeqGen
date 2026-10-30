@@ -10,6 +10,7 @@ Entry path:
   * get_datasets             -- tokenizer + CausalInfillingDataset + the train/eval split
   * compute_metrics          -- teacher-forced recovery over the answer, split core/anchor
   * build_trainer            -- a plain HF Trainer; the model returns its own loss
+                                (``compute_loss_func`` is the open end for a selectable one)
   * post_training_generation -- pass the decode cap into common.evaluation
 
 Mirrors ``methods/mlm/training.py`` so the two are comparable, with three differences that follow
@@ -127,8 +128,16 @@ def compute_metrics(eval_pred, *, trim=ANCHOR_TRIM):
 
 
 def build_trainer(model, training_args, train_ds, eval_ds, tokenizer, callbacks=None,
-                  trim=ANCHOR_TRIM):
-    """A plain HF Trainer: unlike the masked side there is no external loss to bridge."""
+                  trim=ANCHOR_TRIM, compute_loss_func=None):
+    """A plain HF Trainer: unlike the masked side there is no external loss to bridge.
+
+    The model's own shifted token-mean cross-entropy is the loss unless ``compute_loss_func`` is
+    given: the open end for a selectable objective. It follows Hugging Face's contract,
+    ``f(outputs, labels, num_items_in_batch=None) -> scalar``, receives the labels UNSHIFTED (shift
+    inside, as the model does) and must divide by ``num_items_in_batch`` itself when that is not
+    None, because the Trainer then stops averaging over accumulation steps. With None it must
+    return the plain token mean (evaluation passes no count).
+    """
     return Trainer(
         model=model,
         args=training_args,
@@ -136,5 +145,6 @@ def build_trainer(model, training_args, train_ds, eval_ds, tokenizer, callbacks=
         eval_dataset=eval_ds,
         data_collator=functools.partial(causal_collate_fn, pad_token_id=tokenizer.pad_id),
         compute_metrics=functools.partial(compute_metrics, trim=trim),
+        compute_loss_func=compute_loss_func,
         callbacks=callbacks or [],
     )

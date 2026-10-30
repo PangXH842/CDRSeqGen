@@ -5,7 +5,8 @@
     all three methods BEFORE initialize_run() creates the run directory.
   * A valid config still reaches initialize_run(), and a pretrained backbone keeps its own width
     and heads instead of being held to the scratch-model rules.
-  * Adding a trailing CLI override does not change how a config's list and dict values are read.
+  * Trailing CLI overrides preserve JSON nulls, lists and dicts unless explicitly replaced;
+    boolean aliases, required fields and .args precedence retain their behavior.
   * Every shipped training config and every experiment-spec trial passes its method's setup_args().
   * The argument dataclasses stay documented, and a field that defaults to None is declared Optional.
 """
@@ -13,6 +14,7 @@ import contextlib
 import dataclasses
 import io
 import json
+import re
 import tempfile
 import typing
 import unittest
@@ -153,11 +155,11 @@ class RejectedBeforeTheRunDirectoryTests(unittest.TestCase):
 
 
 class ConfigWithOverridesTests(unittest.TestCase):
-    def parse(self, config, *overrides):
-        parser = _parser(mlm_arguments)
+    def parse(self, config, *overrides, method="mlm"):
+        parser = _parser(resolve(method).module("arguments"))
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"
-            path.write_text(json.dumps(config))
+            path.write_text(json.dumps({"use_cpu": True, "report_to": "none", **config}))
             with patch("sys.argv", ["train.py", str(path), *overrides]):
                 return parse_config_and_cli(parser)
 
@@ -176,17 +178,104 @@ class ConfigWithOverridesTests(unittest.TestCase):
                     self.assertEqual(getattr(overridden, name), getattr(alone, name))
                 self.assertEqual(overridden.seed, 7)
 
-    def test_an_empty_list_cannot_be_expressed_as_an_override(self):
-        self.parse(dict(label_names=[]))  # fine on its own
-        with self.assertRaisesRegex(ValueError, "label_names: an empty list"):
-            self.parse(dict(label_names=[]), "--seed", "7")
+    def test_empty_lists_survive_an_unrelated_override(self):
+        for field in ("label_names", "report_to"):
+            with self.subTest(field=field):
+                alone = self.parse({field: []})[3]
+                overridden = self.parse({field: []}, "--seed", "7")[3]
+                self.assertEqual(getattr(alone, field), [])
+                self.assertEqual(getattr(overridden, field), [])
+                self.assertEqual(overridden.seed, 7)
 
-    def test_a_null_keeps_the_dataclass_default_and_the_override_still_applies(self):
+    def test_an_empty_list_can_be_replaced_by_an_explicit_override(self):
+        labels = self.parse(dict(label_names=[]), "--label_names", "labels")[3]
+        reporting = self.parse(dict(report_to=[]), "--report_to", "none")[3]
+        self.assertEqual(labels.label_names, ["labels"])
+        self.assertEqual(reporting.report_to, [])
+
+    def test_explicit_nulls_survive_an_unrelated_override_in_every_method(self):
+        for method in METHODS:
+            with self.subTest(method=method):
+                config = dict(method=method, gen_judge=None, label_names=None)
+                alone = self.parse(config, method=method)
+                overridden = self.parse(config, "--seed", "7", method=method)
+                self.assertIsNone(alone[2].gen_judge)
+                self.assertIsNone(overridden[2].gen_judge)
+                self.assertIsNone(overridden[3].label_names)
+                self.assertEqual(overridden[3].seed, 7)
+
+    def test_null_optional_fields_and_omitted_defaults_are_distinct(self):
         model, _, gen, training = self.parse(dict(gen_judge_path=None, intermediate_size=None,
                                                   hidden_size=64), "--seed", "7")
         self.assertIsNone(gen.gen_judge_path)
         self.assertIsNone(model.intermediate_size)
+        self.assertEqual(gen.gen_judge, "Exscientia/IgBert")
         self.assertEqual((model.hidden_size, training.seed), (64, 7))
+
+    def test_explicit_overrides_replace_nulls_and_dicts(self):
+        _, _, gen, training = self.parse(
+            dict(gen_judge=None, lr_scheduler_kwargs={"num_cycles": 2}),
+            "--gen_judge", "local/judge", "--lr_scheduler_kwargs", '{"num_cycles": 3}',
+        )
+        self.assertEqual(gen.gen_judge, "local/judge")
+        self.assertEqual(training.lr_scheduler_kwargs, {"num_cycles": 3})
+
+    def test_aliases_boolean_complements_and_last_override_win(self):
+        model, data, gen, _ = self.parse(
+            dict(hidden_size=64, include_partner_chain=False, run_generative_eval=True),
+            "--hidden-size=32", "--hidden_size", "96",
+            "--include-partner-chain", "--no-run-generative-eval",
+        )
+        self.assertEqual(model.hidden_size, 96)
+        self.assertTrue(data.include_partner_chain)
+        self.assertFalse(gen.run_generative_eval)
+
+    def test_unknown_json_keys_and_cli_flags_are_still_rejected(self):
+        for value in (None, [], {}):
+            for overrides in ([], ["--seed", "7"]):
+                with self.subTest(value=value, overrides=overrides):
+                    with self.assertRaisesRegex(ValueError, "not_a_field"):
+                        self.parse(dict(not_a_field=value), *overrides)
+        with self.assertRaisesRegex(ValueError, "not_a_flag"):
+            self.parse({}, "--not_a_flag", "7")
+
+    def test_args_file_precedence_and_json_only_behavior_are_preserved(self):
+        parser = _parser(mlm_arguments)
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "train.py"
+            script.with_suffix(".args").write_text(
+                "--seed 1 --hidden_size 32 --gen_judge local/judge --gen_num_samples 9"
+            )
+            config = Path(directory) / "config.json"
+            config.write_text(json.dumps(dict(use_cpu=True, report_to="none",
+                                              seed=2, hidden_size=64, gen_judge=None)))
+            with patch("sys.argv", [str(script), str(config), "--seed", "3"]):
+                model, _, gen, training = parse_config_and_cli(parser)
+            self.assertEqual((model.hidden_size, gen.gen_num_samples, training.seed), (64, 9, 3))
+            self.assertIsNone(gen.gen_judge)
+            with patch("sys.argv", [str(script), str(config)]):
+                _, _, gen, training = parse_config_and_cli(parser)
+            self.assertEqual((gen.gen_num_samples, training.seed), (20, 2))
+
+    def test_required_fields_can_come_from_json_without_changing_parser_defaults(self):
+        @dataclasses.dataclass
+        class Options:
+            name: str
+            enabled: bool = True
+
+        parser = HfArgumentParser(Options)
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "config.json"
+            config.write_text(json.dumps(dict(name="from JSON")))
+            with patch("sys.argv", ["train.py", str(config), "--no_enabled"]):
+                (parsed,) = parse_config_and_cli(parser)
+            self.assertEqual(parsed.name, "from JSON")
+            self.assertFalse(parsed.enabled)
+            (bare,) = parser.parse_args_into_dataclasses(
+                ["--name", "from CLI"], look_for_args_file=False
+            )
+            self.assertEqual(bare.name, "from CLI")
+            self.assertTrue(bare.enabled)
 
 
 class ShippedConfigTests(unittest.TestCase):
@@ -223,6 +312,14 @@ class ArgumentDeclarationTests(unittest.TestCase):
                 if field.default is None:
                     with self.subTest(field=f"{cls.__module__}.{cls.__name__}.{field.name}"):
                         self.assertIn(type(None), typing.get_args(hints[field.name]))
+
+    def test_the_arguments_guide_lists_exactly_the_argument_fields(self):
+        """docs/ARGUMENTS.md is a table of the fields; a new or removed field must change it."""
+        guide = (ROOT / "docs" / "ARGUMENTS.md").read_text()
+        fields = {field.name for cls in _argument_classes() for field in dataclasses.fields(cls)}
+        listed = set(re.findall(r"^\| `([a-z_]+)` \|", guide, flags=re.M))
+        self.assertEqual(sorted(fields - listed), [], "fields missing from docs/ARGUMENTS.md")
+        self.assertEqual(sorted(listed - fields), [], "docs/ARGUMENTS.md lists fields that are gone")
 
     def test_the_partner_context_choices_are_defined_once(self):
         field = {f.name: f for f in dataclasses.fields(BaseGenerationArguments)}["gen_judge_partner_context"]

@@ -8,7 +8,8 @@ shared workflows. Training also parses arguments; root evaluation/generation com
 already supply parsed inputs. `common.training.run_training_pipeline()` orders each
 method's preparation, shared training/saving and method extensions. `common/`
 implements shared stages and utilities; it does not have an executable `main()` that
-the methods inherit or override. Argument classes do inherit shared base classes.
+the methods inherit or override. Argument classes inherit shared base classes;
+backbone descriptors and ordered registry mechanics also live in common.
 AR and S2S also share `common/eos_decoding.py`: their recovery arithmetic, dataset
 split, evaluation strategy and generation record, which differ only in the
 conditioning input, the sampler and how predictions line up with labels.
@@ -50,7 +51,7 @@ For generation/evaluation of an existing checkpoint, chunk 2 loads the saved
 model, chunk 4 loads the MLM length artifacts when required, and training is
 skipped. AR/S2S choose length through EOS in chunk 5.
 
-`train_cli.py` starts training runs; MLM passes `training.prepare_training()` and
+`train_cli.py` starts training runs; each method passes `training.prepare_training()` and
 `training.finish_training()` into `common.training.run_training_pipeline()`.
 `gen_cli.py` and `eval_cli.py` supply
 method-specific functions to the standalone `generate.py` and `evaluate.py`
@@ -70,11 +71,11 @@ Each root command selects a method through `methods/registry.py` and calls the
 matching module in that method's package. The same names are used for MLM, AR
 and S2S:
 
-| Root command | Method module | Calls | MLM implementation |
+| Root command | Method module | Calls | Shared flow |
 |---|---|---|---|
-| `train.py` | `train_cli.py` | `main()` | CLI setup, then connect MLM preparation/finish hooks to `common.training.run_training_pipeline()` |
-| `evaluate.py` | `eval_cli.py` | `main(args, config, run_config)` | Connect MLM setup and scoring to `common.evaluation.run_evaluation_pipeline()` |
-| `generate.py` | `gen_cli.py` | `main(args, config)` | Connect MLM setup, state and case production to `common.generation.run_generation_pipeline()` |
+| `train.py` | `train_cli.py` | `main()` | Connect method preparation/finish hooks to `common.training.run_training_pipeline()` |
+| `evaluate.py` | `eval_cli.py` | `main(args, config, run_config)` | Connect method setup and scoring to `common.evaluation.run_evaluation_pipeline()` |
+| `generate.py` | `gen_cli.py` | `main(args, config)` | Connect method setup, state and case production to `common.generation.run_generation_pipeline()` |
 
 ```mermaid
 flowchart LR
@@ -86,7 +87,7 @@ flowchart LR
     R -->|Generate| GC["method/gen_cli.py"]
 ```
 
-MLM's three CLI modules contain explicit entry functions:
+All three methods expose the same entry-function pattern:
 
 ```text
 train_cli.main() -> common.training.run_training_pipeline()
@@ -109,16 +110,14 @@ case order and delegates each scored record to the method's case producer.
 All three methods' evaluation and generation CLI modules supply their functions
 directly from `main()`.
 
-MLM training uses the same wiring pattern: the common workflow calls
-`prepare_training()` to obtain a Trainer/tokenizer, the existing
-`train_and_save()` to train/evaluate/save, then `finish_training()` for
-optional length fitting and generated-loop evaluation. AR/S2S continue calling
-the existing Trainer lifecycle directly from their command modules.
+All three training commands use the same shared workflow: `prepare_training()`
+returns a Trainer/tokenizer, `train_and_save()` trains/evaluates/saves, and
+`finish_training()` runs method extensions and optional generated-loop evaluation.
+MLM can fit its length head in the finish hook; AR/S2S generate to EOS.
 
 `eval_cli.evaluate` remains the lower-level evaluator for already loaded resources.
 Post-training evaluation uses it through `Method.evaluate()` and does not repeat
-the standalone model/data loading lifecycle. Existing setup helper exports are
-retained for callers that use the individual stages.
+the standalone model/data loading lifecycle.
 
 All three methods validate decoder/length options for their two saved-checkpoint
 commands through `arguments.validate_inference_args()` (AR/S2S also set
@@ -133,14 +132,11 @@ flowchart TD
     T["train.py: resolve method"] --> R["methods/registry.py: select train_cli"]
     R --> A["mlm / ar / s2s: train_cli.main()"]
     A --> B["Method setup_args(): parse, validate, initialize run"]
-    B --> O{"Method"}
-    O -->|MLM| M["common.training.run_training_pipeline: prepare_training hook"]
-    O -->|AR/S2S| N["Continue in method train_cli.main()"]
+    B --> M["common.training.run_training_pipeline: method prepare_training hook"]
     M --> C["Set seed; resolve backbone; load datasets and tokenizer"]
-    N --> C
     C --> D["Load model; build method Trainer; register callbacks"]
     D --> E["common/training.py: train_and_save()"]
-    E --> F["Method extensions: MLM finish_training fits length head when enabled"]
+    E --> F["Method finish_training: MLM can fit its length head"]
     F --> G{"Generative evaluation enabled?"}
     G -->|Yes| H["Method post_training_generation() wrapper"]
     H --> I["common/evaluation.py: judge and context regimes"]
@@ -247,9 +243,9 @@ Paths in this table are relative to `cdrseqgen/`.
 | Generate supplied frameworks | `common/generation.run_generation_pipeline()`: checks, loading, case coordination and output writing | `gen_cli.main()` supplies setup, state and case functions; each method builds and scores records in `generation.generate_case()`; AR/S2S delegate to `common/eos_decoding.eos_case_record()` |
 | Parse and validate settings | `methods/common/arguments.py`: base classes, parsing, validation, run initialization, and the flags `evaluate.py`/`generate.py` share (`add_sampling_arguments()`) | `<method>/arguments.py`: additional fields, validation and `setup_args()` |
 | Load input views and splits | `datasets/dataset_common.py`: context and split helpers | `<method>/training.get_datasets()` (AR/S2S through `common/eos_decoding.get_infilling_datasets()`) and `datasets/dataset_<method>.py` |
-| Load backbone and tokenizer | `methods/common/backbones.py`: checkpoint/tokenizer helpers | `<method>/backbones.py`, `<method>/models/` |
+| Load backbone and tokenizer | `methods/common/backbones.py`: shared descriptor, ordered registry and checkpoint/tokenizer helpers | `<method>/backbones.py`: its own registry instance, registrations and loaders; AR extends tokenizer construction with span-layout checks; S2S assembles its encoder/decoder; concrete models stay in `<method>/models/` |
 | Build Trainer | `methods/common/callbacks.build_callbacks()`; `methods/common/training.ExternalLossTrainer` supplies the external-loss handoff | MLM loss Trainer and recovery metrics; AR/S2S Trainer builders, collators and metrics |
-| Calculate token loss | `methods/common/losses.token_cross_entropy()`: aligned token CE | MLM loss registry and core/anchor weighting; AR/S2S models calculate their own losses |
+| Calculate token loss | `methods/common/losses.token_cross_entropy()`: aligned token CE | MLM loss registry and core/anchor weighting; AR/S2S models calculate their own losses. The open end for a selectable AR/S2S loss is `build_trainer(compute_loss_func=...)`: Hugging Face's `f(outputs, labels, num_items_in_batch=None)`, which must align the labels itself (AR shifts, S2S does not) and divide by the count when given (`test_loss_normalization` shows a function that does reproduces the model's loss) |
 | Run training and teacher-forced evaluation | `methods/common/training.train_and_save()` | The supplied model and Trainer determine loss, inputs and metrics |
 | Run post-training generative evaluation | `methods/common/evaluation.post_training_generation()`: judge, context regimes and artifact setup | Method wrapper supplies decoding/length options; method evaluator supplies the strategy |
 | Draw, score and report candidates | `eval/generative.py`, `eval/metrics.py`, `methods/common/sampling.py` | Method sampling, length selection, self-scoring and judge input construction; AR/S2S share the strategy bookkeeping in `common/eos_decoding.py` |
@@ -262,7 +258,7 @@ as described below.
 
 | Module | Responsibility | Main callers |
 |---|---|---|
-| `logging.py` | Configure stdout, attach `train.log`, log uncaught exceptions | Root generation/evaluation commands, method training commands, shared argument setup |
+| `logging.py` | Configure stdout, attach `train.log`, log uncaught exceptions | All method CLI entrypoints; shared argument setup attaches the training file handler |
 | `run_setup.py` | Select/name output directories, update latest, save resolved configuration/provenance, supply dataset tags | Shared argument setup, method training workflows, visualization tables |
 | `callbacks.py` | `LogMetricsCallback` records Trainer log events; `build_callbacks()` adds requested early stopping | Method Trainer construction |
 | `record_results.py` | Export the epoch trajectory CSV and training-curve PNGs | `training.train_and_save()` |

@@ -10,6 +10,7 @@ Entry path:
   * get_datasets             -- tokenizer + Seq2SeqInfillingDataset + the train/eval split
   * compute_metrics          -- teacher-forced recovery over the loop, split core/anchor
   * build_trainer            -- a plain HF Trainer; the model returns its own loss
+                                (``compute_loss_func`` is the open end for a selectable one)
   * post_training_generation -- pass the decode cap into common.evaluation
 
 Mirrors ``methods/ar/training.py`` so the two are comparable. Two differences, both forced:
@@ -132,8 +133,16 @@ def compute_metrics(eval_pred, *, trim=ANCHOR_TRIM):
 
 
 def build_trainer(model, training_args, train_ds, eval_ds, tokenizer, callbacks=None,
-                  trim=ANCHOR_TRIM):
-    """A plain HF Trainer: like the causal side there is no external loss to bridge."""
+                  trim=ANCHOR_TRIM, compute_loss_func=None):
+    """A plain HF Trainer: like the causal side there is no external loss to bridge.
+
+    The model's own token cross-entropy is the loss unless ``compute_loss_func`` is given: the open
+    end for a selectable objective. It follows Hugging Face's contract,
+    ``f(outputs, labels, num_items_in_batch=None) -> scalar``, receives the labels ALIGNED with the
+    logits (no shift, as in the model) and must divide by ``num_items_in_batch`` itself when that is
+    not None, because the Trainer then stops averaging over accumulation steps. With None it must
+    return the plain token mean (evaluation passes no count).
+    """
     return Trainer(
         model=model,
         args=training_args,
@@ -143,5 +152,6 @@ def build_trainer(model, training_args, train_ds, eval_ds, tokenizer, callbacks=
             s2s_collate_fn, pad_token_id=tokenizer.pad_id,
             encoder_pad_token_id=getattr(tokenizer, "encoder_tokenizer", tokenizer).pad_id),
         compute_metrics=functools.partial(compute_metrics, trim=trim),
+        compute_loss_func=compute_loss_func,
         callbacks=callbacks or [],
     )

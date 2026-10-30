@@ -6,7 +6,7 @@ CDR generation and benchmarking through a shared framework. It currently impleme
 masked language modeling (MLM), autoregressive generation (AR) and encoder-decoder
 generation (S2S), with method-specific objectives and decoders.
 
-**Updated:** 26 October 2026. **Status:** the iAIM abstract was submitted on 23 October.
+**Updated:** 30 October 2026. **Status:** the iAIM abstract was submitted on 23 October.
 Current work is manual code review, manuscript integration and poster preparation;
 final held-out evaluation remains pending.
 
@@ -31,6 +31,7 @@ Supporting guides live in [docs/](docs/README.md).
 |---|---|
 | [Environment setup](docs/ENVIRONMENT.md) | Dependencies, server restoration, data/cache transfer and verification |
 | [Workflow manual](docs/WORKFLOW.md) | Preprocessing, training, generation, evaluation and historical run recipes |
+| [Argument reference](docs/ARGUMENTS.md) | Shared and method-specific fields, defaults, validation and config/CLI overrides |
 | [Experiment guide](configs/experiments/README.md) | Named batches, planning, execution, status and resume |
 | [Architecture reference](docs/ARCHITECTURE.md) | Full repository map, data layout and extension points |
 | [Method workflow map](cdrseqgen/methods/common/README.md) | Call graph, stage ownership and the manual review sequence |
@@ -38,7 +39,6 @@ Supporting guides live in [docs/](docs/README.md).
 | [Detailed findings](docs/FINDINGS.md) | Measurements, protocols, historical findings and limitations |
 | [Project status](docs/PROJECT_STATUS.md) | Research handoff, manuscript tasks and final-evaluation decisions |
 | [Roadmap](docs/ROADMAP.md) | Research milestones, experiment options and feature plans |
-| [Operation Reclamation](docs/RECLAMATION.md) | Manual code-review checklist and review marks |
 | [Benchmark guide](benchmark/README.md) | Adapter contracts, matched evaluation and scoring |
 | [Test guide](unit_tests/README.md) | Offline CPU checks and their coverage |
 | [Changelog](docs/CHANGELOG.md) | Detailed AI-assisted implementation and audit history |
@@ -47,10 +47,9 @@ Supporting guides live in [docs/](docs/README.md).
 
 ## Current handoff
 
-1. **Continue MLM generation review:** `gen_cli.py` → shared generation lifecycle →
-   `generation.py` (including per-case scoring), `sampling.py` and the consolidated `length.py`.
-   The manual checklist marks the MLM model, training block and `eval_cli`/`evaluation`
-   reclaimed. AR, S2S and shared code follow later in the review sequence.
+1. **Continue with AR's model and training block:** `models/transformer.py` →
+   `train_cli.py` → `training.py`, following its shared dependencies.
+   AR/S2S runtime blocks and the remaining shared modules follow.
 2. **Develop the manuscript and poster** from the completed validation evidence.
    The [paper outline](../iAIM/PAPER_OUTLINE.md) maps claims to evidence; the
    [canonical abstract](../iAIM/sections/0_abstract.tex) is shared by both LaTeX entry points.
@@ -60,8 +59,7 @@ Supporting guides live in [docs/](docs/README.md).
    test pool is not yet a frozen evaluation manifest.
 
 Completed validation batches need no completion rerun. Research experiments remain
-user-run. See [project status](docs/PROJECT_STATUS.md) for the detailed handoff and
-the [reclamation checklist](docs/RECLAMATION.md) for your review marks.
+user-run. See [project status](docs/PROJECT_STATUS.md) for the detailed handoff.
 
 ## ⚙️ Environment Setup
 
@@ -112,7 +110,7 @@ The [workflow manual](docs/WORKFLOW.md) covers the individual commands and outpu
 | `evaluate.py` | `eval_cli.main(args, config, run_config)` | Connect checkpoint evaluation setup and scoring to the shared lifecycle |
 | `generate.py` | `gen_cli.main(args, config)` | Generate candidates for supplied framework cases |
 
-For MLM, the current paths are:
+All three methods use this command flow:
 
 ```text
 train.py    → train_cli.main() → common.training.run_training_pipeline()
@@ -122,6 +120,10 @@ generate.py → gen_cli.main()   → common.generation.run_generation_pipeline()
 evaluate.py → eval_cli.main()  → common.evaluation.run_evaluation_pipeline()
                              → evaluation.run_generative_eval()
 ```
+
+Shared argument classes/parsing and backbone descriptors/registry mechanics live in
+`methods/common/`. Each method supplies its own backbone registrations, model loaders
+and workflow callbacks; see the [method workflow map](cdrseqgen/methods/common/README.md).
 
 MLM generation and evaluation share `sampling.sample_masked_span()`. An explicit
 decoder request takes priority over a compatible saved setting; the fallback is
@@ -266,15 +268,17 @@ These sections now live in the linked guides; their previous README anchors are 
 - <a id="medium-term-milestone--framework-paper-and-final-evaluation"></a>[Medium-term milestone — framework paper and final evaluation](docs/ROADMAP.md#medium-term-milestone--framework-paper-and-final-evaluation)
 - <a id="experiment-coverage-across-methods"></a>[Experiment coverage across methods](docs/ROADMAP.md#experiment-coverage-across-methods)
 - <a id="active-milestone--code-review-and-paper-draft"></a>[Active milestone — code review and paper draft](docs/ROADMAP.md#active-milestone--code-review-and-paper-draft)
-- <a id="operation-reclamation"></a>[Operation Reclamation](docs/RECLAMATION.md)
+- <a id="operation-reclamation"></a>Operation Reclamation: personal review notes are kept locally.
 
 </details>
 
-## Development history and manual review
+<a id="development-history-and-manual-review"></a>
+
+## Development history
 
 The dated development history is retained below. Planning lives in
-[ROADMAP.md](docs/ROADMAP.md), manual review marks in [RECLAMATION.md](docs/RECLAMATION.md),
-and the detailed AI-assisted changelog in [CHANGELOG.md](docs/CHANGELOG.md).
+[ROADMAP.md](docs/ROADMAP.md), and the detailed AI-assisted changelog in
+[CHANGELOG.md](docs/CHANGELOG.md).
 
 <details>
 <summary>Expand the protected development history</summary>
@@ -283,27 +287,23 @@ and the detailed AI-assisted changelog in [CHANGELOG.md](docs/CHANGELOG.md).
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-10-30** -- `methods/`: realigned `arguments`, `backbones` codes across each method
 - **2026-10-27** -- Project-wide Claude fix
 - **2026-10-26** -- Merged MLM fixed/variable length generation mechanics into `methods/mlm/length.py`
-- **2026-10-23** -- [RECLAIM] `methods/mlm/`: `eval_cli`, `evaluation` (partial) -- updated generative decoder defaults
 - **2026-10-23** -- **Abstract submission to iAIM 2026**
-- **2026-10-22** -- [RECLAIM] `methods/mlm/` training block (`train_cli.py` and all relevant scripts)
 - **2026-10-22** -- [EXPERIMENTS] 2 MLM ESM-2 no-partner trials 
 - **2026-10-12** -- [BENCHMARK] Completed IgCraft, retrieval, 7 seed, repeat and capacity studies; added seed-aware analysis and independently verified saved evidence
 - **2026-10-08** -- [BENCHMARK] Audited matched OAS4 validation and the empirical follow-up; added paired comparisons and manuscript tables/figures
 - **2026-10-07** -- [EXPERIMENTS] 6 AR/S2S no-partner controls, 4 ESM-2 dropout confirmations, 2 MLM no-partner controls, 4 MLM dropout trials
-- **2026-10-07** -- [RECLAIM] `methods/mlm/`: `arguments`, `train_cli`
-- **2026-10-07** -- [RECLAIM] `methods/mlm/`: Redesigned root and method entrypoint scripts -- `entrypoint.py` -> `train_cli.py`; `cli.py` -> `eval_cli.py`, `gen_cli.py`
+- **2026-10-07** -- `methods/mlm/`: Redesigned root and method entrypoint scripts -- `entrypoint.py` -> `train_cli.py`; `cli.py` -> `eval_cli.py`, `gen_cli.py`
 - **2026-10-07** -- Experiment scripts rework
-- **2026-10-06** -- [RECLAIM] `eval/`: `metrics.py`, `generative.py`
 - **2026-09-22** -- Reclassified config dirs
 - **2026-09-22** -- Revised environment settings (server migration)
-- **2026-09-18** -- [RECLAIM] `datasets/`: revised dataset class scripts
-- **2026-09-17** -- [RECLAIM] `datasets/preprocess/`: Redesigned the data preprocessing pipeline
+- **2026-09-18** -- `datasets/`: revised dataset class scripts
+- **2026-09-17** -- `datasets/preprocess/`: Redesigned the data preprocessing pipeline
 - **2026-09-17** -- Data storage restructure: dataset code to `cdrseqgen/datasets/`; raw/processed files to root `data/` (old: `datasets/data/`)
 - **2026-09-15** -- [EXPERIMENTS] table and timeline created 
 - **2026-09-15** -- Span layout + context dropout edits
-- **2026-09-14** -- [RECLAIM] Revised reclamation list
 - **2026-09-10** -- Added PLMs for S2S: ESM-2, IgBert, ProtBert
 - **2026-09-10** -- `cdrseqgen/experiments.py` [new]: unified suite/sweep planner + executor for `run.sh`/`sweep.sh` (to be moved to `scripts/`?)
 - **2026-09-07** -- **SEQ2SEQ UPDATE** (`methods/s2s/`)

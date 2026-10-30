@@ -1,20 +1,21 @@
-"""Seq2seq run configuration: only what differs from the shared bases.
+"""Arguments configuration and setup -- S2S method.
 
-The fields every method declares identically live in
-:mod:`cdrseqgen.methods.common.arguments`, along with config/CLI parsing and run-directory setup.
+Caller:
+  s2s.train_cli.main() -> setup_args()
 
-**What is deliberately absent**, because it has no encoder-decoder meaning: ``masking_policy`` /
-``mixed_full_span_probability`` (nothing is masked out of a supervised stream), the loss registry
-(§13 settled that re-weighting core against anchor moves nothing; ``label_smoothing_factor``,
-which only that registry applies, is rejected), ``gen_decoding`` (one decoder,
-not an independent/iterative choice), and the length policy plus ``train_length_predictor`` — the
-decoder ends its own loop with ``<eos>``, so §10's gap-sentinel head has no counterpart, exactly as
-on the causal side.
+Arguments added to common.arguments:
+  model_args
+    * num_[encoder/decoder]_layers -- separate stack depths (scratch encoder; decoder, unset = num_layers)
+    * encoder_init                -- PLM encoder pretrained, or random (a same-architecture control)
+    * freeze_encoder              -- keep the PLM encoder's weights and dropout fixed
+    * conditioning_probe_steps    -- fixed validation conditioning probes; 0 disables
+    * diagnostic_stop_epoch       -- stop at this epoch without shortening the LR schedule; 0 disables
+  gen_args
+    * gen_max_new_tokens          -- decode steps including <eos>; a draw that never emits it is dropped
 
-**What is added**: separate encoder and decoder depths. ``num_layers`` alone would make an `s2s`
-run and an `ar` run with the same config look comparable while the former carries 2.3x the
-parameters (800k vs 1.86M at the shipped defaults), and Findings §9 records what one un-audited
-hyperparameter cost across four findings at once.
+Notes:
+  * Separate encoder/decoder depths help control parameter count in method comparisons;
+    the same num_layers value does not give AR and S2S the same number of parameters.
 """
 import math
 from dataclasses import dataclass, field
@@ -23,13 +24,17 @@ from typing import Optional, Tuple
 from transformers import HfArgumentParser, TrainingArguments
 
 from cdrseqgen.datasets.dataset_s2s import S2S_DECODE_STEPS, validate_s2s_decode_steps
-from cdrseqgen.methods.common.arguments import (BaseDataArguments, BaseGenerationArguments,
-                                                BaseModelArguments, initialize_run,
-                                                parse_config_and_cli,
-                                                validate_attention_heads,
-                                                validate_common_args,
-                                                validate_early_stopping,
-                                                validate_no_label_smoothing)
+from cdrseqgen.methods.common.arguments import (
+    BaseDataArguments,
+    BaseGenerationArguments,
+    BaseModelArguments,
+    initialize_run,
+    parse_config_and_cli,
+    validate_attention_heads,
+    validate_common_args,
+    validate_early_stopping,
+    validate_no_label_smoothing,
+)
 from cdrseqgen.methods.s2s.backbones import resolve as resolve_backbone
 
 
@@ -63,14 +68,11 @@ class ModelArguments(BaseModelArguments):
 
 @dataclass
 class DataArguments(BaseDataArguments):
-    """Encoder-decoder training needs nothing the base does not already carry.
+    """Use shared data settings; max_len caps only the encoder context.
 
-    Note ``max_len`` BUYS more here than on the causal side at the same value: it caps the encoder
-    stream alone, which holds only framework and context, while the causal prompt must additionally
-    reserve 96 positions for its answer. At max_len 128 that is 128 tokens of context here against
-    31 there. The shipped configs still pin 384, matching the causal arm numerically — neither
-    truncates a heavy chain plus partner at that cap, and an identical number removes the question
-    from any comparison table. It is a ceiling, not a padding target, so the extra headroom is free.
+    AR also reserves room for its answer inside max_len. Equal caps therefore
+    need not allow equal amounts of context. max_len is a ceiling, not a fixed
+    padding length.
     """
 
 

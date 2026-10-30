@@ -119,7 +119,14 @@ assuming human. Each preprocessing run also writes a hash-verified `*.metadata.j
 source details, filters, numbering convention, and split parameters.
 
 ## Step 2: Training & Batch Experimentation
-We use `.json` configuration files to manage hyperparameters cleanly. The trainer calculates **Sequence Recovery Rate** (Per-Residue Accuracy), logs to TensorBoard, and auto-generates metric graphs at the end of every run.
+Training settings come from JSON or CLI flags. The Trainer reports teacher-forced
+residue recovery; generated-candidate evaluation is a separate optional stage.
+Runs record logs, the epoch CSV and training curves. TensorBoard reporting is optional
+and controlled by `TrainingArguments.report_to`.
+
+The [argument reference](ARGUMENTS.md) lists shared and method-specific fields,
+defaults and validation rules. Trailing flags override only the supplied fields:
+for example, adding `--seed 7` preserves a JSON `"gen_judge": null` and empty lists.
 
 > **⚠️ Every config must declare `eval_split`.** The split named here drives early stopping,
 > `load_best_model_at_end`, and every reported `eval_*` number, so leaving it implicit means
@@ -137,13 +144,16 @@ CUDA_VISIBLE_DEVICES=0 python train.py configs/ar/h3_ar_scratch.json    # autore
 ```
 
 > **One entrypoint, three methods.** `train.py` dispatches on the config's `"method"` key — absent
-> means `mlm`, so all 49 pre-existing configs are untouched. `--method ar` overrides it, for running
-> a config through the other pipeline deliberately. Each method owns its own parser and
-> `main()` in `cdrseqgen/methods/<method>/train_cli.py`; `train.py` only routes.
+> means `mlm`. `--method ar` overrides the route; the config must use fields supported by
+> that method's parser. Each method owns `main()` in
+> `cdrseqgen/methods/<method>/train_cli.py`, which configures logging, parses arguments
+> and connects `training.prepare_training()` / `finish_training()` to
+> `common.training.run_training_pipeline()`. `train.py` routes to that command.
 >
-> Both write the *same* files to the *same* place — `epoch_metrics.csv`, the four curve PNGs,
-> `run_config.json`, `train.log`, `generation_eval.json` — so every plotter and table generator in
-> Step 3 reads a causal run unchanged. Runs are tagged `h3_OAS_ar_scratch`, the `ar` marker keeping
+> All three methods use the same artifact names — `epoch_metrics.csv`, training-curve PNGs,
+> `run_config.json`, `train.log` and `generation_eval.json` — for the stages enabled in
+> the run. Shared plotters and table generators read those artifacts.
+> Runs are tagged `h3_OAS_ar_scratch`, the `ar` marker keeping
 > them distinct from the masked run of the same loop, dataset and context.
 >
 > **⚠️ Comparing the two is itself a matched-comparison problem.** The masked fixed-native track

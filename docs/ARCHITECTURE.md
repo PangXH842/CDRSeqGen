@@ -4,8 +4,8 @@
 
 The full repository map and feature notes moved here from the README on **26 October 2026**.
 The method workflow map and source-module docstrings describe the current call graph;
-dated implementation examples below retain their historical context. Code-review completion
-is recorded only in the manual checklist in [RECLAMATION.md](RECLAMATION.md).
+dated implementation examples below retain their historical context. Detailed personal
+code-review records are kept locally; reviewed source remains open to further revision.
 
 ## 🏗️ Repository Structure
 
@@ -33,7 +33,7 @@ The root-to-method command paths use the same names for MLM, AR and S2S:
 | `evaluate.py` | `methods/<method>/eval_cli.main()` | Validate evaluation options, prepare method-specific state and call the evaluator. |
 | `generate.py` | `methods/<method>/gen_cli.main()` | Validate supplied cases, prepare method-specific state and generate each case. |
 
-For MLM, all three CLI functions connect method callbacks to shared workflows.
+For all three methods, the CLI functions connect method callbacks to shared workflows.
 Each method's `train_cli.main()`, `eval_cli.main()` and `gen_cli.main()` configures
 console logging; root scripts parse/read routing inputs and select the method.
 `train_cli.main()` parses arguments and passes `training.prepare_training()` and
@@ -82,7 +82,7 @@ CDRSeqGen/
 │   │   │   │                   #   called gen_judge_path on one side and gen_judge_weights on the other
 │   │   │   ├── arguments.py    # The shared args + config/CLI parsing + run-directory setup;
 │   │   │   │                   #   each method subclasses and adds only its own
-│   │   │   ├── backbones.py    # Shared checkpoint loading and protein tokenizer helpers
+│   │   │   ├── backbones.py    # Shared Backbone/BackboneRegistry, checkpoint and tokenizer helpers
 │   │   │   ├── evaluation.py   # Standalone loading/provenance and post-training evaluation setup
 │   │   │   ├── generation.py   # Standalone checks, model loading, case execution and output
 │   │   │   ├── logging.py      # Console/file logging and uncaught exceptions
@@ -100,13 +100,13 @@ CDRSeqGen/
 │   │   │   │                   # Causal registry — resolve(model_type) -> CausalBackbone.
 │   │   │   │                   #   hf_decoder ADDS the layout's sentinels to a pretrained LM and
 │   │   │   │                   #   resizes it: those rows start random (see its docstring)
-│   │   │   ├── training.py     # get_datasets + teacher-forced core/anchor metrics + Trainer.
+│   │   │   ├── training.py     # Preparation/finish hooks, datasets, recovery metrics and Trainer.
 │   │   │   │                   #   No masking view (nothing to hide), no loss registry (§13)
 │   │   │   ├── sampling.py     # Causal decode to <eos>. Replaces the masked side's sampling +
 │   │   │   │                   #   generation + length mechanics: the model picks its
 │   │   │   │                   #   own length, so §10's gap-sentinel head has no counterpart
 │   │   │   ├── arguments.py    # Causal args: subclasses the shared bases, adds gen_max_new_tokens
-│   │   │   ├── train_cli.py    # Training-run coordinator; root train.py calls main()
+│   │   │   ├── train_cli.py    # Logging/config setup -> common training workflow + AR hooks
 │   │   │   ├── eval_cli.py     # main(): saved-checkpoint evaluation entrypoint
 │   │   │   ├── gen_cli.py      # main(): supplied-framework generation entrypoint
 │   │   │   ├── evaluation.py   # CausalStrategy for the SHARED loop in eval/generative.py —
@@ -120,12 +120,12 @@ CDRSeqGen/
 │   │   │   │                   #   The missing cell of the 2x2: bidirectional conditioning like
 │   │   │   │                   #   mlm, <eos>-chosen length like ar. Contract-identical to ar
 │   │   │   │                   #   throughout, so an s2s/ar/mlm table is one implementation.
-│   │   │   ├── train_cli.py    # Training-run coordinator; root train.py calls main()
+│   │   │   ├── train_cli.py    # Logging/config setup -> common training workflow + S2S hooks
 │   │   │   ├── eval_cli.py     # main(): saved-checkpoint evaluation entrypoint
 │   │   │   ├── gen_cli.py      # main(): supplied-framework generation entrypoint
 │   │   │   ├── backbones.py    # scratch, ESM-2, and protein-BERT encoders. PLM encoders keep
 │   │   │   │                   #   native tokenizers; all decoders use the same residue vocabulary
-│   │   │   ├── training.py     # get_datasets + teacher-forced metrics + Trainer. The metrics do
+│   │   │   ├── training.py     # Preparation/finish hooks, datasets, metrics and Trainer. Metrics do
 │   │   │   │                   #   NOT re-shift: dataset_s2s already offset the decoder pair
 │   │   │   ├── sampling.py     # Decode to <eos>. ONE encoder pass shared by every candidate, and
 │   │   │   │                   #   no padding at all — every decoder row starts at <bos>
@@ -225,7 +225,20 @@ CDRSeqGen/
 The `MaskedInfillingDataset` separates sequences into `pt1` (left context), `mask` (target gap), and `pt2` (right context). The `target_region` string alone chooses the loop — `h1/h2/h3` mask a heavy CDR, `l1/l2/l3` mask the *light* chain's CDR (legacy `cdr*`/`lcdr*` spellings still parse). Switching target requires changing zero core tokenization logic. Labels are strictly length-enforced to prevent cross-entropy dimension mismatches.
 
 ### 2. Pluggable Backbones (the extensibility core)
-The masked-LM backbone registry [`backbones.py`](../cdrseqgen/methods/mlm/backbones.py) holds one `Backbone` entry per compatible model family; the entrypoints and the `dataset_*.py` classes never branch on model type — they go through `resolve(model_type)`, which returns the matching backbone and a uniform `TokenizerAdapter`. The same MLM pipeline trains the from-scratch transformer, fine-tunes ESM-2, or fine-tunes any Hugging Face masked-LM just by changing the `"model_type"` string.
+All three methods use the descriptor and ordered registry implementation in
+[common/backbones.py](../cdrseqgen/methods/common/backbones.py). Each method owns a separate
+registry instance and its model/tokenizer registration blocks. MLM uses the shared
+`Backbone` directly; S2S exports it as `Seq2SeqBackbone`. AR's `CausalBackbone` extends
+`build_tokenizer()` with span-layout validation and persistence. Matching is first-wins;
+the registry rejects duplicate IDs and checks fallback placement after registration.
+MLM and AR require one generic fallback, while S2S permits having none.
+
+The MLM registration module [backbones.py](../cdrseqgen/methods/mlm/backbones.py) holds one
+descriptor per compatible model family. Callers use `resolve(model_type)` to select the
+descriptor, then `backbone.build_tokenizer()` to obtain its tokenizer adapter. Model creation
+and checkpoint restoration use the descriptor's two model loaders. The same MLM pipeline
+can train the scratch transformer or fine-tune a compatible pretrained masked LM by
+changing `model_type`.
 
 Each backbone declares two conventions **explicitly** instead of letting them be guessed from the tokenizer (the previous code overloaded a single `is_esm` boolean to mean three different things, which silently mishandled non-ESM models):
 - **`position_type`** (`"absolute"` | `"relative"`) — controls where antigen context is injected (see §4). Absolute-position models (the scratch transformer, BERT-style protein LMs) need it appended after the target; relative/rotary models (ESM-2) can take it prepended.

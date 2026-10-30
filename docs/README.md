@@ -11,16 +11,16 @@ READMEs for configs, tests, methods and benchmarks remain beside their implement
 | [Environment](ENVIRONMENT.md) | Dependencies, verification and server restoration |
 | [Workflow](WORKFLOW.md) | Preprocessing, training, generation, evaluation and command history |
 | [Architecture](ARCHITECTURE.md) | Repository map, data/model conventions and extension points |
+| [Arguments](ARGUMENTS.md) | Training fields, defaults, validation and JSON/CLI override rules |
 | [Results](RESULTS.md) | Completed validation evidence and source artifacts |
 | [Findings](FINDINGS.md) | Detailed measurements, historical findings and limitations |
 | [Project status](PROJECT_STATUS.md) | Current handoff, manuscript work and final-evaluation decisions |
 | [Roadmap](ROADMAP.md) | Research milestones, experiment options and feature plans |
-| [Operation Reclamation](RECLAMATION.md) | Manual code-review checklist and review marks |
 | [Changelog](CHANGELOG.md) | Detailed AI-assisted implementation and audit history |
 
-The protection markers and AI access zones in the roadmap and reclamation checklist
-remain in force. Checkmarks record manual review; passing tests or moving files does
-not complete a review item.
+The roadmap's protection markers and AI access zones remain in force. Personal manual-review
+notes are kept locally and are not part of the published guides. Passing tests or moving
+files does not itself complete a manual review.
 
 For implementation-specific guidance, see the [method workflow map](../cdrseqgen/methods/common/README.md),
 [experiment guide](../configs/experiments/README.md), [benchmark guide](../benchmark/README.md)

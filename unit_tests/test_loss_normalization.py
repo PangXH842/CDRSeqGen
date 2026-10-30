@@ -8,12 +8,15 @@ driven here, with real model code, so the test covers the division the Trainer d
 """
 import tempfile
 import unittest
+from types import SimpleNamespace
 
 import torch
 from transformers import Trainer, TrainingArguments
 
 from cdrseqgen.methods.ar.models.transformer import build_model as build_causal
+from cdrseqgen.methods.ar.training import build_trainer as build_causal_trainer
 from cdrseqgen.methods.s2s.models.transformer import build_model as build_seq2seq
+from cdrseqgen.methods.s2s.training import build_trainer as build_seq2seq_trainer
 
 
 def _trainer(model):
@@ -68,6 +71,67 @@ class AccumulationTests(unittest.TestCase):
         torch.manual_seed(0)
         self.check(build_seq2seq(hidden_size=32, num_layers=1, num_attention_heads=4),
                    _seq2seq_batch())
+
+
+def _aligned_cross_entropy(shift, scale=1.0):
+    """The loss a selectable objective would supply: align, sum, divide by the window's count."""
+    def loss_func(outputs, labels, num_items_in_batch=None):
+        logits = outputs["logits"]
+        if shift:
+            logits, labels = logits[:, :-1], labels[:, 1:]
+        total = torch.nn.functional.cross_entropy(
+            logits.reshape(-1, logits.size(-1)), labels.reshape(-1), reduction="sum")
+        count = (labels.ne(-100).sum() if num_items_in_batch is None
+                 else torch.as_tensor(num_items_in_batch))
+        return scale * total / count
+    return loss_func
+
+
+def _method_trainer(build, model, compute_loss_func):
+    with tempfile.TemporaryDirectory() as directory:
+        args = TrainingArguments(output_dir=directory, use_cpu=True, report_to="none")
+        return build(model, args, None, None, SimpleNamespace(pad_id=0),
+                     compute_loss_func=compute_loss_func)
+
+
+class LossSeamTests(unittest.TestCase):
+    """build_trainer(compute_loss_func=...) is where a selectable AR/S2S loss would plug in."""
+
+    CASES = (("causal", build_causal_trainer, build_causal, _causal_batch, True),
+             ("seq2seq", build_seq2seq_trainer, build_seq2seq, _seq2seq_batch, False))
+
+    def test_a_function_that_aligns_and_normalises_reproduces_the_models_own_loss(self):
+        for name, build_trainer, build_model, make_batch, shift in self.CASES:
+            with self.subTest(method=name):
+                torch.manual_seed(0)
+                model = build_model(hidden_size=32, num_layers=1, num_attention_heads=4)
+                batch = make_batch()
+                items = int(batch["labels"].ne(-100).sum())
+                half = lambda rows: {key: value[rows] for key, value in batch.items()}
+                own = _method_trainer(build_trainer, model, None)
+                custom = _method_trainer(build_trainer, model, _aligned_cross_entropy(shift))
+                self.assertIsNone(own.compute_loss_func)
+                reference = _gradient(model, own, [batch], items)
+                whole = _gradient(model, custom, [batch], items)
+                split = _gradient(model, custom, [half(slice(0, 2)), half(slice(2, 4))], items)
+                self.assertTrue(torch.allclose(whole, reference, atol=1e-6))
+                self.assertTrue(torch.allclose(split, reference, atol=1e-6))
+                model.eval()
+                with torch.no_grad():  # evaluation passes no count
+                    self.assertAlmostEqual(custom.compute_loss(model, dict(batch)).item(),
+                                           own.compute_loss(model, dict(batch)).item(), places=6)
+
+    def test_the_supplied_function_replaces_the_models_loss(self):
+        for name, build_trainer, build_model, make_batch, shift in self.CASES:
+            with self.subTest(method=name):
+                torch.manual_seed(0)
+                model = build_model(hidden_size=32, num_layers=1, num_attention_heads=4)
+                batch = make_batch()
+                items = int(batch["labels"].ne(-100).sum())
+                own = _gradient(model, _method_trainer(build_trainer, model, None), [batch], items)
+                doubled = _gradient(model, _method_trainer(
+                    build_trainer, model, _aligned_cross_entropy(shift, scale=2.0)), [batch], items)
+                self.assertTrue(torch.allclose(doubled, 2 * own, atol=1e-6))
 
 
 class DirectCallTests(unittest.TestCase):

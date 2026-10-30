@@ -1,15 +1,11 @@
-"""Causal run configuration: only what differs from the shared bases.
+"""Arguments configuration and setup -- AR method.
 
-The fields every method declares identically live in
-:mod:`cdrseqgen.methods.common.arguments`, along with config/CLI parsing and run-directory setup.
+Caller:
+  ar.train_cli.main() -> setup_args()
 
-**What is deliberately absent**, because it has no causal meaning: ``masking_policy`` /
-``mixed_full_span_probability`` (nothing is masked), the loss registry (§13 settled that
-re-weighting core against anchor moves nothing; ``label_smoothing_factor``, which only that
-registry applies correctly, is rejected), ``gen_decoding`` (one causal decoder, not an
-independent/iterative choice), and the length policy plus ``train_length_predictor`` — the model
-ends its own loop with ``<eos>``, which is the whole reason §10's gap-sentinel head has no
-counterpart here.
+Arguments added to common.arguments:
+  gen_args
+    * gen_max_new_tokens          -- decode steps including <eos>; a draw that never emits it is dropped
 """
 from dataclasses import dataclass, field
 from typing import Tuple
@@ -18,13 +14,17 @@ from transformers import HfArgumentParser, TrainingArguments
 
 from cdrseqgen.datasets.dataset_ar import CAUSAL_DECODE_STEPS, validate_causal_decode_steps
 from cdrseqgen.methods.ar.backbones import resolve as resolve_backbone
-from cdrseqgen.methods.common.arguments import (BaseDataArguments, BaseGenerationArguments,
-                                                BaseModelArguments, initialize_run,
-                                                parse_config_and_cli,
-                                                validate_attention_heads,
-                                                validate_common_args,
-                                                validate_early_stopping,
-                                                validate_no_label_smoothing)
+from cdrseqgen.methods.common.arguments import (
+    BaseDataArguments,
+    BaseGenerationArguments,
+    BaseModelArguments,
+    initialize_run,
+    parse_config_and_cli,
+    validate_attention_heads,
+    validate_common_args,
+    validate_early_stopping,
+    validate_no_label_smoothing,
+)
 
 
 @dataclass

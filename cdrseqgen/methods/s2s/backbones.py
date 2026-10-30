@@ -1,61 +1,54 @@
-"""S2S backbones: scratch, or a protein PLM encoder with a new residue decoder.
+"""Register S2S backbones: scratch, or a PLM encoder with a new residue decoder.
 
-ESM2 and protein BERTs reuse the shared protein tokenizer conventions. Their encoder inputs keep
-native gap/wrapper tokens; targets use the same residue vocabulary and EOS as scratch S2S.
-There is no generic full encoder-decoder fallback. ProtT5 used BART-like residue masking, not
-original T5 span denoising; a future full ProtT5 adapter must validate its actual input/output
-contract instead of assuming native missing-span generation from the architecture name.
+Shared API:
+  resolve(model_type) -> Seq2SeqBackbone -> build_tokenizer(), load_training_model(),
+  load_pretrained_model(). Seq2SeqBackbone names the shared common.backbones.Backbone
+  descriptor; this module owns encoder/decoder assembly and tokenizer adaptation.
+
+Functions:
+  * register -- append a Seq2SeqBackbone to REGISTRY and return it
+  * resolve  -- return the first matching Seq2SeqBackbone; raise ValueError if none match
+
+Current backbones (first match wins):
+  * scratch      -- custom encoder-decoder (models/transformer.py), rotary positions
+  * esm2         -- name contains "esm2"; ESM-2 encoder, relative layout
+  * protein_bert -- name contains "bert"; protein-BERT encoder, absolute layout
+  Both PLM encoders feed the same new residue decoder (models/plm.py).
+
+Notes:
+  * ESM2 and protein BERTs reuse the shared protein tokenizer conventions. Their encoder inputs
+    keep native gap/wrapper tokens; targets use the same residue vocabulary and EOS as scratch S2S.
+  * There is no generic full encoder-decoder fallback. ProtT5 used BART-like residue masking, not
+    original T5 span denoising; a future full ProtT5 adapter must validate its actual input/output
+    contract instead of assuming native missing-span generation from the architecture name.
+  * This registry permits no fallback. If one is added, the shared registry checks
+    that it is last.
+  * Running this module directly prints example resolutions and checks the scratch-model import;
+    it does not load checkpoint weights or run training.
 """
 import logging
-from dataclasses import dataclass
 from functools import partial
-from typing import Callable
 
-from cdrseqgen.datasets.dataset_common import TokenizerAdapter
 from cdrseqgen.datasets.dataset_s2s import Seq2SeqTokenizer, s2s_adapter
 from cdrseqgen.methods.common.backbones import (
-    bert_tokenizer, esm_tokenizer, load_custom_pretrained as _load_custom_pretrained,
-    tokenizer_source)
+    Backbone as Seq2SeqBackbone, BackboneRegistry,
+    bert_tokenizer, esm_tokenizer, load_custom_pretrained as _load_custom_pretrained)
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class Seq2SeqBackbone:
-    id: str
-    matches: Callable[[str], bool]
-    position_type: str          # "relative" for rotary/relative models, "absolute" otherwise
-    uses_special_tokens: bool
-    load_tokenizer: Callable[[str, str, bool], TokenizerAdapter]
-    load_training_model: Callable[..., object]
-    load_pretrained_model: Callable[[str], object]
-    fallback: bool = False
-
-    def build_tokenizer(self, model_type, checkpoint_path=None) -> TokenizerAdapter:
-        source = tokenizer_source(model_type, checkpoint_path)
-        return self.load_tokenizer(source, self.position_type, self.uses_special_tokens)
+# --- (1) Method-local registry; shared descriptor and mechanics -----------------------------------
+_registry = BackboneRegistry(
+    "s2s",
+    unsupported_hint="Supported PLM encoders are ESM2 and protein BERTs; "
+                     "full pretrained encoder-decoders require their own adapter.",
+)
+REGISTRY = _registry.entries
+register = _registry.register
+resolve = _registry.resolve
 
 
-REGISTRY = []
-
-
-def register(backbone: Seq2SeqBackbone) -> Seq2SeqBackbone:
-    REGISTRY.append(backbone)
-    return backbone
-
-
-def resolve(model_type: str) -> Seq2SeqBackbone:
-    """Return the first seq2seq backbone whose predicate matches, else a helpful error."""
-    for backbone in REGISTRY:
-        if backbone.matches(model_type):
-            return backbone
-    raise ValueError(
-        f"No seq2seq backbone registered for model_type={model_type!r}. "
-        f"Registered backbones: {[b.id for b in REGISTRY]}. Supported PLM encoders are ESM2 and "
-        f"protein BERTs; full pretrained encoder-decoders require their own adapter.")
-
-
-# --- custom from-scratch encoder-decoder ---------------------------------------------------------
+# --- (2a) local model definitions: custom from-scratch encoder-decoder -----------------------------
 def _scratch():
     from cdrseqgen.methods.s2s.models import transformer
     return transformer
@@ -91,6 +84,7 @@ register(Seq2SeqBackbone(
 ))
 
 
+# --- (2b) external PLM encoders: ESM-2 and protein BERTs, each with a new residue decoder ---------
 def _plm_tokenizer(mt, pos, wrap, *, family):
     loader = esm_tokenizer if family == "esm2" else bert_tokenizer
     encoder = loader(mt, pos, wrap)
@@ -130,18 +124,18 @@ for family, match, position in (
     ))
 
 
-# A generic fallback, once one exists, must stay last or a named backbone is silently shadowed.
-_fallbacks = [i for i, b in enumerate(REGISTRY) if b.fallback]
-assert _fallbacks in ([], [len(REGISTRY) - 1]), (
-    f"the generic fallback must be the LAST registered seq2seq backbone; "
-    f"got fallbacks at {_fallbacks} of {[b.id for b in REGISTRY]}")
+_registry.validate()
 
 
+# --- MAIN ---
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    print(f"{len(REGISTRY)} seq2seq backbones: {[b.id for b in REGISTRY]}\n")
-    for mt in ["scratch", "Rostlab/prot_t5_xl_uniref50"]:
+    print(f"{len(REGISTRY)} seq2seq backbones registered: {[b.id for b in REGISTRY]}\n")
+    for mt in ["scratch", "facebook/esm2_t12_35M_UR50D", "Rostlab/prot_bert",
+               "Rostlab/prot_t5_xl_uniref50"]:
         try:
             print(f"  {mt:<32} -> {resolve(mt).id}")
         except ValueError as exc:
             print(f"  {mt:<32} -> unregistered ({str(exc).splitlines()[0][:60]}…)")
+    _scratch()  # raises here if the models/ import path is wrong
+    print("\n✅ dispatch + lazy imports OK")

@@ -1,44 +1,54 @@
-"""Causal backbone registry — resolve(model_type) -> CausalBackbone.
+"""Register AR backbones and enforce their span-infilling checkpoint contract.
 
-Deliberately the same shape as ``methods/mlm/backbones.py``: one entry per model family, a
-``matches`` predicate, a generic fallback registered LAST, and an assertion that keeps it there.
-Adding a causal model is one ``register(CausalBackbone(...))`` entry; entrypoints never branch on
-model type.
+Shared API:
+  resolve(model_type) -> CausalBackbone -> build_tokenizer(), load_training_model(),
+  load_pretrained_model(). common.backbones supplies the descriptor and registry.
 
-  * scratch     -- the from-scratch causal decoder (models/transformer.py)
-  * hf_decoder  -- generic AutoModelForCausalLM fallback: any hub id or local dir
+AR extension:
+  CausalBackbone.build_tokenizer() loads through the shared implementation, then
+  validates the tokenizer/checkpoint span layout and attaches layout persistence.
 
-**The pretrained case carries a real cost, and it is not hidden here.** The span-infilling layout
-needs three sentinels — a gap marker, a prompt/answer separator, and an answer terminator. A
-from-scratch causal vocab has all three (``dataset_ar.CausalTokenizer``). A pretrained protein LM
-such as ProtGPT2 or ProGen2 has an EOS and nothing else: it was trained on plain left-to-right
-sequences and has never seen a span-infilling format. So ``hf_decoder`` *adds* the missing sentinels
-and resizes the embedding matrix, which means those rows start random and the model must learn a
-format it was not pretrained for.
+Functions:
+  * register -- append a CausalBackbone to REGISTRY and return it
+  * resolve  -- return the first matching CausalBackbone; raise ValueError if none match
+  * validate_checkpoint_layout, persist_layout_with_tokenizer, record_training_layout
+             -- the span-layout contract a checkpoint carries
+  * missing_sentinels -- which layout sentinels a pretrained tokenizer lacks
 
-That is worth stating plainly because it bounds what Phase D can conclude: IgLM's advantage in
-Findings §11 is not merely "autoregressive", it is "autoregressive **and** pretrained natively on
-antibody span infilling". A fine-tuned ProtGPT2 is a weaker claim than a matched one, and the
-pretraining gain should be expected to fall short of the +0.12-0.24 that §1 measured for ESM-2.
+Current backbones (first match wins):
+  * scratch    -- custom causal decoder (models/transformer.py), rotary positions
+  * hf_decoder -- remaining names containing "/" or starting with "."; AutoModelForCausalLM,
+                  absolute layout
+
+Extending:
+  * Add a register(CausalBackbone(...)) before the generic fallback; entrypoints never branch on
+    model type.
+  * The fallback must remain last; the shared registry checks this at import.
+
+Notes:
+  * Pretrained causal tokenizers receive any missing gap/separator/terminator
+    tokens. Their new embeddings start random; the model must learn this format
+    during fine-tuning. The added tokens and vocabulary resizing are AR-owned.
+  * Running this module directly prints example resolutions and checks the scratch-model import;
+    it does not load checkpoint weights or run training.
 """
 import json
 import logging
 from pathlib import Path
-from dataclasses import dataclass
-from typing import Callable
 
 from cdrseqgen.datasets.dataset_ar import (CausalTokenizer, causal_adapter, CDRSEQGEN_CAUSAL,
                                          layout_for, validate_layout, span_layout_metadata)
 from cdrseqgen.artifacts import atomic_write_json, find_run_config
 from cdrseqgen.datasets.dataset_common import TokenizerAdapter
 from cdrseqgen.methods.common.backbones import (
-    load_custom_pretrained as _load_custom_pretrained, tokenizer_source)
+    Backbone, BackboneRegistry, load_custom_pretrained as _load_custom_pretrained)
 
 logger = logging.getLogger(__name__)
 
 LAYOUT_FILENAME = "span_layout.json"
 
 
+# --- span-layout contract of a checkpoint (AR only) -----------------------------------------------
 def validate_checkpoint_layout(path, tokenizer):
     """All recorded contracts must agree with the live tokenizer/layout; absent legacy is explicit."""
     expected = span_layout_metadata(tokenizer)
@@ -103,46 +113,25 @@ def record_training_layout(model, tokenizer, output_dir):
 REQUIRED_SENTINELS = ("<mask>", "<sep>", "<eos>")
 
 
-@dataclass
-class CausalBackbone:
-    id: str
-    matches: Callable[[str], bool]
-    position_type: str          # "relative" for rotary/relative models, "absolute" otherwise
-    uses_special_tokens: bool
-    load_tokenizer: Callable[[str, str, bool], TokenizerAdapter]
-    load_training_model: Callable[..., object]
-    load_pretrained_model: Callable[[str], object]
-    fallback: bool = False
+# --- (1) Method-local descriptor and registry; shared mechanics ------------------------------------
+class CausalBackbone(Backbone):
+    """Extend tokenizer construction with AR span-layout validation and saving."""
 
     def build_tokenizer(self, model_type, checkpoint_path=None) -> TokenizerAdapter:
-        source = tokenizer_source(model_type, checkpoint_path)
-        tokenizer = self.load_tokenizer(source, self.position_type, self.uses_special_tokens)
+        tokenizer = super().build_tokenizer(model_type, checkpoint_path)
         validate_layout(layout_for(tokenizer), tokenizer)
         if checkpoint_path:
             validate_checkpoint_layout(checkpoint_path, tokenizer)
         return persist_layout_with_tokenizer(tokenizer)
 
 
-REGISTRY = []
+_registry = BackboneRegistry("ar", require_fallback=True)
+REGISTRY = _registry.entries
+register = _registry.register
+resolve = _registry.resolve
 
 
-def register(backbone: CausalBackbone) -> CausalBackbone:
-    REGISTRY.append(backbone)
-    return backbone
-
-
-def resolve(model_type: str) -> CausalBackbone:
-    """Return the first causal backbone whose predicate matches, else a helpful error."""
-    for backbone in REGISTRY:
-        if backbone.matches(model_type):
-            return backbone
-    raise ValueError(
-        f"No causal backbone registered for model_type={model_type!r}. "
-        f"Registered backbones: {[b.id for b in REGISTRY]}. Add one in methods/ar/backbones.py."
-    )
-
-
-# --- custom from-scratch causal decoder ---------------------------------------------------------
+# --- (2a) local model definitions: custom from-scratch causal decoder -----------------------------
 def _scratch():
     from cdrseqgen.methods.ar.models import transformer
     return transformer
@@ -177,7 +166,7 @@ register(CausalBackbone(
 ))
 
 
-# --- generic Hugging Face causal LM --------------------------------------------------------------
+# --- (2b) external PLMs: generic Hugging Face causal LM fallback ----------------------------------
 def missing_sentinels(hf_tokenizer):
     """Which of the layout's sentinels this tokenizer lacks, in registry order."""
     vocab = hf_tokenizer.get_vocab()
@@ -259,15 +248,14 @@ register(CausalBackbone(
 ))
 
 
-# The generic fallback must stay last, or a named backbone is silently shadowed.
-_fallbacks = [i for i, b in enumerate(REGISTRY) if b.fallback]
-assert _fallbacks == [len(REGISTRY) - 1], (
-    f"the generic fallback must be the LAST registered causal backbone; "
-    f"got fallbacks at {_fallbacks} of {[b.id for b in REGISTRY]}")
+_registry.validate()
 
 
+# --- MAIN ---
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    print(f"{len(REGISTRY)} causal backbones, fallback last: {[b.id for b in REGISTRY]}\n")
+    print(f"{len(REGISTRY)} causal backbones registered, fallback last: {[b.id for b in REGISTRY]}\n")
     for mt in ["scratch", "nferruz/ProtGPT2", "hugohrban/progen2-small", "./local_run"]:
         print(f"  {mt:<28} -> {resolve(mt).id}")
+    _scratch()  # raises here if the models/ import path is wrong
+    print("\n✅ dispatch + lazy imports OK")

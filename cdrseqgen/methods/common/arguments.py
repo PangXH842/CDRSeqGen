@@ -1,29 +1,47 @@
-"""Base run configuration: the arguments and run setup every method shares.
+"""Define shared arguments, parse configuration and initialize training runs.
 
-  * BaseModelArguments / BaseDataArguments / BaseGenerationArguments -- the fields all methods
-    declare identically. A method subclasses one and adds only what is its own.
-  * parse_config_dict / parse_config_and_cli -- a config dict, or config JSON, or config JSON +
-                             trailing CLI overrides, or bare CLI
-  * validate_common_args / validate_early_stopping / validate_attention_heads /
-    validate_no_label_smoothing -- reject a bad config BEFORE initialize_run creates the run directory
-  * initialize_run         -- name the run from RESOLVED arguments, create it, start its log
-  * add_sampling_arguments -- the decoder/sampling/length flags evaluate.py and generate.py share,
-                              the standalone counterparts of the ``gen_*`` fields above
+Arguments:
+  * Argument groups:
+    * model_args    -- backbone, scratch architecture, anchors, early stopping
+    * data_args     -- corpus, target loop, split, context, input length cap
+    * gen_args      -- post-training sampling and the independent judge
+    * training_args -- Hugging Face TrainingArguments
 
-Splitting these out is what lets a master entrypoint dispatch: each method keeps its OWN parser, so
-no parser ever accepts a flag that is meaningless for it, while the shared fields cannot drift.
-They already had: the same concept was called ``gen_judge_path`` on one side and
-``gen_judge_weights`` on the other before this consolidation.
+  * A method extends the three Base*Arguments with its own fields and builds its own parser.
+  * Every setup_args() follows this sequence; argument checks precede run-directory creation:
+      parse_config_and_cli -> shared checks, then the method's own -> initialize_run -> the four groups
+  * A more detailed list of arguments can be found in docs/ARGUMENTS.md
 
-``method`` lives on the base because the dispatcher reads it out of the config to decide which
-package to hand off to — and because a config carrying an undeclared key is rejected outright by
-``HfArgumentParser``, so it has to be a real field somewhere.
+Functions:
+  This file:
+  * parse_config_dict    -- construct argument groups from a config dictionary
+  * parse_config_and_cli -- read JSON + optional overrides, or bare CLI arguments
+  * validate_common_args, validate_anchor_trim, validate_early_stopping, validate_attention_heads,
+    validate_no_label_smoothing      -- reject a bad config before initialize_run
+  * initialize_run                  -- name the run from RESOLVED arguments, create it, start its log
+  * add_sampling_arguments          -- flags shared by evaluate.py and generate.py (gen_* twins)
+  In each method:
+  * setup_args()                    -- called by its train_cli
+  * validate_inference_args(args)   -- check method-specific inference options;
+                                      AR/S2S also resolve args.decoding
+  * validate_args(model, data, gen) -- AR and S2S only; MLM checks inline in setup_args()
+
+Notes:
+  * Explicit CLI flags override JSON values. Omitted fields use dataclass defaults;
+    JSON nulls, lists and dictionaries retain their values. metadata["help"] supplies CLI help.
+  * Comparing judge scores requires the same judge and scoring context. Generator
+    self-perplexities are not comparable across models; sequence metrics need no judge.
+  * ``method`` lives on the base because train.py reads it from the config to choose the package,
+    and HfArgumentParser rejects a config key that is not a declared field.
 """
+from argparse import SUPPRESS
+from copy import deepcopy
 import json
 import logging
 import os
 import sys
 from dataclasses import dataclass, field, fields as dataclass_fields
+from pathlib import Path
 from typing import Optional
 
 from cdrseqgen.datasets.dataset_common import AntibodyFrameworkDataset
@@ -110,10 +128,11 @@ class BaseGenerationArguments:
     gen_skip_perplexity: bool = field(
         default=False,
         metadata={"help": "Skip self-scoring (pseudo-perplexity for MLM, perplexity for AR/S2S)."})
-    gen_judge: str = field(
+    gen_judge: Optional[str] = field(
         default="Exscientia/IgBert",
-        metadata={"help": "Independent judge; '' disables. Self-perplexity is NOT comparable across "
-                          "models, so any cross-run claim needs this."})
+        metadata={"help": "Independent judge; '' or JSON null disables. Compare judge scores using the same "
+                          "judge and context; generator self-perplexities are not comparable "
+                          "across models. Sequence metrics do not require a judge."})
     gen_judge_partner_context: str = field(
         default="trained",
         metadata={"help": "Judge partner context: trained, with, or without; independent of generator context.",
@@ -180,7 +199,9 @@ def validate_no_label_smoothing(training_args):
     With label_smoothing_factor on, Hugging Face's Trainer replaces the model's loss with its own
     smoother and shifts the labels only for the models on its causal-LM list, which ours are not:
     on AR it would train against labels one position off (measured: the smoothed loss equals the
-    UNshifted one). The masked method applies smoothing itself, in LossConfig.
+    UNshifted one). The masked method applies smoothing itself, in LossConfig. If AR/S2S gain a
+    selectable loss (``build_trainer(compute_loss_func=...)``), smoothing belongs in that function
+    and this is the check to relax.
     """
     if training_args.label_smoothing_factor:
         raise ValueError("label_smoothing_factor is only supported by the masked method; this "
@@ -228,45 +249,48 @@ def parse_config_dict(parser, config, *, allow_extra_keys=False):
     return parser.parse_dict(_normalize_warmup_config(parser, config), allow_extra_keys=allow_extra_keys)
 
 
-def _cli_tokens(key, value):
-    """argv tokens for one JSON field: a scalar is one token, a list repeated values, a dict JSON text.
+def _parse_cli_overrides(parser, argv):
+    """Return only explicitly supplied CLI fields, using the parser's types and aliases.
 
-    Plain ``str(value)`` would turn ``["none"]`` into the single bogus value ``"['none']"`` and a dict
-    into text that is not JSON, so a config that parses fine alone broke once an override was added.
+    Example: --seed 7 -> {"seed": 7}, with no unrelated default values.
+    Required fields may come from JSON. Suppress defaults on a copy so neither
+    missing CLI fields nor boolean complement defaults overwrite the config.
     """
-    if isinstance(value, list):
-        if not value:
-            raise ValueError(f"{key}: an empty list cannot be combined with trailing CLI overrides; "
-                             "drop the key or move the overrides into the JSON")
-        return [f"--{key}", *map(str, value)]
-    if isinstance(value, dict):
-        return [f"--{key}", json.dumps(value)]
-    return [f"--{key}", str(value)]
+    # HF uses dict_keys for some choices; these read-only collections cannot be deep-copied.
+    choices = {id(action.choices): action.choices for action in parser._actions}
+    override_parser = deepcopy(parser, choices)
+    override_parser._defaults.clear()
+    for action in override_parser._actions:
+        action.default = SUPPRESS
+        action.required = False
+    namespace, remaining = override_parser.parse_known_args(argv)
+    if remaining:
+        raise ValueError(f"Some specified arguments are not used by the HfArgumentParser: {remaining}")
+    return vars(namespace)
 
 
 def parse_config_and_cli(parser):
     """Parse a config JSON, a config plus trailing CLI overrides, or bare CLI arguments.
 
-    Trailing flags OVERRIDE the JSON rather than replacing it, so any field is tunable without
-    writing a new config.
+    Example: JSON {"label_names": [], "gen_judge": null} plus --seed 7
+      -> preserve the empty list and disabled judge; set only seed to 7.
+
+    Omitted keys use dataclass defaults; explicit JSON values are preserved.
+    With trailing flags, precedence is dataclass defaults < script.args < JSON
+    < CLI. JSON-only parsing ignores script.args, as before. The supplied parser
+    is unchanged; validation and dataclass construction run on the merged values.
     """
-    if len(sys.argv) >= 2 and sys.argv[1].endswith(".json"):
-        config_path = os.path.abspath(sys.argv[1])
-        with open(config_path) as handle:
-            json_cfg = _normalize_warmup_config(parser, json.load(handle))
-        if len(sys.argv) > 2:
-            argv = []
-            for key, value in json_cfg.items():
-                # JSON null means "use the dataclass default". Serialising it as the literal
-                # string "None" makes argparse reject optional numeric fields whenever a caller
-                # adds an otherwise unrelated trailing override.
-                if value is None:
-                    continue
-                argv += _cli_tokens(key, value)
-            argv += sys.argv[2:]
-            return parser.parse_args_into_dataclasses(args=argv)
-        return parser.parse_dict(json_cfg)
-    return parser.parse_args_into_dataclasses()
+    if len(sys.argv) < 2 or not sys.argv[1].endswith(".json"):
+        return parser.parse_args_into_dataclasses()
+
+    with open(sys.argv[1]) as handle:
+        config = _normalize_warmup_config(parser, json.load(handle))
+    if len(sys.argv) > 2:
+        args_file = Path(sys.argv[0]).with_suffix(".args")
+        if args_file.is_file():
+            config = {**_parse_cli_overrides(parser, args_file.read_text().split()), **config}
+        config.update(_parse_cli_overrides(parser, sys.argv[2:]))
+    return parse_config_dict(parser, config)
 
 
 def initialize_run(model_args, data_args, gen_args, training_args, *, marker=""):
