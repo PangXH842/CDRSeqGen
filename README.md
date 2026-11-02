@@ -6,7 +6,7 @@ CDR generation and benchmarking through a shared framework. It currently impleme
 masked language modeling (MLM), autoregressive generation (AR) and encoder-decoder
 generation (S2S), with method-specific objectives and decoders.
 
-**Updated:** 30 October 2026. **Status:** the iAIM abstract was submitted on 23 October.
+**Updated:** 2 November 2026. **Status:** the iAIM abstract was submitted on 23 October.
 Current work is manual code review, manuscript integration and poster preparation;
 final held-out evaluation remains pending.
 
@@ -23,6 +23,10 @@ and antigen context, and training-time context dropout. Method and backbone regi
 connect these inputs to shared configuration, run artifacts and scoring.
 Benchmark adapters support local methods, external generators and training-only references.
 
+AR now includes a native [IgLM backbone](docs/MODELS.md#pretrained-ar-backbone-iglm).
+Its [adaptation checks and experiment recipes](configs/experiments/20261102_iglm_adaptation.md)
+are prepared for user-run testing; they add no new benchmark results.
+
 ## Documentation
 
 Supporting guides live in [docs/](docs/README.md).
@@ -34,6 +38,7 @@ Supporting guides live in [docs/](docs/README.md).
 | [Argument reference](docs/ARGUMENTS.md) | Shared and method-specific fields, defaults, validation and config/CLI overrides |
 | [Experiment guide](configs/experiments/README.md) | Named batches, planning, execution, status and resume |
 | [Architecture reference](docs/ARCHITECTURE.md) | Full repository map, data layout and extension points |
+| [Model specifications](docs/MODELS.md) | Custom Transformer comparison, builder defaults and saved benchmark architecture/counts |
 | [Method workflow map](cdrseqgen/methods/common/README.md) | Call graph, stage ownership and the manual review sequence |
 | [Results index](docs/RESULTS.md) | Completed evidence and links to source artifacts |
 | [Detailed findings](docs/FINDINGS.md) | Measurements, protocols, historical findings and limitations |
@@ -287,6 +292,8 @@ The dated development history is retained below. Planning lives in
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-11-02** -- Added IgLM into `methods/ar/models/` registry
+- **2026-11-02** -- Consolidated shared Transformer components and backbone validation
 - **2026-10-30** -- `methods/`: realigned `arguments`, `backbones` codes across each method
 - **2026-10-27** -- Project-wide Claude fix
 - **2026-10-26** -- Merged MLM fixed/variable length generation mechanics into `methods/mlm/length.py`

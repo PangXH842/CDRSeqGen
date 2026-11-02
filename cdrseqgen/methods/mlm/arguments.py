@@ -34,7 +34,6 @@ from cdrseqgen.methods.common.arguments import (
     BaseModelArguments,
     initialize_run,
     parse_config_and_cli,
-    validate_attention_heads,
     validate_common_args,
     validate_early_stopping,
 )
@@ -200,9 +199,7 @@ def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, Tr
 
     training_args.remove_unused_columns = False
 
-    resolve_backbone(model_args.model_type)
-    if model_args.model_type == "scratch":
-        validate_attention_heads(model_args)
+    resolve_backbone(model_args.model_type).validate_training_args(model_args, data_args)
     if not 0.0 <= data_args.mixed_full_span_probability <= 1.0:
         raise ValueError("mixed_full_span_probability must be between 0 and 1")
     if (

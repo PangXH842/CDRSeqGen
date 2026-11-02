@@ -9,6 +9,15 @@ reorganized on **26 October 2026** without rerunning experiments. The later seed
 analyses extend the original seven-arm benchmark. Historical category entries below
 retain their own populations and protocol caveats.
 
+The November 2 IgLM integration and adaptation recipes add software capability, not new
+benchmark rows. Prior CPU parity checks used some test-split records for implementation
+diagnostics; final comparative held-out evaluation remains pending and must disclose that
+development exposure. See the [adaptation protocol](../configs/experiments/20261102_iglm_adaptation.md).
+
+The user-run [IgLM GPU replay smoke](../results/controls/iglm_replay_smoke_20261102.json)
+matches all 100 attempts across its first five examples, with matching weights (November 2).
+This is implementation validation; the full replay and adaptation batches remain pending.
+
 **Ready to reuse:** all benchmark comparisons below use the same 150 OAS4 validation frameworks and 20 attempts per framework and arm. Context studies retain their original generator/judge context and source/runtime provenance. Counts overlap across analyses; do not add them as independent experiments.
 
 | Evidence | Completed | Results / verification |
@@ -25,6 +34,10 @@ retain their own populations and protocol caveats.
 For the reported means, uncertainty and limitations, start with
 [§17](FINDINGS.md#17-expanded-validation-evidence-seeds-retrieval-and-capacity).
 The final held-out cohort and evaluation protocol remain to be frozen.
+
+The [model specifications](MODELS.md#main-validation-benchmark-saved-architecture-settings)
+record the saved benchmark architectures and sequence/head/system parameter counts
+separately from the current builder defaults.
 
 ## Historical categories and source records
 

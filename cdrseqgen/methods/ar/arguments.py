@@ -20,7 +20,6 @@ from cdrseqgen.methods.common.arguments import (
     BaseModelArguments,
     initialize_run,
     parse_config_and_cli,
-    validate_attention_heads,
     validate_common_args,
     validate_early_stopping,
     validate_no_label_smoothing,
@@ -63,9 +62,7 @@ def validate_args(model_args, data_args, gen_args):
     """Validate the decode cap, backbone and attention heads on top of the shared method contract."""
     validate_common_args(model_args, data_args, gen_args, expected_method="ar")
     validate_causal_decode_steps(gen_args.gen_max_new_tokens)
-    resolve_backbone(model_args.model_type)
-    if model_args.model_type == "scratch":  # a pretrained backbone brings its own width and heads
-        validate_attention_heads(model_args, even_head_width=True)
+    resolve_backbone(model_args.model_type).validate_training_args(model_args, data_args)
 
 
 def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, TrainingArguments]:

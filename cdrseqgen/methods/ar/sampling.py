@@ -2,6 +2,11 @@
 
   * sample_loops -- batched autoregressive decode, returns one loop string per requested candidate
 
+A tokenizer may attach ``causal_sampler`` to preserve a pretrained backbone's own token restrictions
+and output parser (IgLM does, in ``models/iglm.py``); ``sample_loops`` then delegates to it. Every
+sampler returns fixed attempts, without refill or deduplication, and marks invalid or unterminated
+draws incomplete. The decoder below is the CDRSeqGen default.
+
 This is the whole sampler. The masked side needs two decoders, a length policy layer, a gap-sentinel
 classifier and mask expansion (``mlm/sampling.py``, ``mlm/generation.py`` and ``mlm/length.py``); a
 causal model needs none of it, because **the model chooses its own length by emitting <eos>**.
@@ -54,6 +59,11 @@ def sample_loops(model, tokenizer, prompt_ids, *, device, num_samples=1, tempera
     # Both argument checks up front, before the model is touched: a layout the sampler cannot read
     # back would otherwise be discovered only as empty loops in the results.
     layout = validate_layout(layout_for(tokenizer), tokenizer)
+    native_sampler = getattr(tokenizer, "causal_sampler", None)
+    if native_sampler is not None:
+        return native_sampler(model, tokenizer, prompt_ids, device=device, num_samples=num_samples,
+                              temperature=temperature, top_k=top_k, top_p=top_p,
+                              max_new_tokens=max_new_tokens, generator=generator)
     greedy = temperature == 0
     draws = 1 if greedy else num_samples
     model.eval()

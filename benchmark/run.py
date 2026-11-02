@@ -25,9 +25,19 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from benchmark._common import atomic_write_json, execution_source_identity, sha256_file, validate_manifest_record
-from benchmark.adapters.cdrseqgen import load_run_config, resolve_decoding, validate_checkpoint_contract
+from benchmark.adapters.cdrseqgen import (
+    TOKENIZER_ASSETS, load_run_config, pretrained_input_files, resolve_decoding,
+    validate_checkpoint_contract,
+)
 from benchmark.externals import (
     DEFAULT_PACKAGES, EXTERNALS, RESERVED_LABELS, default_python, plan_externals, recipe_externals)
+
+
+# Methods whose adapter path is backbone-generic, so a pretrained backbone can be a local arm. The MLM path
+# (decoder choice, length head) is validated for scratch checkpoints only.
+EOS_METHODS = ('ar', 's2s')
+# A pretrained model's vocabulary and span layout are saved beside its weights (a scratch model's are code).
+SAVED_VOCAB_FILES = TOKENIZER_ASSETS
 
 
 def read(path):
@@ -55,6 +65,26 @@ def freeze_external_inputs(entry, frozen_files):
         if pin and digest != pin:
             raise ValueError(f"{entry['label']} input {path} has digest {digest}, not its pinned {pin}")
         frozen_files[str(path)] = digest
+
+
+def arm_paths(arm, config, checkpoint, config_path):
+    """Files that identify one local arm; raise if the benchmark cannot serve it.
+
+    Scratch checkpoints of every method are served. A pretrained backbone is served for AR and S2S only,
+    and its saved vocabulary and layout files are pinned with its weights.
+    """
+    paths = [checkpoint / 'model.safetensors', checkpoint / 'config.json', config_path]
+    if config['model_type'] != 'scratch':
+        if arm['method'] not in EOS_METHODS:
+            raise ValueError(f"{arm['label']}: pretrained {arm['method']} checkpoints are not served by the "
+                             f"benchmark adapter (scratch MLM, or AR/S2S with any registered backbone)")
+        from cdrseqgen.methods.registry import checkpoint_method
+        checkpoint_method(config).module('backbones').resolve(config['model_type'])  # an unknown name fails here
+        paths.extend(pretrained_input_files(checkpoint))
+    if arm['method'] == 'mlm':
+        paths.extend([checkpoint / 'length_config.json', checkpoint / 'length_head.safetensors'])
+        assert read(checkpoint / 'length_config.json')['seed'] == arm['training_seed']
+    return paths
 
 
 def build_plan(recipe_path, stage, cdr_python, external_pythons=None):
@@ -102,13 +132,8 @@ def build_plan(recipe_path, stage, cdr_python, external_pythons=None):
         config, config_path = load_run_config(checkpoint)
         validate_checkpoint_contract(config, manifest)
         assert config['method'] == arm['method'] and config['seed'] == arm['training_seed']
-        assert config['model_type'] == 'scratch'
         decoding = resolve_decoding(config)
-        paths = [checkpoint / 'model.safetensors', checkpoint / 'config.json', config_path]
-        if arm['method'] == 'mlm':
-            paths.extend([checkpoint / 'length_config.json', checkpoint / 'length_head.safetensors'])
-            assert read(checkpoint / 'length_config.json')['seed'] == arm['training_seed']
-        for path in paths:
+        for path in arm_paths(arm, config, checkpoint, config_path):
             frozen_files[str(path.relative_to(ROOT))] = sha256_file(path)
         arms.append({**arm, 'decoding': decoding})
     samples = recipe['sampling']['smoke_num_samples' if stage == 'smoke' else 'num_samples']

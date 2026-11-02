@@ -10,6 +10,9 @@ import torch
 from torch import nn
 from transformers import BertConfig, BertModel, EsmConfig, EsmModel, PreTrainedModel
 
+from cdrseqgen.methods.common.transformer import (
+    validate_architecture, validate_positive_integer, validate_transformer_config,
+)
 from .transformer import Seq2SeqAntibodyConfig, Seq2SeqAntibodyModel
 
 logger = logging.getLogger(__name__)
@@ -43,6 +46,7 @@ class PLMSeq2SeqModel(Seq2SeqAntibodyModel):
     config_class = PLMSeq2SeqConfig
 
     def __init__(self, config, encoder=None):
+        validate_transformer_config(config, rotary=True, encoder_decoder=True)
         # Reuse the scratch decoder's layers, forward, aligned loss, and sampling interface.
         # Initialize ONLY new modules before attaching the encoder, so post_init cannot reset
         # pretrained parameters (or apply our initialization rules to HF-specific modules).
@@ -92,11 +96,12 @@ def build_model(model_type, *, encoder_family, vocab_size=27, hidden_size=128, n
                 intermediate_size=None, max_len=512, encoder_init="pretrained",
                 freeze_encoder=False, **_ignored):
     validate_encoder_options(encoder_init, freeze_encoder, num_encoder_layers)
+    validate_architecture(
+        hidden_size, num_layers, num_attention_heads, intermediate_size, max_len, rotary=True
+    )
+    validate_positive_integer("vocab_size", vocab_size)
     decoder_layers = num_layers if num_decoder_layers is None else num_decoder_layers
-    if decoder_layers < 1:
-        raise ValueError("num_decoder_layers must be positive")
-    if hidden_size % num_attention_heads or (hidden_size // num_attention_heads) % 2:
-        raise ValueError("decoder hidden_size must divide into heads of even width")
+    validate_positive_integer("num_decoder_layers", decoder_layers)
     config_cls, model_cls = ENCODERS[encoder_family]
     raw_config, _ = config_cls.get_config_dict(model_type)
     if raw_config.get("model_type") not in (None, config_cls.model_type):

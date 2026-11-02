@@ -48,10 +48,10 @@ class ArmsRecipeTests(unittest.TestCase):
         self.assertEqual(batch_arms(batch)[0]['checkpoint'], 'results/runs/b/ar_2')
 
     def test_unfinished_and_pretrained_trials_stop_the_script_unless_waived(self):
-        batch = make_batch(self.root / 'b', [('a_scratch_no_partner_s1', 'ar', 1, 'scratch'), ('c_esm2', 's2s', 1, 'esm2'),
+        batch = make_batch(self.root / 'b', [('a_scratch_no_partner_s1', 'ar', 1, 'scratch'), ('c_esm2', 'mlm', 1, 'esm2'),
                                              ('d_scratch_no_partner_s2', 'ar', 2, 'scratch')],
                            [(0, 'completed', 'b/a'), (1, 'completed', 'b/c'), (2, 'running', 'b/d')])
-        with self.assertRaisesRegex(ValueError, 'not a scratch model'):
+        with self.assertRaisesRegex(ValueError, 'pretrained mlm model'):    # pretrained AR/S2S are served now
             batch_arms(batch)
         with self.assertRaisesRegex(ValueError, 'has not completed'):
             batch_arms(batch, skip_pretrained=True)

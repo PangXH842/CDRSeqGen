@@ -17,6 +17,8 @@ Functions:
 
 Current backbones (first match wins):
   * scratch    -- custom causal decoder (models/transformer.py), rotary positions
+  * iglm       -- native IgLM / IgLM-S infilling (models/iglm.py), original 33-token vocabulary,
+                  its own layout and sampler
   * hf_decoder -- remaining names containing "/" or starting with "."; AutoModelForCausalLM,
                   absolute layout
 
@@ -24,17 +26,25 @@ Extending:
   * Add a register(CausalBackbone(...)) before the generic fallback; entrypoints never branch on
     model type.
   * The fallback must remain last; the shared registry checks this at import.
+  * A backbone with its own span format attaches span_layout (and, if it restricts decoding,
+    causal_sampler and causal_sampling_metadata) to its tokenizer adapter. A backbone whose
+    original release carries no layout metadata supplies native_checkpoint, the predicate that
+    recognizes that release; every other checkpoint must keep its recorded layout.
 
 Notes:
   * Pretrained causal tokenizers receive any missing gap/separator/terminator
     tokens. Their new embeddings start random; the model must learn this format
     during fine-tuning. The added tokens and vocabulary resizing are AR-owned.
+  * A native-format backbone (iglm) adds no tokens and never resizes embeddings.
   * Running this module directly prints example resolutions and checks the scratch-model import;
     it does not load checkpoint weights or run training.
 """
 import json
 import logging
+from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
+from typing import Callable
 
 from cdrseqgen.datasets.dataset_ar import (CausalTokenizer, causal_adapter, CDRSEQGEN_CAUSAL,
                                          layout_for, validate_layout, span_layout_metadata)
@@ -42,6 +52,7 @@ from cdrseqgen.artifacts import atomic_write_json, find_run_config
 from cdrseqgen.datasets.dataset_common import TokenizerAdapter
 from cdrseqgen.methods.common.backbones import (
     Backbone, BackboneRegistry, load_custom_pretrained as _load_custom_pretrained)
+from cdrseqgen.methods.common.transformer import validate_transformer_args
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +60,12 @@ LAYOUT_FILENAME = "span_layout.json"
 
 
 # --- span-layout contract of a checkpoint (AR only) -----------------------------------------------
-def validate_checkpoint_layout(path, tokenizer):
-    """All recorded contracts must agree with the live tokenizer/layout; absent legacy is explicit."""
+def validate_checkpoint_layout(path, tokenizer, *, native_checkpoint=False):
+    """All recorded contracts must agree with the live tokenizer/layout; absent legacy is explicit.
+
+    native_checkpoint marks an original upstream release (no CDRSeqGen metadata exists to record);
+    it is set only by a backbone's own recognition predicate, never inferred from a missing file.
+    """
     expected = span_layout_metadata(tokenizer)
     root = Path(path)
     recorded = []
@@ -64,12 +79,20 @@ def validate_checkpoint_layout(path, tokenizer):
                 payload = json.load(handle)
             if 'span_layout' in payload:
                 recorded.append((source, payload['span_layout']))
+            if ('causal_sampling' in payload
+                    and payload['causal_sampling'] != getattr(tokenizer, 'causal_sampling_metadata', None)):
+                raise ValueError(f"Causal sampling policy mismatch in {source}; "
+                                 "checkpoint decoding cannot be silently reinterpreted")
     for source, actual in recorded:
         if actual != expected or any(type(actual[key]) is not type(value)
                                      for key, value in expected.items()):
             raise ValueError(f"Span layout mismatch in {source}: recorded {actual!r}, "
                              f"requested {expected!r}. Layout reinterpretation is not supported.")
     if not recorded:
+        if native_checkpoint:
+            logger.info("Importing recognized native checkpoint %s with layout %s version %s",
+                        path, expected['id'], expected['version'])
+            return expected
         # Historical checkpoints used this precise v1 format. Keep this fixed even if the
         # current default changes: missing provenance must never opt an old model into v2.
         legacy = {"id": "cdrseqgen_causal", "version": 1, "n_layout_tokens": 3,
@@ -99,13 +122,18 @@ def persist_layout_with_tokenizer(tokenizer):
 def record_training_layout(model, tokenizer, output_dir):
     """Embed the contract in model config and run provenance before training/save callbacks."""
     metadata = span_layout_metadata(tokenizer)
+    sampling = getattr(tokenizer, 'causal_sampling_metadata', None)
     model.config.span_layout = metadata
+    if sampling is not None:
+        model.config.causal_sampling = dict(sampling)
     source = find_run_config(output_dir)
     if source is None:
         raise ValueError("Training layout requires an initialized run_config.json")
     with Path(source).open() as handle:
         run_config = json.load(handle)
     run_config['span_layout'] = metadata
+    if sampling is not None:
+        run_config['causal_sampling'] = dict(sampling)
     atomic_write_json(source, run_config)
 
 
@@ -114,14 +142,19 @@ REQUIRED_SENTINELS = ("<mask>", "<sep>", "<eos>")
 
 
 # --- (1) Method-local descriptor and registry; shared mechanics ------------------------------------
+@dataclass
 class CausalBackbone(Backbone):
     """Extend tokenizer construction with AR span-layout validation and saving."""
+
+    native_checkpoint: Callable[[str], bool] | None = None
 
     def build_tokenizer(self, model_type, checkpoint_path=None) -> TokenizerAdapter:
         tokenizer = super().build_tokenizer(model_type, checkpoint_path)
         validate_layout(layout_for(tokenizer), tokenizer)
-        if checkpoint_path:
-            validate_checkpoint_layout(checkpoint_path, tokenizer)
+        source = checkpoint_path or getattr(tokenizer, "checkpoint_source", None)
+        if source:
+            native = self.native_checkpoint is not None and self.native_checkpoint(source)
+            validate_checkpoint_layout(source, tokenizer, native_checkpoint=native)
         return persist_layout_with_tokenizer(tokenizer)
 
 
@@ -163,10 +196,35 @@ register(CausalBackbone(
     load_tokenizer=lambda mt, pos, wrap: causal_adapter(position_type=pos),
     load_training_model=_build_scratch,
     load_pretrained_model=_load_scratch_pretrained,
+    validate_model_args=partial(validate_transformer_args, rotary=True),
 ))
 
 
-# --- (2b) external PLMs: generic Hugging Face causal LM fallback ----------------------------------
+# --- (2b) external PLMs: native IgLM infilling, then the generic Hugging Face causal LM fallback ----
+def _iglm():
+    from cdrseqgen.methods.ar.models import iglm
+    return iglm
+
+
+def _load_iglm_pretrained(path):
+    """Check native/imported layout identity before restoring IgLM's GPT-2 weights."""
+    return _iglm().load_model(path)
+
+
+register(CausalBackbone(
+    id="iglm",
+    matches=lambda mt: _iglm().matches(mt),
+    position_type="absolute",
+    uses_special_tokens=False,      # chain/species and markers are supplied by the SpanLayout
+    load_tokenizer=lambda mt, pos, wrap: _iglm().load_tokenizer(mt, pos, wrap),
+    load_training_model=lambda mt, **kw: _iglm().load_model(mt, **kw),
+    load_pretrained_model=_load_iglm_pretrained,
+    validate_model_args=lambda model, data: _iglm().validate_training_args(model, data),
+    native_checkpoint=lambda path: _iglm().is_native_checkpoint(path),
+))
+
+
+# Generic Hugging Face causal LMs, last: any "/" or "." name that no entry above claims.
 def missing_sentinels(hf_tokenizer):
     """Which of the layout's sentinels this tokenizer lacks, in registry order."""
     vocab = hf_tokenizer.get_vocab()
@@ -255,7 +313,8 @@ _registry.validate()
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     print(f"{len(REGISTRY)} causal backbones registered, fallback last: {[b.id for b in REGISTRY]}\n")
-    for mt in ["scratch", "nferruz/ProtGPT2", "hugohrban/progen2-small", "./local_run"]:
+    for mt in ["scratch", "IgLM", "IgLM-S", "nferruz/ProtGPT2", "hugohrban/progen2-small",
+               "./local_run"]:
         print(f"  {mt:<28} -> {resolve(mt).id}")
     _scratch()  # raises here if the models/ import path is wrong
     print("\n✅ dispatch + lazy imports OK")

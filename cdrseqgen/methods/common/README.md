@@ -244,6 +244,7 @@ Paths in this table are relative to `cdrseqgen/`.
 | Parse and validate settings | `methods/common/arguments.py`: base classes, parsing, validation, run initialization, and the flags `evaluate.py`/`generate.py` share (`add_sampling_arguments()`) | `<method>/arguments.py`: additional fields, validation and `setup_args()` |
 | Load input views and splits | `datasets/dataset_common.py`: context and split helpers | `<method>/training.get_datasets()` (AR/S2S through `common/eos_decoding.get_infilling_datasets()`) and `datasets/dataset_<method>.py` |
 | Load backbone and tokenizer | `methods/common/backbones.py`: shared descriptor, ordered registry and checkpoint/tokenizer helpers | `<method>/backbones.py`: its own registry instance, registrations and loaders; AR extends tokenizer construction with span-layout checks; S2S assembles its encoder/decoder; concrete models stay in `<method>/models/` |
+| Build a custom Transformer | `methods/common/transformer.py`: dimension validation, rotary self-attention, FFNs and weight initialization | `<method>/models/`: configuration, model layout, forward contract and label/loss alignment |
 | Build Trainer | `methods/common/callbacks.build_callbacks()`; `methods/common/training.ExternalLossTrainer` supplies the external-loss handoff | MLM loss Trainer and recovery metrics; AR/S2S Trainer builders, collators and metrics |
 | Calculate token loss | `methods/common/losses.token_cross_entropy()`: aligned token CE | MLM loss registry and core/anchor weighting; AR/S2S models calculate their own losses. The open end for a selectable AR/S2S loss is `build_trainer(compute_loss_func=...)`: Hugging Face's `f(outputs, labels, num_items_in_batch=None)`, which must align the labels itself (AR shifts, S2S does not) and divide by the count when given (`test_loss_normalization` shows a function that does reproduces the model's loss) |
 | Run training and teacher-forced evaluation | `methods/common/training.train_and_save()` | The supplied model and Trainer determine loss, inputs and metrics |
@@ -253,6 +254,26 @@ Paths in this table are relative to `cdrseqgen/`.
 `<method>/` in the last column means `methods/mlm/`, `methods/ar/` or
 `methods/s2s/`. Run logging and metric exports live in `methods/common/`,
 as described below.
+
+## Custom model extension points
+
+See the [model specifications](../../../docs/MODELS.md) for the architecture comparison,
+builder defaults and saved main-benchmark settings to use when writing the paper.
+
+Each current custom model follows `Config → Model → build_model()`. MLM keeps
+learned absolute positions and bidirectional attention; AR/S2S reuse
+`common.transformer.RotarySelfAttention`, while their stack layout and label
+alignment stay method-owned. S2S cross-attention has no rotary positions.
+Checkpoint config identifiers and parameter paths remain stable.
+
+A new architecture can live in another file under its method's `models/` directory
+and supply a backbone registration with its tokenizer, builder and checkpoint loader.
+The optional `validate_model_args(model_args, data_args)` callback declares that
+family's architecture checks. Method argument setup calls
+`backbone.validate_training_args()` before creating the run directory, so a custom
+model name does not have to equal `scratch`. Current Transformer registrations use
+`common.transformer.validate_transformer_args()`; another architecture can provide
+its own validator. The existing baseline remains selected by `scratch`.
 
 ## Run setup, logging and recording
 

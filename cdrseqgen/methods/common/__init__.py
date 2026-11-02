@@ -8,6 +8,8 @@
   * run_setup.py  -- run directories, latest link, dataset tags and config/provenance
   * record_results.py -- epoch CSV export and training curves
   * losses.py     -- aligned token cross-entropy; each method owns alignment and weighting
+  * backbones.py  -- model descriptors, per-method registry mechanics and loading helpers
+  * transformer.py -- custom-model validation, rotary self-attention, FFNs and initialization
   * eos_decoding.py -- AR and S2S only: recovery metrics, dataset split, evaluation strategy and
                      generation record, which they share down to the sampler and label alignment
   * training.py   -- external-loss Trainer workflow, lifecycle and finished-run artifacts

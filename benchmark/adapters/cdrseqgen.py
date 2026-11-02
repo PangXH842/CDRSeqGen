@@ -43,6 +43,31 @@ def load_run_config(checkpoint: Path) -> tuple[dict[str, Any], Path]:
     return shared_load_run_config(checkpoint)
 
 
+TOKENIZER_ASSETS = ('tokenizer_config.json', 'tokenizer.json', 'vocab.txt', 'vocab.json', 'merges.txt',
+                    'special_tokens_map.json', 'added_tokens.json', 'tokenizer.model', 'spiece.model',
+                    'sentencepiece.bpe.model', 'span_layout.json', 'generation_config.json')
+TOKENIZER_VOCABULARIES = ('tokenizer.json', 'vocab.txt', 'vocab.json', 'tokenizer.model', 'spiece.model',
+                        'sentencepiece.bpe.model')
+
+
+def pretrained_input_files(checkpoint: Path) -> list[Path]:
+    """Identify a self-contained saved tokenizer and generation settings without loading models.
+
+    Requiring tokenizer_config.json prevents the shared loader from falling back
+    to the original model source. Tokenizer assets and generation_config.json
+    affect inference and must be frozen alongside checkpoint weights.
+    """
+    checkpoint = Path(checkpoint)
+    vocabularies = [checkpoint / name for name in TOKENIZER_VOCABULARIES]
+    vocabularies.extend(checkpoint.glob('*.tiktoken'))
+    if not (checkpoint / 'tokenizer_config.json').is_file() or not any(p.is_file() for p in vocabularies):
+        raise ValueError(f'{checkpoint}: pretrained benchmark arms require a saved tokenizer_config.json '
+                         'and vocabulary beside their weights; original-source fallback is unsupported')
+    paths = [checkpoint / name for name in TOKENIZER_ASSETS if (checkpoint / name).is_file()]
+    paths.extend(path for path in sorted(checkpoint.glob('*.tiktoken')) if path not in paths)
+    return paths
+
+
 def validate_checkpoint_contract(run_config: dict[str, Any], manifest: dict[str, Any]) -> None:
     task = manifest.get("task") or {}
     expected_target = task.get("target_region")
@@ -259,8 +284,14 @@ class EOSSampler:
         # The native loop and its length never enter prompt assembly or decoding.
         framework = dict(pt1=record['pt1'], pt2=record['pt2'], target_length=0,
                          max_len=int(self.run_config['max_len']), partner_chain=None, antigen=None)
-        self.prompt_ids, _ = self.build_prompt(self.tokenizer, framework)
+        # Declared conditioning only, for a layout that reads it (IgLM's chain and species tokens): the
+        # manifest's tokens and the checkpoint's region. Every other layout ignores these keys.
+        framework.update(target_region=self.run_config.get('target_region'),
+                         **{key: record[key] for key in ('chain_token', 'species_token') if record.get(key)})
+        self.prompt_ids, meta = self.build_prompt(self.tokenizer, framework)
         self.prompt_info = {'input_tokens': len(self.prompt_ids), 'max_len': framework['max_len']}
+        if 'conditioning' in meta:      # which chain/species tokens this record's prompt actually carried
+            self.prompt_info['conditioning'] = meta['conditioning']
         self.length_metadata = {'mode': 'inferred', 'source': 'eos_token',
                                 'max_new_tokens': self.max_new_tokens}
 
@@ -326,8 +357,9 @@ def run_example(
     for attempt, draw in enumerate(samples, start=1):
         loop = draw['loop'] if isinstance(draw, dict) else draw
         complete = draw.get('complete', True) if isinstance(draw, dict) else True
+        decoder_valid = draw.get('valid', True) if isinstance(draw, dict) else True
         invalid = sorted(set(loop) - AMINO_ACIDS)
-        valid_generation = bool(complete and loop and not invalid)
+        valid_generation = bool(complete and decoder_valid and loop and not invalid)
         length_match = len(loop) == record["native_length"]
         raw_generations.append({
             "attempt": attempt,
@@ -338,7 +370,14 @@ def run_example(
             "complete": bool(complete),
             "length_match": length_match,
         })
-        if not complete:
+        if isinstance(draw, dict):
+            raw_generations[-1].update({key: draw[key] for key in
+                                       ('valid', 'terminated', 'failure', 'raw_token_ids') if key in draw})
+        decoder_failure = draw.get('failure') if isinstance(draw, dict) else None
+        if decoder_failure or not decoder_valid:
+            failures.append({'attempt': attempt, 'code': decoder_failure or 'invalid_generation',
+                             'detail': 'decoder rejected the raw completion'})
+        elif not complete:
             failures.append({'attempt': attempt, 'code': 'incomplete_generation',
                              'detail': 'EOS was not emitted within the decode cap'})
         elif not loop:
@@ -417,6 +456,13 @@ def build_payload(
     length_artifacts = None
     from cdrseqgen.methods.registry import checkpoint_method
     method = checkpoint_method(run_config).name
+    extra_model = {}
+    if run_config.get('model_type') != 'scratch':
+        extra_model['inference_files_sha256'] = {
+            path.name: sha256_file(path) for path in pretrained_input_files(args.checkpoint)}
+    sampling_policy = getattr(getattr(sampler, 'tokenizer', None), 'causal_sampling_metadata', None)
+    if sampling_policy is not None:
+        extra_model['causal_sampling'] = sampling_policy
     if track == "length_free" and method == 'mlm':
         length_config_path = args.checkpoint / LENGTH_CONFIG_FILENAME
         length_weights_path = args.checkpoint / LENGTH_HEAD_FILENAME
@@ -447,6 +493,7 @@ def build_payload(
             "transformers_version": transformers.__version__,
             "device": str(sampler.device),
             "length_predictor": length_artifacts,
+            **extra_model,
             "execution_source": execution_source_identity(),
             **git_state(repo),
         },

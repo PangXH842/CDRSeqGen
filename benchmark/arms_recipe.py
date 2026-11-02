@@ -9,10 +9,11 @@ therefore generated and scored under exactly the protocol the original six were.
   python benchmark/arms_recipe.py --name oas4_h3_seeds --batch results/runs/BATCH [--batch ...] \
       --output benchmark/recipes/generated/oas4_h3_seeds.json
 
-An arm is labelled by its trial name without `_scratch_no_partner` (mlm_s44, ar_L_s42, s2s_s42_r1). Only completed
-scratch trials qualify; anything else stops the script unless a flag names the exception it may skip:
---skip-pretrained for non-scratch trials, --skip-incomplete for trials that did not finish (listed on stderr, so an
-unattended queue can salvage a partly finished batch without hiding the shortfall).
+An arm is labelled by its trial name without `_scratch_no_partner` (mlm_s44, ar_L_s42, s2s_s42_r1). Completed scratch
+trials qualify, and so do completed pretrained AR/S2S trials (their adapter path is backbone-generic); a pretrained MLM
+trial does not, and neither does a trial that skipped training (`do_train` false). Anything that does not qualify stops the script unless a flag names the exception it may skip:
+--skip-pretrained for every non-scratch trial, --skip-incomplete for trials that did not finish (listed on stderr, so
+an unattended queue can salvage a partly finished batch without hiding the shortfall).
 """
 from __future__ import annotations
 
@@ -26,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / 'benchmark/recipes/oas4_h3_length_free.json'
 KEPT = ('manifest', 'smoke_manifest', 'sampling', 'judge', 'endpoint')
 STRIP = '_scratch_no_partner'
+EOS_METHODS = ('ar', 's2s')     # pretrained backbones are served for these methods; keep equal to run.EOS_METHODS
 
 
 def read(path):
@@ -41,10 +43,15 @@ def batch_arms(batch, skip_pretrained=False, skip_incomplete=False):
     arms = []
     for trial in plan['trials']:
         config, row = trial['config'], rows.get(trial['trial_id'])
-        if config.get('model_type') != 'scratch':
-            if skip_pretrained:
-                continue
-            raise ValueError(f"{trial['suffix']} is not a scratch model; the benchmark adapter serves scratch checkpoints")
+        pretrained = config.get('model_type') != 'scratch'
+        if pretrained and skip_pretrained:
+            continue
+        if pretrained and config['method'] not in EOS_METHODS:
+            raise ValueError(f"{trial['suffix']} is a pretrained {config['method']} model; the benchmark adapter serves "
+                             'scratch checkpoints of every method and pretrained AR/S2S')
+        if not config.get('do_train', True):
+            raise ValueError(f"{trial['suffix']} was not trained (do_train false) and keeps no checkpoint to benchmark; "
+                             'pass only the batches that trained')
         if row is None or row['status'] != 'completed':
             message = f"{trial['suffix']} has not completed ({row['status'] if row else 'no row'}) in {batch.name}"
             if not skip_incomplete:

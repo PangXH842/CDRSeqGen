@@ -28,10 +28,10 @@ only its own fields in `methods/<method>/arguments.py`. The **Where** column say
 | Argument | Where | Default | What it does and the rule |
 |---|---|---|---|
 | `method` | all | `mlm` / `ar` / `s2s` | Each method's own default. `train.py` reads it to choose the package. |
-| `model_type` | all | `scratch` | `scratch`, a hub id, or a path. Must exist in that method's backbone registry (checked early). |
+| `model_type` | all | `scratch` | `scratch`, a hub id, or a path. Must exist in that method's backbone registry (checked early). AR also accepts `IgLM`, `IgLM-S` or `iglm:<checkpoint dir>` ([MODELS.md](MODELS.md#pretrained-ar-backbone-iglm)). |
 | `hidden_size` | all | 128 | Scratch width. In S2S it is also the width of the decoder around a PLM. Must be positive. |
 | `num_layers` | all | 4 | Scratch depth. In S2S it is the default stack depth. |
-| `num_attention_heads` | all | 8 | Must divide `hidden_size`. AR and S2S also need an even head width (rotary positions). Checked for scratch models, and for every S2S backbone. |
+| `num_attention_heads` | all | 8 | Must divide `hidden_size`. AR and S2S also need an even head width (rotary positions). Checked for custom Transformer families and the current S2S PLM decoders. |
 | `intermediate_size` | all | `None` | FFN width. `None` means 4 × `hidden_size`. |
 | `anchor_trim` | all | 2 | Residues at each loop end counted as anchors in the core/anchor split. Non-negative integer. |
 | `early_stopping_patience` | all | 0 | 0 is off. Above 0 it needs `load_best_model_at_end`. |
@@ -100,14 +100,29 @@ Checks run in `setup_args()` before the run directory is created, so a bad confi
 | Scope | Checks |
 |---|---|
 | All methods | The config's `method` matches the entrypoint. `target_region` resolves. `context_dropout`, `gen_judge_partner_context`, `anchor_trim`, `gen_num_examples`, `gen_num_samples`, `gen_temperature`, `gen_top_k` and `gen_top_p` are in range. The context ablation has its prerequisites. `early_stopping_patience` is not given without `load_best_model_at_end`. `model_type` is in the method's registry. |
-| MLM | The loss settings, `masking_policy`, `mixed_full_span_probability`, the length-head settings, `gen_decoding`, the length policy (`gen_length_mode` with the bounds) and `gen_length_temperature`. Heads divide the width (scratch only). |
-| AR | `gen_max_new_tokens` within its limit. Heads divide the width and are of even width (scratch only). `label_smoothing_factor` is rejected. |
+| MLM | The loss settings, `masking_policy`, `mixed_full_span_probability`, the length-head settings, `gen_decoding`, the length policy (`gen_length_mode` with the bounds) and `gen_length_temperature`. Heads divide the width (custom Transformer families). |
+| AR | `gen_max_new_tokens` within its limit. Heads divide the width and are of even width (custom Transformer families). `label_smoothing_factor` is rejected. |
 | S2S | `gen_max_new_tokens` within its limit. Probe and stop-epoch settings valid. Scratch models reject the encoder controls; PLM backbones validate them. Layer counts are positive integers or unset. Heads divide the width and are of even width (every backbone). `label_smoothing_factor` is rejected. |
+
+Architecture checks are supplied by the selected backbone's optional
+`validate_model_args(model_args, data_args)` callback, invoked through
+`backbone.validate_training_args()`. The current custom Transformers require positive
+integer dimensions/depths and head divisibility; rotary attention also requires even
+head width. These checks follow the registered family, including a custom model
+registered under a name other than `scratch`. Pretrained MLM/AR families keep their
+checkpoint-defined architecture; S2S PLM families validate their new residue decoder.
 
 Failures that need the data (a `max_len` too small for the target, a mistyped `eval_split`) still surface
 after the run directory exists.
 
 ## Standalone flags
+
+`generate.py --method ar` selects AR for an original IgLM checkpoint without
+`run_config.json`; also supply `--model_type iglm:/path/to/checkpoint` and
+`--target_loop h3` (or the intended light-chain target). A saved run's method
+remains authoritative. For IgLM, target-loop identity selects the chain token;
+case JSON may explicitly provide `target_region`, `chain_token` and `species_token`.
+See the [native-backbone guide](MODELS.md#pretrained-ar-backbone-iglm).
 
 `evaluate.py` and `generate.py` take the sampling settings as flags rather than `gen_*` fields. The flags
 they share are defined once in `add_sampling_arguments()` and carry the training default wherever the

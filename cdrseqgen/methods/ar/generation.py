@@ -5,7 +5,9 @@ Entry path:
               -> prepare_generation -> generation_state -> generate_case
 
 Callbacks:
-  * prepare_generation -- reject length controls (EOS chooses length) and fix the decode cap.
+  * prepare_generation -- reject length controls (EOS chooses length), fix the decode cap, and
+                          record the target region a layout may condition on (--target_loop, else
+                          the checkpoint's own).
   * generation_state   -- AR has no length head, so there is no state to load.
   * generate_case      -- sample, score and record one supplied framework.
 
@@ -32,6 +34,8 @@ def prepare_generation(args, cases, config):
     if args.max_new_tokens is None:
         args.max_new_tokens = config.get('gen_max_new_tokens', CAUSAL_DECODE_STEPS)
     validate_causal_decode_steps(args.max_new_tokens)
+    # Only a layout that declares target_region as a public field reads this (IgLM's chain token).
+    args.target_region = getattr(args, 'target_loop', None) or config.get('target_region')
     return None
 
 

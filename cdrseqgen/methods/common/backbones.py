@@ -6,6 +6,7 @@ Workflow:
     -> build_tokenizer()       -- choose the vocabulary source and call its loader
     -> load_training_model()   -- build scratch weights or load a pretrained model
     -> load_pretrained_model() -- restore a checkpoint for generation/evaluation
+  method setup_args() -> backbone.validate_training_args() before run creation
 
 Classes:
   * Backbone         -- tokenizer conventions and three method-supplied loaders
@@ -36,6 +37,8 @@ class Backbone:
     position_type and uses_special_tokens pass input-layout conventions to the
     tokenizer loader; they do not configure the model's positional embeddings.
     fallback marks a generic entry, which must follow all named families.
+    validate_model_args optionally checks model/data arguments for this family;
+    a new custom architecture supplies its own check independently of its name.
     """
 
     id: str
@@ -46,11 +49,17 @@ class Backbone:
     load_training_model: Callable[..., object]
     load_pretrained_model: Callable[[str], object]
     fallback: bool = False
+    validate_model_args: Callable[[object, object], None] | None = None
 
     def build_tokenizer(self, model_type, checkpoint_path=None) -> TokenizerAdapter:
         """Load the saved vocabulary when present, otherwise use model_type."""
         source = tokenizer_source(model_type, checkpoint_path)
         return self.load_tokenizer(source, self.position_type, self.uses_special_tokens)
+
+    def validate_training_args(self, model_args, data_args):
+        """Run this family's optional architecture check before initializing a run."""
+        if self.validate_model_args is not None:
+            self.validate_model_args(model_args, data_args)
 
 
 class BackboneRegistry:

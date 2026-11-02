@@ -3,7 +3,7 @@
 An adapter turns a frozen manifest into candidate loops for one generator and writes them as JSON. The
 scorer, plots and paired analysis read only that JSON, so a generator may live in any environment and
 share no code with the rest of the repository. Five producers already meet this contract:
-`cdrseqgen.py` (trained checkpoints), `iglm.py` and `igcraft.py` (frozen external models), `../empirical.py`
+`cdrseqgen.py` (trained checkpoints: scratch, or a pretrained AR/S2S backbone such as a fine-tuned IgLM), `iglm.py` and `igcraft.py` (frozen external models), `../empirical.py`
 (training-only reference, no model) and `retrieval.py` (flank-keyed training reference: no parameters, so the
 registry runs it in the main environment and the merge treats it as a reference pool rather than a generator). `igcraft.py` is the worked example for a generator that needs inputs the
 manifest does not carry: it takes IMGT flank regions from a table built once by `../export_regions.py` (flanks
@@ -29,6 +29,11 @@ prompt from it (as `iglm.py` does) must mask the span at `infill_range` before t
 - **length_free track:** read `pt1`, `pt2` and declared conditioning only. Do not read the native loop, its
   length, or look the record up in a corpus by `source_index` / `sequence_id`.
 - **fixed_native_length track:** the native length is given by design and the retention rules below change.
+
+Declared conditioning is each record's `chain_token` and `species_token` and the task's `target_region`. `cdrseqgen.py`
+passes them (with the checkpoint's own region) to a span layout that reads them, IgLM's, and writes `prompt.conditioning`
+into each record; every other layout ignores them. A local arm must be a trained run directory with a `run_config.json`:
+scratch checkpoints of any method, or pretrained AR/S2S (a pretrained MLM run is not served).
 
 `blind_check.py` tests this rather than trusting it: it runs the adapter under identical seeds on the
 manifest, on the manifest again, and on a copy with different hidden fields, and compares the candidates.

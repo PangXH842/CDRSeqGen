@@ -35,6 +35,11 @@ from cdrseqgen.methods.common.arguments import validate_anchor_trim
 logger = logging.getLogger(__name__)
 
 
+def _invalid_draw(result):
+    """A terminated draw with malformed output differs from one that never stops."""
+    return bool(result.get("terminated", False)) and not result.get("valid", result["complete"])
+
+
 # --- training: metrics and datasets ---------------------------------------------------------------
 def eos_recovery_metrics(preds, gold, *, trim):
     """Teacher-forced recovery over each loop: whole-loop, plus anchor-excluded core and anchor.
@@ -139,6 +144,8 @@ class EosDecodingStrategy:
         self.complete_nonempty = 0
         self.complete_empty = 0
         self.incomplete = 0
+        self.invalid = 0
+        self.generation_attempts = []
 
         self.length_matches = 0
         self.length_absolute_error_capped = 0
@@ -190,7 +197,8 @@ class EosDecodingStrategy:
         # model never emits EOS disappear and make the remaining sample look artificially healthy.
         complete = [r for r in results if r["complete"]]
         kept = [r for r in complete if r["loop"]]
-        incomplete = len(results) - len(complete)
+        invalid = sum(_invalid_draw(result) for result in results)
+        incomplete = len(results) - len(complete) - invalid
         empty = len(complete) - len(kept)
         self.attempts += len(results)
         length_matches = sum(
@@ -204,22 +212,34 @@ class EosDecodingStrategy:
         self.complete_nonempty += len(kept)
         self.complete_empty += empty
         self.incomplete += incomplete
+        self.invalid += invalid
         self.length_matches += length_matches
         self.length_absolute_error_capped += sum(capped_errors)
+        prompt_meta = getattr(self, "prompt_metadata", {})
+        native_protocol = getattr(self.tokenizer, "causal_sampling_metadata", None)
+        if native_protocol is not None:
+            self.generation_attempts.append({
+                "dataset_index": int(i), "conditioning": prompt_meta.get("conditioning"),
+                "draws": results,
+            })
         if not kept:
             return None
         seqs = [r["loop"].upper() for r in kept]
+        extra = {
+            "attempts": len(results), "incomplete": incomplete, "empty": empty,
+            "length_matches": length_matches,
+            "length_absolute_error_sum_capped": sum(capped_errors),
+        }
+        if native_protocol is not None:
+            extra["invalid"] = invalid
+            extra["conditioning"] = prompt_meta.get("conditioning")
         return Draw(
             native=native,
             seqs=seqs,
             spans=[(context, self.tokenizer.encode(s)) for s in seqs],
             target_len=len(native),
             length_policy=self.payload_length_policy(),
-            record_extra={
-                "attempts": len(results), "incomplete": incomplete, "empty": empty,
-                "length_matches": length_matches,
-                "length_absolute_error_sum_capped": sum(capped_errors),
-            },
+            record_extra=extra,
         )
 
     @torch.no_grad()
@@ -280,7 +300,7 @@ def run_eos_generative_eval(strategy_class, method, mode, model, tokenizer, eval
         "complete_empty": strategy.complete_empty,
         "incomplete": strategy.incomplete,
         "valid_generation_rate": strategy.complete_nonempty / attempts if attempts else None,
-        "completion_rate": ((strategy.complete_nonempty + strategy.complete_empty) / attempts
+        "completion_rate": ((strategy.complete_nonempty + strategy.complete_empty + strategy.invalid) / attempts
                             if attempts else None),
         "length_matches": strategy.length_matches,
         # Unlike summary.length_match_rate/length_absolute_error_mean, these denominators retain
@@ -310,6 +330,13 @@ def run_eos_generative_eval(strategy_class, method, mode, model, tokenizer, eval
         "summary": {key: aggregate(records, key)[0] for key, _ in SUMMARY_KEYS},
         "records": records,
     })
+    protocol = getattr(tokenizer, "causal_sampling_metadata", None)
+    if protocol is not None:
+        payload["decoding"]["protocol"] = dict(protocol)
+        payload["generation_validity"]["invalid"] = strategy.invalid
+        # Include failed frameworks too: otherwise an all-invalid framework
+        # disappears from the scored-record population and loses its reasons.
+        payload["generation_attempts"] = strategy.generation_attempts
     log_report(records, title=title, judge_name=judge_name)
     write_payload(payload, output_path, len(records))
     write_confidence_figure(payload, output_path, title)
@@ -326,7 +353,15 @@ def eos_case_record(model, tokenizer, device, args, generator, case, print_callb
     framework = dict(pt1=pt1, pt2=pt2, target_length=0, max_len=args.max_len,
                      partner_chain=case.get('partner_chain') or args.partner_chain,
                      antigen=case.get('antigen') or args.antigen)
-    context, _ = build_context(tokenizer, framework)
+    # Public chain/species conditioning, for a layout that declares it (see SpanLayout.public_fields);
+    # every other layout ignores these keys. A case overrides the run-level value.
+    for key in ('target_region', 'chain_token', 'species_token'):
+        value = case.get(key, getattr(args, key, None))
+        if value is not None:
+            framework[key] = value
+    if 'species_token' not in framework and case.get('species'):
+        framework['species_token'] = case['species']
+    context, context_meta = build_context(tokenizer, framework)
     attempts = sample_loops(model, tokenizer, context, device=device, generator=generator,
                             num_samples=args.num_samples, temperature=args.temperature,
                             top_k=args.top_k, top_p=args.top_p, max_new_tokens=args.max_new_tokens)
@@ -347,13 +382,24 @@ def eos_case_record(model, tokenizer, device, args, generator, case, print_callb
     lengths = [len(s) for s in valid]
     print_callback(case.get('name', 'Unnamed Test'), pt1, pt2,
                    '/'.join(map(str, sorted(set(lengths)))) or '—', native, args, samples, metrics)
-    return {'name': case.get('name', 'Unnamed Test'), 'pt1': pt1, 'pt2': pt2,
-            'native': native, 'target_length': lengths[0] if len(set(lengths)) == 1 else None,
-            'generated_lengths': lengths, 'length_policy': {'mode': 'inferred', 'source': 'eos_token'},
-            'samples': samples, 'metrics': metrics,
-            'decoding': {'mode': mode, 'temperature': args.temperature, 'top_k': args.top_k,
-                         'top_p': args.top_p, 'seed': args.seed, 'max_new_tokens': args.max_new_tokens,
-                         'num_samples': len(samples)},
-            'generation_validity': {'attempts': len(attempts), 'complete_nonempty': len(valid),
-                                    'incomplete': sum(not r['complete'] for r in attempts),
-                                    'complete_empty': sum(r['complete'] and not r['loop'] for r in attempts)}}
+    record = {'name': case.get('name', 'Unnamed Test'), 'pt1': pt1, 'pt2': pt2,
+              'native': native, 'target_length': lengths[0] if len(set(lengths)) == 1 else None,
+              'generated_lengths': lengths, 'length_policy': {'mode': 'inferred', 'source': 'eos_token'},
+              'samples': samples, 'metrics': metrics,
+              'decoding': {'mode': mode, 'temperature': args.temperature, 'top_k': args.top_k,
+                           'top_p': args.top_p, 'seed': args.seed, 'max_new_tokens': args.max_new_tokens,
+                           'num_samples': len(samples)},
+              'generation_validity': {'attempts': len(attempts), 'complete_nonempty': len(valid),
+                                      'incomplete': sum(not r['complete'] for r in attempts),
+                                      'complete_empty': sum(r['complete'] and not r['loop']
+                                                            for r in attempts)}}
+    if 'conditioning' in context_meta:      # which chain/species tokens a native layout actually used
+        record['conditioning'] = context_meta['conditioning']
+    protocol = getattr(tokenizer, 'causal_sampling_metadata', None)
+    if protocol is not None:
+        invalid = sum(_invalid_draw(attempt) for attempt in attempts)
+        record['decoding']['protocol'] = dict(protocol)
+        record['generation_attempts'] = attempts
+        record['generation_validity']['invalid'] = invalid
+        record['generation_validity']['incomplete'] -= invalid
+    return record

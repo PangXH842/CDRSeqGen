@@ -60,7 +60,7 @@ class CausalStrategy(EosDecodingStrategy):
 
     def context(self, framework):
         # No reserve override: the prompt must match the one training built for this framework.
-        prompt, _ = build_causal_prompt(self.tokenizer, framework)
+        prompt, self.prompt_metadata = build_causal_prompt(self.tokenizer, framework)
         return prompt
 
     def sample(self, prompt):

@@ -33,6 +33,7 @@ from cdrseqgen.datasets.dataset_s2s import Seq2SeqTokenizer, s2s_adapter
 from cdrseqgen.methods.common.backbones import (
     Backbone as Seq2SeqBackbone, BackboneRegistry,
     bert_tokenizer, esm_tokenizer, load_custom_pretrained as _load_custom_pretrained)
+from cdrseqgen.methods.common.transformer import validate_transformer_args
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,12 @@ resolve = _registry.resolve
 
 
 # --- (2a) local model definitions: custom from-scratch encoder-decoder -----------------------------
+def _validate_scratch_args(model_args, data_args):
+    validate_transformer_args(model_args, data_args, rotary=True)
+    if model_args.freeze_encoder or model_args.encoder_init != "pretrained":
+        raise ValueError("freeze_encoder and encoder_init controls require a PLM backbone")
+
+
 def _scratch():
     from cdrseqgen.methods.s2s.models import transformer
     return transformer
@@ -81,10 +88,19 @@ register(Seq2SeqBackbone(
     load_tokenizer=lambda mt, pos, wrap: s2s_adapter(position_type=pos),
     load_training_model=_build_scratch,
     load_pretrained_model=_load_scratch_pretrained,
+    validate_model_args=_validate_scratch_args,
 ))
 
 
 # --- (2b) external PLM encoders: ESM-2 and protein BERTs, each with a new residue decoder ---------
+def _validate_plm_args(model_args, data_args):
+    from cdrseqgen.methods.s2s.models.plm import validate_encoder_options
+    validate_transformer_args(model_args, data_args, rotary=True)
+    validate_encoder_options(
+        model_args.encoder_init, model_args.freeze_encoder, model_args.num_encoder_layers
+    )
+
+
 def _plm_tokenizer(mt, pos, wrap, *, family):
     loader = esm_tokenizer if family == "esm2" else bert_tokenizer
     encoder = loader(mt, pos, wrap)
@@ -121,6 +137,7 @@ for family, match, position in (
         load_tokenizer=partial(_plm_tokenizer, family=family),
         load_training_model=partial(_build_plm, encoder_family=family),
         load_pretrained_model=_load_plm_pretrained,
+        validate_model_args=_validate_plm_args,
     ))
 
 

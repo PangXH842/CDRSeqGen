@@ -88,17 +88,20 @@ class SpanLayout:
     the default has two prompt markers and one terminator, so this count is three.
 
     build_prompt takes (adapter, capped_left_ids, capped_right_ids, public_options),
-    where public_options currently contains only max_len. build_answer must return
+    where public_options contains max_len and any declared public_fields present
+    in the framework. Only target_region, chain_token and species_token may be
+    declared; native targets and lengths never reach the builder. build_answer must return
     the supplied target IDs in order, followed by terminator_id(adapter). These
     callbacks arrange tokens; they do not tokenize, truncate context or make labels.
     """
 
     id: str
     n_layout_tokens: int
-    build_prompt: Callable[[TokenizerAdapter, list[int], list[int], Mapping[str, int]], list[int]]
+    build_prompt: Callable[[TokenizerAdapter, list[int], list[int], Mapping[str, object]], list[int]]
     build_answer: Callable[[TokenizerAdapter, list[int]], list[int]]
     terminator_id: Callable[[TokenizerAdapter], int]
     version: int = 1
+    public_fields: tuple[str, ...] = ()
 
 
 def _cdrseqgen_prompt(t, pt1_ids, pt2_ids, options):
@@ -132,6 +135,12 @@ def _validate_layout_header(layout, tokenizer):
         value = getattr(layout, name)
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise ValueError(f"span layout {name} must be a positive integer")
+    if (not isinstance(layout.public_fields, tuple)
+            or any(not isinstance(key, str)
+                   or key not in {"target_region", "chain_token", "species_token"}
+                   for key in layout.public_fields)
+            or len(set(layout.public_fields)) != len(layout.public_fields)):
+        raise ValueError("span layout public_fields must be unique public conditioning keys")
     terminator = layout.terminator_id(tokenizer)
     if (isinstance(terminator, bool) or not isinstance(terminator, int)
             or not 0 <= terminator < tokenizer.vocab_size
@@ -167,7 +176,7 @@ def build_layout_answer(layout, tokenizer, target_ids):
     return answer
 
 
-def _build_layout_prompt(layout, tokenizer, pt1_ids, pt2_ids, max_len):
+def _build_layout_prompt(layout, tokenizer, pt1_ids, pt2_ids, max_len, public_options=None):
     """Build from capped flanks and verify token IDs, nonemptiness and overhead.
 
     One layout token belongs to the answer terminator, so the prompt must contain
@@ -177,8 +186,11 @@ def _build_layout_prompt(layout, tokenizer, pt1_ids, pt2_ids, max_len):
     # Context is already injected and capped. Native target/length and uncapped strings are
     # deliberately absent; public options are immutable. Builders cannot mutate our flanks.
     expected = len(pt1_ids) + len(pt2_ids) + layout.n_layout_tokens - 1
+    options = {"max_len": max_len}
+    options.update({key: public_options[key] for key in layout.public_fields
+                    if public_options is not None and key in public_options})
     prompt = _checked_tokens(layout.build_prompt(
-        tokenizer, list(pt1_ids), list(pt2_ids), MappingProxyType({"max_len": max_len})),
+        tokenizer, list(pt1_ids), list(pt2_ids), MappingProxyType(options)),
         tokenizer, "prompt")
     if not prompt:
         raise ValueError(f"span layout {layout.id!r} must provide at least one prompt token "
@@ -201,7 +213,8 @@ def validate_layout(layout, tokenizer):
     for residues in ("", "A", "ACD", "ACDEFGHIKLMNPQRSTVWY"):
         build_layout_answer(layout, tokenizer, tokenizer.encode(residues))
     for left, right in (("", ""), ("AC", "D"), ("", "EFG")):
-        _build_layout_prompt(layout, tokenizer, tokenizer.encode(left), tokenizer.encode(right), 384)
+        _build_layout_prompt(layout, tokenizer, tokenizer.encode(left), tokenizer.encode(right),
+                             384, getattr(tokenizer, "layout_probe_options", None))
     return layout
 
 
@@ -286,6 +299,13 @@ def build_causal_prompt(tokenizer, framework):
     layout = layout_for(t)
     _validate_layout_header(layout, t)
     max_len = framework["max_len"]
+    if getattr(t, "native_context_only", False):
+        if framework.get("partner_chain") or framework.get("antigen"):
+            raise ValueError("This native AR backbone supports single-chain flanks only; "
+                             "partner-chain and antigen injection are unsupported")
+    max_positions = getattr(t, "max_positions", None)
+    if max_positions is not None and max_len > max_positions:
+        raise ValueError(f"max_len={max_len} exceeds this backbone's {max_positions} positions")
     reserved = LOOP_LENGTH_RESERVE + layout.n_layout_tokens
     if max_len < reserved:
         raise ValueError(
@@ -298,16 +318,22 @@ def build_causal_prompt(tokenizer, framework):
         partner_seq=framework["partner_chain"], antigen_seq=framework["antigen"],
         max_len=max_len,
     )
-    prompt = _build_layout_prompt(layout, t, pt1_ids, pt2_ids, max_len)
+    prompt = _build_layout_prompt(layout, t, pt1_ids, pt2_ids, max_len, framework)
     required = len(prompt) + CAUSAL_DECODE_STEPS
     if required > max_len:
         raise ValueError(
             f"span layout {layout.id!r}: prompt plus answer reserve and terminator "
             f"needs {required} positions, over max_len={max_len}.")
-    return prompt, {
+    metadata = {
         "pt1_len": len(pt1_ids), "pt2_len": len(pt2_ids),
         "reserve": LOOP_LENGTH_RESERVE,
     }
+    conditioning = getattr(t, "resolve_conditioning", None)
+    if conditioning is not None:
+        metadata["conditioning"] = conditioning({key: framework[key]
+                                                for key in layout.public_fields
+                                                if key in framework})
+    return prompt, metadata
 
 
 class CausalInfillingDataset(AntibodyFrameworkDataset):
@@ -321,6 +347,26 @@ class CausalInfillingDataset(AntibodyFrameworkDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         validate_layout(layout_for(self.tokenizer), self.tokenizer)
+
+    def framework_parts(self, idx):
+        """Add public chain/species conditioning required by a registered AR layout.
+
+        The target region identifies the target chain. Explicit record species
+        overrides a backbone's declared species default; unknown species must be
+        rejected by that backbone rather than silently treated as human.
+        """
+        framework = super().framework_parts(idx)
+        framework["target_region"] = self.target_region
+        fields = layout_for(self.tokenizer).public_fields
+        record = self.data[idx]
+        if "chain_token" in fields and "chain_token" in record:
+            framework["chain_token"] = record["chain_token"]
+        if "species_token" in fields:
+            if "species_token" in record:
+                framework["species_token"] = record["species_token"]
+            elif record.get("species"):
+                framework["species_token"] = record["species"]
+        return framework
 
     def __getitem__(self, idx):
         """Return input_ids/labels tensors and integer prompt/target/flank lengths.

@@ -87,9 +87,9 @@ class RejectedBeforeTheRunDirectoryTests(unittest.TestCase):
             "unknown backbone": (dict(model_type="nope"), "No .*backbone registered"),
             "heads do not divide the width": (dict(hidden_size=130, num_attention_heads=8),
                                               "must be divisible by num_attention_heads=8"),
-            "no heads": (dict(num_attention_heads=0), "must be divisible by num_attention_heads=0"),
-            "zero width": (dict(hidden_size=0), "hidden_size must be positive"),
-            "negative width": (dict(hidden_size=-128), "hidden_size must be positive"),
+            "no heads": (dict(num_attention_heads=0), "num_attention_heads must be a positive integer"),
+            "zero width": (dict(hidden_size=0), "hidden_size must be a positive integer"),
+            "negative width": (dict(hidden_size=-128), "hidden_size must be a positive integer"),
             "early stopping without best-model loading": (dict(early_stopping_patience=3),
                                                           "requires load_best_model_at_end"),
         }
@@ -130,6 +130,33 @@ class RejectedBeforeTheRunDirectoryTests(unittest.TestCase):
                                   num_attention_heads=2), "even head width")
         self.assert_accepted(dict(method="s2s", model_type=PRETRAINED, hidden_size=130,
                                   num_attention_heads=5))
+
+    def test_custom_backbone_names_retain_the_registered_architecture_checks(self):
+        # Another in-house architecture is selected by its backbone descriptor,
+        # not by whether its public name is literally "scratch".
+        for method in METHODS:
+            module = resolve(method).module("backbones")
+            original = list(module.REGISTRY)
+            custom = dataclasses.replace(
+                module.resolve("scratch"), id="custom_baseline",
+                matches=lambda name: name == "custom_baseline",
+            )
+            module.REGISTRY.insert(0, custom)
+            try:
+                config = dict(method=method, model_type="custom_baseline")
+                with self.subTest(method=method, setting="valid"):
+                    self.assert_accepted(config)
+                with self.subTest(method=method, setting="invalid heads"):
+                    self.assert_rejected(
+                        dict(**config, hidden_size=130, num_attention_heads=8),
+                        "must be divisible",
+                    )
+                if method == "s2s":
+                    with self.subTest(method=method, setting="custom stack depths"):
+                        self.assert_accepted(dict(**config, num_encoder_layers=2,
+                                                  num_decoder_layers=1))
+            finally:
+                module.REGISTRY[:] = original
 
     def test_label_smoothing_belongs_to_the_masked_method(self):
         for method in ("ar", "s2s"):
@@ -285,6 +312,9 @@ class ShippedConfigTests(unittest.TestCase):
         self.assertTrue(set(METHODS) <= {config.get("method", DEFAULT_METHOD) for _, config in cases})
         for label, config in cases:
             with self.subTest(config=label):
+                source = str(config.get("model_type", ""))
+                if source.startswith("iglm:") and not (ROOT / source[5:]).expanduser().is_dir():
+                    self.skipTest(f"needs the local IgLM checkpoint {source[5:]}")  # a path, not a hub id
                 with _setup_args(config) as (setup_args, initialise):
                     setup_args()
                 initialise.assert_called_once()

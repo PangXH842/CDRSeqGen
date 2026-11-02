@@ -1,0 +1,34 @@
+{
+  "name": "iglm_s_finetune",
+  "base_config": "configs/experiments/bases/h3_ar_iglm.json",
+  "trials": [
+    {
+      "name": "iglm_s_lr1e-5",
+      "overrides": {
+        "model_type": "iglm:/home/pang/miniconda3/envs/iglm/lib/python3.11/site-packages/iglm/trained_models/IgLM-S",
+        "learning_rate": 1e-05
+      }
+    },
+    {
+      "name": "iglm_s_lr3e-5",
+      "overrides": {
+        "model_type": "iglm:/home/pang/miniconda3/envs/iglm/lib/python3.11/site-packages/iglm/trained_models/IgLM-S",
+        "learning_rate": 3e-05
+      }
+    },
+    {
+      "name": "iglm_s_lr1e-4",
+      "overrides": {
+        "model_type": "iglm:/home/pang/miniconda3/envs/iglm/lib/python3.11/site-packages/iglm/trained_models/IgLM-S",
+        "learning_rate": 0.0001
+      }
+    },
+    {
+      "name": "iglm_s_lr3e-4",
+      "overrides": {
+        "model_type": "iglm:/home/pang/miniconda3/envs/iglm/lib/python3.11/site-packages/iglm/trained_models/IgLM-S",
+        "learning_rate": 0.0003
+      }
+    }
+  ]
+}

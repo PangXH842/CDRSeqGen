@@ -1,37 +1,17 @@
-"""Custom encoder-decoder for from-scratch span infilling.
+"""Custom encoder-decoder Transformer for loop infilling.
 
-  * Seq2SeqAntibodyConfig -- PretrainedConfig subclass: the architecture spec HF saves and reloads
-  * Seq2SeqAntibodyModel  -- architecture + forward; returns a {"loss", "logits"} DICT, matching the
-                             masked and causal models so samplers can share ``logits_of``
-  * build_model           -- master function: validates args, returns model object
+Structure:
+  Seq2SeqAntibodyConfig -> Seq2SeqAntibodyModel -> build_model()
+  framework -> bidirectional rotary encoder -> decoder cross-attention
+  decoder prefix -> causal rotary self-attention -> residue logits [B, S, V]
 
-Deliberately mirrors ``methods/ar/models/transformer.py`` — same knobs, same dict return, same
-``intermediate_size=None`` meaning 4 x hidden_size, same rotary positions — so an architecture sweep
-behaves identically across methods. Three things differ, and all three are forced:
-
-  * **The encoder is bidirectional.** Its self-attention has no causal mask, so FR1 and FR4 inform
-    each other before a residue is emitted. This is the entire architectural claim of the method.
-
-  * **The decoder has cross-attention.** Each decoder block attends to its own prefix (causal) and
-    then to the full encoder output. Rotary is applied to SELF-attention only: query and key live in
-    the same position space there, while a cross-attention query (loop position 3) and key
-    (framework position 140) do not, and rotating across two unrelated coordinate systems encodes a
-    relative offset that means nothing.
-
-  * **The loss does NOT shift.** ``dataset_s2s.build_decoder_pair`` hands over inputs and labels
-    already offset by one, so logits at t are scored against labels at t directly. The causal model
-    shifts internally because ``dataset_ar`` supplies aligned labels instead. Shifting in both places
-    trains perfectly happily against the wrong target and yields a checkpoint that looks merely bad,
-    which is why the convention is stated in both files and asserted in ``test_s2s_model``.
-
-**Capacity is NOT matched to an `ar` run with the same ``num_layers``.** ``num_layers=4`` builds four
-encoder blocks AND four decoder blocks, and the decoder blocks additionally carry cross-attention, so
-the model is more than twice the size of the causal one at the same setting. That is deliberate:
-silently halving the depth to fake a match would itself be an un-audited hyperparameter, and
-Findings §9 records what one of those cost. ``build_model`` logs the parameter count so the number
-is visible in every ``train.log``, and ``num_encoder_layers`` / ``num_decoder_layers`` are separate
-knobs so the ``arch`` sweep can resolve capacity-versus-architecture empirically rather than by
-assertion. Any table putting `s2s` beside `ar` must quote both parameter counts.
+Contract:
+  * Decoder inputs and labels are already offset by the dataset; loss does not shift.
+  * Labels equal to -100 are ignored. num_items_in_batch normalizes the token-loss
+    sum over the accumulation window; otherwise loss is a token mean.
+  * encode() supports reusing framework states across candidate draws.
+  * Optional hidden states expose the final decoder and encoder representations.
+  * return_dict is accepted for HF compatibility; outputs are always dictionaries.
 """
 import logging
 
@@ -39,10 +19,20 @@ import torch
 import torch.nn as nn
 from transformers import PreTrainedModel, PretrainedConfig
 
+from cdrseqgen.methods.common.transformer import (
+    RotarySelfAttention as SelfAttention,
+    feed_forward,
+    init_transformer_weights,
+    validate_architecture,
+    validate_transformer_config,
+)
+
 logger = logging.getLogger(__name__)
 
 
 class Seq2SeqAntibodyConfig(PretrainedConfig):
+    """Persist resolved architecture dimensions under the existing checkpoint model_type."""
+
     model_type = "seq2seq_antibody_transformer"
 
     def __init__(self, vocab_size=27, hidden_size=128, num_hidden_layers=4,
@@ -59,68 +49,9 @@ class Seq2SeqAntibodyConfig(PretrainedConfig):
         self.rope_theta = rope_theta
 
 
-def _rope_cache(seq_len, head_dim, device, dtype, theta):
-    """(cos, sin) of shape [1, 1, seq_len, head_dim] for rotary embedding."""
-    inverse = 1.0 / (theta ** (torch.arange(0, head_dim, 2, device=device).float() / head_dim))
-    positions = torch.arange(seq_len, device=device).float()
-    angles = torch.outer(positions, inverse)                 # [seq, head_dim/2]
-    emb = torch.cat((angles, angles), dim=-1)                # [seq, head_dim]
-    return emb.cos()[None, None].to(dtype), emb.sin()[None, None].to(dtype)
-
-
-def _rotate_half(x):
-    half = x.shape[-1] // 2
-    return torch.cat((-x[..., half:], x[..., :half]), dim=-1)
-
-
-def _apply_rope(x, cos, sin):
-    return x * cos + _rotate_half(x) * sin
-
-
 def _split_heads(x, n_head, head_dim):
     batch, seq, _ = x.shape
     return x.view(batch, seq, n_head, head_dim).transpose(1, 2)          # [B, H, S, D]
-
-
-class SelfAttention(nn.Module):
-    """Multi-head self-attention with rotary positions, causal or bidirectional."""
-
-    def __init__(self, config, causal):
-        super().__init__()
-        if config.hidden_size % config.num_attention_heads != 0:
-            raise ValueError("hidden_size must be divisible by num_attention_heads")
-        self.causal = causal
-        self.n_head = config.num_attention_heads
-        self.head_dim = config.hidden_size // config.num_attention_heads
-        if self.head_dim % 2:
-            raise ValueError("rotary attention requires an even head dimension "
-                             "(hidden_size / num_attention_heads)")
-        self.qkv = nn.Linear(config.hidden_size, 3 * config.hidden_size)
-        self.proj = nn.Linear(config.hidden_size, config.hidden_size)
-        self.rope_theta = config.rope_theta
-
-    def forward(self, x, key_padding_mask=None):
-        batch, seq, _ = x.shape
-        qkv = self.qkv(x).view(batch, seq, 3, self.n_head, self.head_dim).permute(2, 0, 3, 1, 4)
-        q, k, v = qkv[0], qkv[1], qkv[2]                      # [B, H, S, D]
-
-        cos, sin = _rope_cache(seq, self.head_dim, x.device, x.dtype, self.rope_theta)
-        q, k = _apply_rope(q, cos, sin), _apply_rope(k, cos, sin)
-
-        # SDPA cannot combine is_causal=True with an explicit mask, so when padding is present the
-        # causal triangle is folded into that mask and is_causal stays off.
-        if key_padding_mask is None:
-            out = torch.nn.functional.scaled_dot_product_attention(
-                q, k, v, is_causal=self.causal, dropout_p=0.0)
-        else:
-            keep = key_padding_mask[:, None, None, :].bool()              # [B,1,1,S]
-            if self.causal:
-                causal = torch.ones(seq, seq, device=x.device, dtype=torch.bool).tril()
-                keep = keep & causal[None, None]                          # [B,1,S,S]
-            out = torch.nn.functional.scaled_dot_product_attention(
-                q, k, v, attn_mask=keep, dropout_p=0.0)
-        out = out.transpose(1, 2).reshape(batch, seq, -1)
-        return self.proj(out)
 
 
 class CrossAttention(nn.Module):
@@ -151,21 +82,13 @@ class CrossAttention(nn.Module):
         return self.proj(out)
 
 
-def _feed_forward(config):
-    return nn.Sequential(
-        nn.Linear(config.hidden_size, config.intermediate_size),
-        nn.GELU(),
-        nn.Linear(config.intermediate_size, config.hidden_size),
-    )
-
-
 class EncoderBlock(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.norm1 = nn.LayerNorm(config.hidden_size)
         self.attn = SelfAttention(config, causal=False)
         self.norm2 = nn.LayerNorm(config.hidden_size)
-        self.mlp = _feed_forward(config)
+        self.mlp = feed_forward(config)
 
     def forward(self, x, key_padding_mask=None):
         x = x + self.attn(self.norm1(x), key_padding_mask=key_padding_mask)
@@ -180,7 +103,7 @@ class DecoderBlock(nn.Module):
         self.norm_cross = nn.LayerNorm(config.hidden_size)
         self.cross = CrossAttention(config)
         self.norm2 = nn.LayerNorm(config.hidden_size)
-        self.mlp = _feed_forward(config)
+        self.mlp = feed_forward(config)
 
     def forward(self, x, encoder_hidden_states, key_padding_mask=None, encoder_padding_mask=None):
         x = x + self.attn(self.norm1(x), key_padding_mask=key_padding_mask)
@@ -190,11 +113,14 @@ class DecoderBlock(nn.Module):
 
 
 class Seq2SeqAntibodyModel(PreTrainedModel):
+    """Bidirectional encoder plus causal cross-attending decoder with aligned loss."""
+
     config_class = Seq2SeqAntibodyConfig
     # Trainer supplies the supervised-token count across the accumulation window.
     accepts_loss_kwargs = True
 
     def __init__(self, config):
+        validate_transformer_config(config, rotary=True, encoder_decoder=True)
         super().__init__(config)
         # One embedding table for both streams: they are the same amino-acid vocabulary, and tying
         # them halves the parameter cost of the widest layer while keeping <bos>/<eos> consistent.
@@ -212,12 +138,7 @@ class Seq2SeqAntibodyModel(PreTrainedModel):
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
     def _init_weights(self, module):
-        if isinstance(module, nn.Linear):
-            module.weight.data.normal_(mean=0.0, std=0.02)
-            if module.bias is not None:
-                module.bias.data.zero_()
-        elif isinstance(module, nn.Embedding):
-            module.weight.data.normal_(mean=0.0, std=0.02)
+        init_transformer_weights(module)
 
     def encode(self, input_ids, attention_mask=None):
         """Run the encoder once. Sampling reuses one call across every candidate for a framework."""
@@ -271,18 +192,15 @@ class Seq2SeqAntibodyModel(PreTrainedModel):
 def build_model(vocab_size=27, hidden_size=128, num_layers=4, num_attention_heads=8,
                 intermediate_size=None, max_len=512, num_encoder_layers=None,
                 num_decoder_layers=None):
-    """Build a fresh from-scratch encoder-decoder transformer."""
+    """Build fresh weights after validating dimensions; None FFN width means 4 x hidden_size."""
+    validate_architecture(
+        hidden_size, num_layers, num_attention_heads, intermediate_size, max_len,
+        rotary=True,
+    )
     if intermediate_size is None:
         intermediate_size = 4 * hidden_size
-    if hidden_size % num_attention_heads != 0:
-        raise ValueError(
-            f"hidden_size={hidden_size} must be divisible by num_attention_heads="
-            f"{num_attention_heads} (attention splits the width across heads).")
     encoder_layers = num_layers if num_encoder_layers is None else num_encoder_layers
     decoder_layers = num_layers if num_decoder_layers is None else num_decoder_layers
-    if encoder_layers < 1 or decoder_layers < 1:
-        raise ValueError("an encoder-decoder needs at least one block on each side; got "
-                         f"encoder={encoder_layers}, decoder={decoder_layers}")
 
     model = Seq2SeqAntibodyModel(Seq2SeqAntibodyConfig(
         vocab_size=vocab_size,

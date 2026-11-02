@@ -30,7 +30,6 @@ from cdrseqgen.methods.common.arguments import (
     BaseModelArguments,
     initialize_run,
     parse_config_and_cli,
-    validate_attention_heads,
     validate_common_args,
     validate_early_stopping,
     validate_no_label_smoothing,
@@ -102,25 +101,12 @@ def validate_args(model_args, data_args, gen_args):
     """Validate the seq2seq-only limits and backbone on top of the shared method contract."""
     validate_common_args(model_args, data_args, gen_args, expected_method="s2s")
     validate_s2s_decode_steps(gen_args.gen_max_new_tokens)
-    resolve_backbone(model_args.model_type)
-    # The residue decoder is built from these settings for every backbone, around a PLM encoder too.
-    validate_attention_heads(model_args, even_head_width=True)
+    resolve_backbone(model_args.model_type).validate_training_args(model_args, data_args)
     if (model_args.conditioning_probe_steps < 0 or not math.isfinite(model_args.diagnostic_stop_epoch)
             or model_args.diagnostic_stop_epoch < 0):
         raise ValueError("Diagnostic probe interval and stop epoch must be nonnegative and finite")
     if model_args.conditioning_probe_steps and data_args.eval_split != "validation":
         raise ValueError("Conditioning probes require eval_split=validation")
-    if model_args.model_type == "scratch":
-        if model_args.freeze_encoder or model_args.encoder_init != "pretrained":
-            raise ValueError("freeze_encoder and encoder_init controls require a PLM backbone")
-    else:
-        from cdrseqgen.methods.s2s.models.plm import validate_encoder_options
-        validate_encoder_options(model_args.encoder_init, model_args.freeze_encoder,
-                                 model_args.num_encoder_layers)
-    for name in ("num_encoder_layers", "num_decoder_layers"):
-        value = getattr(model_args, name)
-        if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 1):
-            raise ValueError(f"{name} must be a positive integer or unset (got {value!r})")
 
 
 def setup_args() -> Tuple[ModelArguments, DataArguments, GenerationArguments, TrainingArguments]:

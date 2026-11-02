@@ -194,7 +194,7 @@ EVALUATE_OPTIONS = [
 ]
 GENERATE_OPTIONS = [
     "--antigen", "--decoding", "--force", "--length_temperature", "--max_len", "--max_length",
-    "--max_new_tokens", "--min_length", "--model_dir", "--model_path", "--model_type",
+    "--max_new_tokens", "--method", "--min_length", "--model_dir", "--model_path", "--model_type",
     "--num_samples", "--output", "--partner_chain", "--pt1", "--pt2", "--seed", "--show_samples",
     "--skip_perplexity", "--target_length", "--target_loop", "--target_truth", "--temperature",
     "--test_file", "--top_k", "--top_p", "--use_native_length",

@@ -3,13 +3,13 @@
 [Back to README](../README.md) · [Results index](RESULTS.md) · [Research notes](FINDINGS.md) ·
 [Roadmap](ROADMAP.md)
 
-Updated **30 October 2026** for code and manual-review progress. Research evidence and
+Updated **2 November 2026** for code and manual-review progress. Research evidence and
 manuscript tasks carry forward the **23 October handoff**; their dated audit and artifact
 notes retain their original scope. No experiments or manuscript artifacts were regenerated.
 
 <a id="current-handoff--2026-10-23"></a>
 
-## Current handoff — 2026-10-30
+## Current handoff — 2026-11-02
 
 The [completed evidence inventory](RESULTS.md#completed-validation-evidence) links the audited batches. Detailed measurements and historical caveats live in [FINDINGS.md](FINDINGS.md).
 
@@ -25,6 +25,13 @@ The abstract was submitted on **23 October**, as confirmed by the user. The [can
 4. Review the rebuilt [main.pdf](../../iAIM/main.pdf): Table 8 and Figure 5 include MLM ESM-2, while the main external-comparison tables still need the expanded evidence integrated. The [October 22 working archive](../../iAIM/iaim-draft-20261022.zip) and [October 8 archive](../../iAIM/iaim-draft-20261008.zip) are dated snapshots; regenerate a distribution archive after the manuscript updates.
 
 **Remaining experiment decision — final held-out evaluation.** Freeze the cohort, participating systems, checkpoint choices, decoding settings, primary comparisons and reporting before final inference. The 14,818 audit-eligible records are a candidate pool, not a frozen final manifest. Decide common length support, including IgCraft's 30-slot H3 support, and disclose unknown external pretraining membership. The current batch runner still selects validation; the final path needs preparation before execution. Further training follows a specific retained claim or necessary split revision, rather than another broad sweep.
+
+**IgLM implementation update:** the released models now have a native AR backbone, and
+adaptation recipes are [prepared for user-run checks](../configs/experiments/20261102_iglm_adaptation.md).
+The review fixes checkpoint loading, tokenizer compatibility, sampling isolation and attempt
+provenance; it adds no new comparative results. Earlier CPU parity diagnostics used some
+test-split records. Document that development exposure when freezing the final evaluation;
+the test split has not been wholly unseen, even though no final comparative run has occurred.
 
 The current matched OAS4 benchmark has used validation; historical test-selection caveats remain documented below. All current contrasts are exploratory. The newer analysis resamples training seeds and framework groups, while older intervals fix checkpoints; candidate-generation variability is not estimated by either. The seven-seed study covers no-partner scratch checkpoints, **not seven-seed dropout experiments**. Historical MLM training evaluations lack attempt-validity accounting; the benchmark adapters record every attempt. Different-length/gapped homology and [external pretraining membership](../benchmark/pretraining_overlap.md) remain unresolved.
 

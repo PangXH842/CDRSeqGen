@@ -17,7 +17,7 @@ import argparse
 
 from cdrseqgen.artifacts import read_run_config
 from cdrseqgen.methods.common.arguments import add_sampling_arguments
-from cdrseqgen.methods.registry import checkpoint_method
+from cdrseqgen.methods.registry import METHODS, checkpoint_method, resolve
 # Preserve helper imports used by callers of the original root module.
 from cdrseqgen.methods.common.generation import (
     LOOP_PT1_BANDS, _print_case, check_compatibility, infer_loop_number,
@@ -31,7 +31,10 @@ def build_parser():
     parser.add_argument("--model_dir", "--model_path", dest="model_dir", type=str, required=True,
                         help="Path to your trained model folder (--model_path is accepted too, in both commands)")
     parser.add_argument("--model_type", type=str, default=None,
-                        help="Backbone: 'scratch', an ESM-2 id, a protein-BERT id, or any HF masked-LM hub path")
+                        help="Registered backbone name or local source; IgLM uses iglm:/local/path.")
+    parser.add_argument("--method", choices=tuple(METHODS), default=None,
+                        help="Method for a checkpoint without run_config.json (for native IgLM: ar). "
+                             "Must agree with the method of a saved CDRSeqGen run.")
 
     parser.add_argument("--test_file", type=str, default=None,
                         help="JSON file of test cases (omit to use the single-case CLI args below)")
@@ -52,10 +55,9 @@ def build_parser():
                         help="Antigen sequence; required by checkpoints trained with include_antigen. "
                              "Injection side follows the backbone's position_type automatically.")
     parser.add_argument("--target_loop", type=str, choices=['h1', 'h2', 'h3', 'l1', 'l2', 'l3'], default=None,
-                        help="Which CDR this run is designing (h1/h2/h3/l1/l2/l3). Declarative: it "
-                             "cannot change the computation, and a mismatch with the checkpoint's "
-                             "trained loop warns rather than refuses (off-target probing is a valid "
-                             "experiment). The mismatch is recorded in the output JSON.")
+                        help="Which CDR this run is designing (h1/h2/h3/l1/l2/l3). A conditioned "
+                             "backbone such as IgLM uses its chain identity. A mismatch with the "
+                             "checkpoint's trained loop warns and is recorded in the output JSON.")
     parser.add_argument("--force", action="store_true",
                         help="Run despite blocking CONTEXT problems (the checkpoint expects partner "
                              "chain / antigen that this run does not supply, or vice versa). Loop "
@@ -77,10 +79,17 @@ def parse_args(argv=None):
 
 def main(args=None):
     args = parse_args() if args is None else args
-    config = read_run_config(args.model_dir) or {}
+    saved_config = read_run_config(args.model_dir)
+    config = dict(saved_config or {})
     # source is assigned during generation setup; a saved field cannot claim CLI fallback.
     config.pop("source", None)
-    method = checkpoint_method(config)
+    requested = getattr(args, "method", None)
+    if saved_config is None and requested is not None:
+        # Original releases have no CDRSeqGen run metadata. A caller must name
+        # their method explicitly; declared saved methods remain authoritative.
+        method = resolve(requested)
+    else:
+        method = checkpoint_method(config, requested)
     return method.module('gen_cli').main(args, config)
 
 

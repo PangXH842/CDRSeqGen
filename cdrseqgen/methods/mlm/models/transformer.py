@@ -1,27 +1,18 @@
-"""Custom bidirectional encoder for from-scratch masked-LM training.
+"""Custom bidirectional Transformer for masked-loop reconstruction.
 
-  * CustomAntibodyConfig    -- PretrainedConfig subclass: the architecture spec HF saves and reloads
-  * CustomAntibodyModel     -- architecture + forward; returns a {"loss", "logits"} DICT, which is
-                               why the shared ``logits_of`` accepts a dict as well as an object
-  * build_model             -- master function: validates args, returns model object
+Structure:
+  CustomAntibodyConfig -> CustomAntibodyModel -> build_model()
+  token + learned absolute positions -> encoder -> residue logits [B, S, V]
 
-Note:
-  * Positions are learned and absolute, so the dataset appends antigen context after the target
-    so the loop keeps a stable index
-  * Logs via the root logger, configured by the corresponding entrypoint
-    (train.py, generate.py, or evaluate.py)
-  * CustomAntibodyModel.from_pretrained() returns RANDOMLY INITIALIZED weights with no missing-key
-    warning. Must instead use _load_custom_pretrained from backbones.py, which loads the state dict
-    explicitly with strict=True
-  * All four architecture knobs (hidden, layer, head, ffn) come from the config (ModelArguments),
-    so an architecture sweep can move any of them without editing this file. Model dispatch lives
-    in backbones.py; this is just the scratch builder.
-  * max_position_embeddings is sized from max_len (never below the 512 default) so a longer max_len
-    can't overflow the position-embedding table — the model has one learned vector per slot.
-  * intermediate_size=None means 4 x hidden_size, the standard transformer FFN (feed-forward
-    network) ratio. Until 2026-07-27 it was pinned at 512 while hidden_size was a free parameter,
-    so widening the model silently shrank the ratio (256 -> 2x, 512 -> 1x) and an "architecture
-    sweep" would have confounded width with FFN ratio. Pass a number only to break it on purpose.
+Contract:
+  * Same-position labels; -100 excludes unsupervised tokens.
+  * Optional hidden_states contains the final encoder representation.
+  * Training uses MLMLossTrainer for the configured external objective.
+  * return_dict is accepted for HF compatibility; outputs are always dictionaries.
+
+Builders accept intermediate_size=None for 4 x hidden_size and allocate at least
+512 learned position slots. Backbone registrations own selection and strict
+checkpoint restoration; method CLI entrypoints configure logging.
 """
 
 import logging
@@ -30,10 +21,20 @@ import torch
 import torch.nn as nn
 from transformers import PreTrainedModel, PretrainedConfig
 
+from cdrseqgen.methods.common.transformer import (
+    init_transformer_weights,
+    validate_architecture,
+    validate_transformer_config,
+)
+
 logger = logging.getLogger(__name__)
 
+
 class CustomAntibodyConfig(PretrainedConfig):
+    """Persist resolved architecture dimensions under the existing checkpoint model_type."""
+
     model_type = "custom_antibody_transformer"
+
     def __init__(
         self,
         vocab_size=25,
@@ -54,9 +55,12 @@ class CustomAntibodyConfig(PretrainedConfig):
 
 
 class CustomAntibodyModel(PreTrainedModel):
+    """Bidirectional encoder with learned positions and optional reconstruction loss."""
+
     config_class = CustomAntibodyConfig
 
     def __init__(self, config):
+        validate_transformer_config(config, rotary=False)
         super().__init__(config)
         self.embedding = nn.Embedding(config.vocab_size, config.hidden_size)
         self.pos_embedding = nn.Parameter(torch.zeros(1, config.max_position_embeddings, config.hidden_size))
@@ -75,12 +79,7 @@ class CustomAntibodyModel(PreTrainedModel):
 
     # Hugging Face requires custom models to define how they should be initialized
     def _init_weights(self, module):
-        if isinstance(module, nn.Linear):
-            module.weight.data.normal_(mean=0.0, std=0.02)
-            if module.bias is not None:
-                module.bias.data.zero_()
-        elif isinstance(module, nn.Embedding):
-            module.weight.data.normal_(mean=0.0, std=0.02)
+        init_transformer_weights(module)
 
     def forward(self, input_ids, attention_mask=None, labels=None,
                 output_hidden_states=False, return_dict=True, **_kwargs):
@@ -107,14 +106,13 @@ class CustomAntibodyModel(PreTrainedModel):
 
 def build_model(vocab_size=25, hidden_size=128, num_layers=4, num_attention_heads=8,
                 intermediate_size=None, max_len=512):
-    """Build a fresh custom-from-scratch transformer"""
+    """Build fresh weights after validating dimensions; None FFN width means 4 x hidden_size."""
+    validate_architecture(
+        hidden_size, num_layers, num_attention_heads, intermediate_size, max_len,
+        rotary=False,
+    )
     if intermediate_size is None:
         intermediate_size = 4 * hidden_size
-    if hidden_size % num_attention_heads != 0:
-        raise ValueError(
-            f"hidden_size={hidden_size} must be divisible by num_attention_heads="
-            f"{num_attention_heads} (nn.MultiheadAttention splits the width across heads)."
-        )
 
     logger.info(f"🚀 Initializing Custom Transformer from scratch "
                 f"(hidden={hidden_size}, layers={num_layers}, heads={num_attention_heads}, "

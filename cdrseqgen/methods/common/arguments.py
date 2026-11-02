@@ -210,23 +210,12 @@ def validate_no_label_smoothing(training_args):
 
 
 def validate_attention_heads(model_args, *, even_head_width=False):
-    """Check that the heads can split the model width, before any dataset or model is built.
+    """Check argument-dataclass head dimensions using the shared Transformer rules."""
+    from cdrseqgen.methods.common.transformer import validate_attention_dimensions
 
-    Only a model built from these settings reads them (a scratch model; S2S also builds its own
-    decoder around a pretrained encoder), so each method decides when to call this. Without it a
-    bad pair fails after the run directory exists: at model construction, or for the causal
-    model's rotary attention at the first forward pass, as a tensor-shape error.
-    even_head_width is the extra rule of the rotary-position models (AR, S2S), which rotate pairs
-    of channels; MLM's nn.MultiheadAttention has no such rule.
-    """
-    heads, width = model_args.num_attention_heads, model_args.hidden_size
-    if width < 1:
-        raise ValueError(f"hidden_size must be positive, got {width}")
-    if heads < 1 or width % heads:
-        raise ValueError(f"hidden_size={width} must be divisible by num_attention_heads={heads}")
-    if even_head_width and (width // heads) % 2:
-        raise ValueError(f"hidden_size={width} / num_attention_heads={heads} gives heads of width "
-                         f"{width // heads}; rotary attention needs an even head width")
+    validate_attention_dimensions(
+        model_args.hidden_size, model_args.num_attention_heads, rotary=even_head_width
+    )
 
 
 def _normalize_warmup_config(parser, config):

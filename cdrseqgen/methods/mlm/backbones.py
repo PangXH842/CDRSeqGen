@@ -29,6 +29,7 @@ import logging
 
 from cdrseqgen.datasets.dataset_common import TokenizerAdapter
 from cdrseqgen.datasets.dataset_mlm import AntibodyTokenizer
+from cdrseqgen.methods.common.transformer import validate_transformer_args
 
 from cdrseqgen.methods.common.backbones import (
     Backbone,
@@ -77,6 +78,7 @@ register(Backbone(
     load_tokenizer=lambda mt, pos, wrap: TokenizerAdapter.from_custom(AntibodyTokenizer(), position_type=pos),
     load_training_model=_build_scratch,
     load_pretrained_model=_load_scratch_pretrained,
+    validate_model_args=validate_transformer_args,
 ))
 
 

@@ -89,6 +89,7 @@ CDRSeqGen/
 │   │   │   ├── run_setup.py    # Run directories/latest, dataset tags and config/provenance
 │   │   │   ├── record_results.py # epoch_metrics.csv and training-curve PNGs
 │   │   │   ├── losses.py       # Aligned token cross-entropy shared by method objectives
+│   │   │   ├── transformer.py  # Custom-model validation, rotary self-attention, FFNs and initialization
 │   │   │   ├── sampling.py     # warp_logits / ban_tokens / logits_of — so "top_p=0.9" means the
 │   │   │   │                   #   same thing on both sides of an AR-vs-MLM table
 │   │   │   ├── callbacks.py    # LogMetricsCallback + build_callbacks; optional early stopping
@@ -98,6 +99,7 @@ CDRSeqGen/
 │   │   ├── ar/                 # Autoregressive (2026-09-01). Data lives in datasets/dataset_ar.py;
 │   │   │   ├── backbones.py    #   this package owns model + training.
 │   │   │   │                   # Causal registry — resolve(model_type) -> CausalBackbone.
+│   │   │   │                   #   iglm keeps IgLM's own vocabulary, layout and sampler.
 │   │   │   │                   #   hf_decoder ADDS the layout's sentinels to a pretrained LM and
 │   │   │   │                   #   resizes it: those rows start random (see its docstring)
 │   │   │   ├── training.py     # Preparation/finish hooks, datasets, recovery metrics and Trainer.
@@ -114,8 +116,10 @@ CDRSeqGen/
 │   │   │   │                   #   judge prompts since causal lengths vary
 │   │   │   ├── generation.py   # generate.py callbacks: EOS-only length checks, causal case record
 │   │   │   └── models/
-│   │   │       └── transformer.py  # Causal decoder, ROTARY positions (§8: absolute positions lock
-│   │   │                       #   a checkpoint to its context regime; causal prompts vary in length)
+│   │   │       ├── transformer.py  # Causal decoder, ROTARY positions (§8: absolute positions lock
+│   │   │       │               #   a checkpoint to its context regime; causal prompts vary in length)
+│   │   │       └── iglm.py         # Released IgLM / IgLM-S as an AR backbone: native 33-token
+│   │   │                       #   vocabulary, [chain][species] layout, conditioning, sampler
 │   │   ├── s2s/                # Encoder-decoder (2026-09-07). Data lives in datasets/dataset_s2s.py.
 │   │   │   │                   #   The missing cell of the 2x2: bidirectional conditioning like
 │   │   │   │                   #   mlm, <eos>-chosen length like ar. Contract-identical to ar
@@ -210,6 +214,8 @@ CDRSeqGen/
 ├── scripts/
 │   ├── run.sh                  # Training commands + benchmark subcommands; legacy GPU-first route
 │   ├── experiments.py          # Named CLI; discovers recipes and uses the shared planner/executor
+│   ├── make_iglm_randinit.py   # Random-init control with the released IgLM architecture (recipe iglm_controls)
+│   ├── iglm_replay.py          # Replay a stored external IgLM batch draw for draw with the iglm backbone
 │   ├── sweep.sh                # Compatibility alias for run.sh <gpus> sweep [preset] [config]
 │   └── unit_tests.sh           # Unit test runner (sets PYTHONPATH; no GPU or data needed)
 ├── env.sh
@@ -229,9 +235,36 @@ All three methods use the descriptor and ordered registry implementation in
 [common/backbones.py](../cdrseqgen/methods/common/backbones.py). Each method owns a separate
 registry instance and its model/tokenizer registration blocks. MLM uses the shared
 `Backbone` directly; S2S exports it as `Seq2SeqBackbone`. AR's `CausalBackbone` extends
-`build_tokenizer()` with span-layout validation and persistence. Matching is first-wins;
+`build_tokenizer()` with span-layout validation and persistence. Besides `scratch` and the
+generic `hf_decoder`, it registers `iglm`, a pretrained model with its own span layout,
+conditioning fields and sampler (see [MODELS.md](MODELS.md#pretrained-ar-backbone-iglm)); an
+adapter carries these on its tokenizer, so the shared training and generation code do not
+branch on the model name. Matching is first-wins;
 the registry rejects duplicate IDs and checks fallback placement after registration.
 MLM and AR require one generic fallback, while S2S permits having none.
+
+IgLM's source layout and any recorded sampling policy are checked before both fine-tuning
+and inference. Its loader rejects missing learned weights and preserves native token IDs;
+its sampler isolates generation defaults and records malformed/unterminated attempts.
+Original checkpoints without run metadata can use `generate.py --method ar`; saved runs
+retain their declared method. Pretrained benchmark arms must carry their own saved tokenizer
+assets, which are hashed with model/configuration inputs.
+
+Backbone registrations may also supply `validate_model_args(model_args, data_args)`.
+Argument setup invokes it through `backbone.validate_training_args()` before run
+creation. Custom and PLM families therefore own their architecture checks; adding
+another custom model does not require a special-case name test in the parser.
+
+The current custom models retain `Config → Model → build_model()` and their saved
+config identifiers. Their shared validation, rotary self-attention, FFNs and
+initialization live in [common/transformer.py](../cdrseqgen/methods/common/transformer.py).
+Attention layout and label alignment remain method-specific. An additional
+architecture belongs in its method's `models/` directory with its own backbone entry;
+width/depth variants of the current model remain configuration choices.
+
+The [model specifications](MODELS.md) record the architecture comparison, implicit
+layer defaults, forward/loss contracts and parameter counts. Builder defaults and
+the saved main-benchmark configurations are documented separately for paper writing.
 
 The MLM registration module [backbones.py](../cdrseqgen/methods/mlm/backbones.py) holds one
 descriptor per compatible model family. Callers use `resolve(model_type)` to select the
