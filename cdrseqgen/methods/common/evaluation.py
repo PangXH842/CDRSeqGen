@@ -1,15 +1,31 @@
-"""Shared standalone and post-training evaluation lifecycles.
+"""Coordinate standalone and post-training candidate evaluation for MLM, AR and S2S.
 
 Functions:
-  * run_evaluation_pipeline -- validate, load resources and call a method evaluator
-  * post_training_generation -- evaluate trainer.model with optional context ablation
-  * compatibility_problems -- compare checkpoint and requested input contracts
-  * evaluation_provenance -- identify source/config/data/checkpoint artifacts
-  * default_output_path -- derive the parameter-addressed standalone output path
+  * run_evaluation_pipeline     -- validate, load resources and call a method evaluator
+  * post_training_generation    -- evaluate trainer.model with optional context ablation
+  * compatibility_problems      -- compare checkpoint and requested input contracts
+  * get_evaluation_source_info  -- identify source/config/data/checkpoint artifacts
+  * default_output_path         -- build a result filename from the evaluation settings
 
-Standalone errors propagate. Post-training evaluation logs its errors after
-training artifacts have been saved. Candidate generation belongs to each method;
-cdrseqgen.eval supplies measurements, scoring and reports.
+Eval workflow:
+  1. evaluate.py -> <method>.eval_cli.main() -> run_evaluation_pipeline().
+  2. Check options/checkpoint/output, then load data, tokenizer, model and optional judge.
+  3. Call the method evaluator to generate candidates, score them and write requested outputs.
+
+Post-training eval:
+  1. common.training.run_training_pipeline() completes train_and_save().
+  2. <method>.training.finish_training() optionally calls this module's
+     post_training_generation() directly, supplying decoding/length options.
+  3. Reuse trainer.model for generation/scoring; optionally repeat without generator
+     partner context, keeping the same judge. No checkpoint reload is needed.
+
+Notes:
+  * Both paths use <method>.eval_cli.evaluate, an alias for evaluation.run_generative_eval.
+    Each method generates candidates; cdrseqgen.eval supplies measurements and reports.
+  * Post-training generation requires run_generative_eval; it can also follow an
+    evaluation-only training command, using the already loaded model.
+  * Standalone errors propagate. Post-training generation errors are logged;
+    previously saved training artifacts remain available.
 """
 import hashlib
 import json
@@ -57,7 +73,11 @@ def _normalize_compatibility_value(key, value):
 
 
 def compatibility_problems(run_config, model_args, data_args):
-    """Return checkpoint/config mismatches that would change model inputs or interpretation."""
+    """Return recorded checkpoint/config mismatches affecting inputs or interpretation.
+
+    Only fields present in run_config are compared. Missing fields remain unknown;
+    an absent or empty saved config returns an empty list, not proof of compatibility.
+    """
     if not run_config:
         return []
     requested = {
@@ -84,8 +104,14 @@ def compatibility_problems(run_config, model_args, data_args):
     return problems
 
 
-def evaluation_provenance(config_path, model_dir, data_path):
-    """Hashes needed to reconstruct which code, checkpoint, config, and data produced an eval."""
+def get_evaluation_source_info(config_path, model_dir, data_path):
+    """Return source information for the code, checkpoint, config and dataset.
+
+    Hash config files, discovered weights and the dataset metadata sidecar when
+    available. Record the dataset path/size and copy its declared digest from the
+    sidecar; the corpus itself is not rehashed or verified here. Code identity is
+    the Git commit and dirty flag, without a copy of uncommitted changes.
+    """
     model_dir = Path(model_dir)
     run_config_path = find_run_config(model_dir)
     weights = []
@@ -121,7 +147,11 @@ def evaluation_provenance(config_path, model_dir, data_path):
 
 
 def default_output_path(args):
-    """Parameter-addressed manual-eval path; a repeated identical run requires --overwrite."""
+    """Build a JSON path under model_dir/evaluations from evaluation settings.
+
+    Readable sampling settings and a settings hash form the filename. This helper
+    creates no files; run_evaluation_pipeline checks whether the output already exists.
+    """
     def slug(value):
         return re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value)).strip("-")
 
@@ -176,17 +206,24 @@ def _context_meta(data_args, *, partner, judge_partner):
 
 def run_evaluation_pipeline(method, args, supplied_config, run_config, *,
                             prepare_evaluation, evaluation_options, evaluate):
-    """Load and evaluate a checkpoint using the supplied method functions.
+    """Load a checkpoint and return the method evaluator's generated-candidate payload.
 
-    Steps:
-      1. Resolve options and check checkpoint/config compatibility.
-      2. Check the output path and record configuration/data/weight provenance.
-      3. Load data, tokenizer and model; apply the generator context view.
-      4. Load method state and the optional judge, then return the evaluator payload.
+    Method functions:
+      * prepare_evaluation(args, config) -- validate and resolve options in args.
+      * evaluation_options(args, device) -- load optional method state and return kwargs.
+      * evaluate(model, tokenizer, dataset, ...) -- generate, score and write results.
 
-    Standalone errors propagate. post_training_generation handles failures
-    separately to preserve previously saved training artifacts.
+    Workflow (matching the numbered comments below):
+      1. Setup: parse options -> check checkpoint compatibility -> check output path.
+      2. Resources: load data/tokenizer -> apply context -> load checkpoint/method state
+         -> optionally load a judge with its own context setting.
+      3. Evaluation: call evaluate() with these resources, sampling options and
+         source/context metadata; return its payload. Output files are optional.
+
+    Compatibility and overwrite checks precede model loading. Errors propagate to
+    the caller; post_training_generation() handles post-training failures separately.
     """
+    # ------ 1.1 Resolve the method, normalize its options and parse the config. ------
     method = resolve(method)
     prepare_evaluation(args, run_config or supplied_config)
     argument_module = method.module('arguments')
@@ -197,6 +234,7 @@ def run_evaluation_pipeline(method, args, supplied_config, run_config, *,
     training_args.report_to = []
     training_args.eval_strategy = "no"
 
+    # ------ 1.2 Compare the requested inputs with the saved checkpoint's contract. ------
     problems = compatibility_problems(run_config, model_args, data_args)
     if run_config is None:
         print(f"ℹ️  No {RUN_CONFIG_FILENAME} in {args.model_dir} (older run) — "
@@ -214,6 +252,7 @@ def run_evaluation_pipeline(method, args, supplied_config, run_config, *,
     else:
         print("🧬 Checkpoint input contract matches --config.")
 
+    # ------ 1.3 Check the output path and record code/config/data/checkpoint sources. ------
     trained_for = run_config.get("target_region") if run_config else None
     output_path = None if args.output == "none" else (args.output or default_output_path(args))
     if output_path and os.path.exists(output_path) and not args.overwrite:
@@ -221,22 +260,27 @@ def run_evaluation_pipeline(method, args, supplied_config, run_config, *,
             f"Refusing to overwrite existing evaluation: {output_path}. "
             "Choose --output or pass --overwrite."
         )
-    provenance = evaluation_provenance(args.config, args.model_dir, data_args.data_path)
+    provenance = get_evaluation_source_info(args.config, args.model_dir, data_args.data_path)
 
+    # ------ 2.1 Resolve the backbone and load datasets with the checkpoint tokenizer. ------
     backbone = method.module('backbones').resolve(model_args.model_type)
     _, eval_dataset, tokenizer = method.module('training').get_datasets(
         model_args, data_args, training_args, backbone, checkpoint_path=args.model_dir)
 
+    # ------ 2.2 Apply generator partner context; keep the judge's setting separate. ------
     partner = _partner_context(args.partner_context, data_args.include_partner_chain)
     judge_partner = _partner_context(args.judge_partner_context, data_args.include_partner_chain)
     eval_dataset = evaluation_context_view(eval_dataset, include_partner_chain=partner)
 
+    # ------ 2.3 Load checkpoint weights and move the model to the selected device. ------
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = backbone.load_pretrained_model(args.model_dir)
     model.to(device)
 
+    # ------ 2.4 Load optional method state and collect evaluator kwargs. ------
     method_options = evaluation_options(args, device)
 
+    # ------ 2.5 Optionally load the independent judge and its scoring dataset. ------
     judge_model = judge_tokenizer = judge_dataset = None
     if args.judge:
         print(f"⚖️  Loading judge model: {args.judge}")
@@ -250,6 +294,7 @@ def run_evaluation_pipeline(method, args, supplied_config, run_config, *,
             device=device,
         )
 
+    # ------ 3. Generate and score candidates; return the evaluator's payload. ------
     return evaluate(
         model, tokenizer, eval_dataset,
         device=device,
@@ -284,15 +329,17 @@ def post_training_generation(method, trainer, tokenizer, eval_dataset, data_args
     """Evaluate trainer.model and return the primary payload, or None on failure.
 
     Steps:
-      1. Load the optional judge with its requested partner-context setting.
-      2. Evaluate with the training partner-context setting and dropout disabled.
-      3. If requested, also evaluate with partner context removed from the generator.
+      1. Load the optional judge with its own partner-context setting.
+      2. Choose the training generator context and optional no-partner ablation.
+      3. Evaluate each dropout-free context view and return the primary payload.
 
     The same judge is reused across context regimes. Method-specific options are
     forwarded to the evaluator, which receives trainer.model without reloading a
-    checkpoint. Evaluation errors are logged; previously saved training artifacts remain.
+    checkpoint. An error in any regime is logged and returns None, even if the
+    primary evaluation already succeeded. Previously saved artifacts remain.
     """
     try:
+        # ------ 1. Load one optional judge, reused across generator context views. ------
         judge_partner = _partner_context(getattr(gen_args, 'gen_judge_partner_context', 'trained'),
                                          data_args.include_partner_chain)
         judge_model = judge_tokenizer = judge_dataset = None
@@ -303,9 +350,11 @@ def post_training_generation(method, trainer, tokenizer, eval_dataset, data_args
                 target_region=data_args.target_region,
                 include_partner_chain=judge_partner,
                 include_antigen=data_args.include_antigen, device=training_args.device)
+        # ------ 2. Select the primary context and optional no-partner comparison. ------
         regimes = [(bool(data_args.include_partner_chain), artifacts.GENERATION_EVAL_FILENAME)]
         if getattr(gen_args, 'gen_eval_context_ablation', False):
             regimes.append((False, artifacts.CONTEXT_ABLATION_FILENAME))
+        # ------ 3. Evaluate the loaded model in each view and retain the primary result. ------
         primary = None
         for partner, filename in regimes:
             context_dataset = evaluation_context_view(eval_dataset, include_partner_chain=partner)

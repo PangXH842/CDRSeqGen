@@ -45,7 +45,7 @@ Shared standalone loading, compatibility and output handling live in
 
 ```text
 CDRSeqGen/
-├── docs/                       # Project guides, research notes and manual review checklist
+├── docs/                       # Project guides, research notes and implementation history
 ├── configs/                    # Run configs and experiment recipes; no executable code.
 │                               #   A config's "method" key selects the pipeline (default mlm)
 │   ├── mlm/                    # Masked infilling: heavy/, light/, antigen/
@@ -87,7 +87,6 @@ CDRSeqGen/
 │   │   │   ├── generation.py   # Standalone checks, model loading, case execution and output
 │   │   │   ├── logging.py      # Console/file logging and uncaught exceptions
 │   │   │   ├── run_setup.py    # Run directories/latest, dataset tags and config/provenance
-│   │   │   ├── record_results.py # epoch_metrics.csv and training-curve PNGs
 │   │   │   ├── losses.py       # Aligned token cross-entropy shared by method objectives
 │   │   │   ├── transformer.py  # Custom-model validation, rotary self-attention, FFNs and initialization
 │   │   │   ├── sampling.py     # warp_logits / ban_tokens / logits_of — so "top_p=0.9" means the
@@ -163,6 +162,7 @@ CDRSeqGen/
 │   │                           #   Strategies: draw, self_scores, judge_inputs, payload_length_policy
 │   │                           #   Judge helpers load MLM implementations when needed
 │   └── visualization/          # Run artifacts -> charts and tables. No GPU, no model loading.
+│       ├── training_results.py # Trainer history -> epoch_metrics.csv and training-curve PNGs
 │       ├── plot_style.py           # Shared palette, axes furniture, empty panels, saving
 │       ├── linegraph_plotter.py    # Chart type: lines with optional spread bands (+ CLI)
 │       ├── bargraph_plotter.py     # Chart type: grouped bars with error bars
@@ -231,6 +231,7 @@ CDRSeqGen/
 The `MaskedInfillingDataset` separates sequences into `pt1` (left context), `mask` (target gap), and `pt2` (right context). The `target_region` string alone chooses the loop — `h1/h2/h3` mask a heavy CDR, `l1/l2/l3` mask the *light* chain's CDR (legacy `cdr*`/`lcdr*` spellings still parse). Switching target requires changing zero core tokenization logic. Labels are strictly length-enforced to prevent cross-entropy dimension mismatches.
 
 ### 2. Pluggable Backbones (the extensibility core)
+
 All three methods use the descriptor and ordered registry implementation in
 [common/backbones.py](../cdrseqgen/methods/common/backbones.py). Each method owns a separate
 registry instance and its model/tokenizer registration blocks. MLM uses the shared
@@ -255,9 +256,10 @@ Argument setup invokes it through `backbone.validate_training_args()` before run
 creation. Custom and PLM families therefore own their architecture checks; adding
 another custom model does not require a special-case name test in the parser.
 
-The current custom models retain `Config → Model → build_model()` and their saved
-config identifiers. Their shared validation, rotary self-attention, FFNs and
-initialization live in [common/transformer.py](../cdrseqgen/methods/common/transformer.py).
+The current custom models retain their config/model classes, `build_model()`
+factories and saved config identifiers. The factories construct `Config → Model`.
+Shared validation, rotary self-attention, FFNs and initialization live in
+[common/transformer.py](../cdrseqgen/methods/common/transformer.py).
 Attention layout and label alignment remain method-specific. An additional
 architecture belongs in its method's `models/` directory with its own backbone entry;
 width/depth variants of the current model remain configuration choices.
@@ -277,7 +279,7 @@ Each backbone declares two conventions **explicitly** instead of letting them be
 - **`position_type`** (`"absolute"` | `"relative"`) — controls where antigen context is injected (see §4). Absolute-position models (the scratch transformer, BERT-style protein LMs) need it appended after the target; relative/rotary models (ESM-2) can take it prepended.
 - **`uses_special_tokens`** — whether inputs are wrapped as `[cls] … [end]`. The `TokenizerAdapter` also resolves the ESM-vs-BERT separator difference generically (`<eos>` when the tokenizer has one, else `<sep>`), so BERT-style tokenizers with `eos_token_id = None` work without special-casing.
 
-**Adding a new masked PLM is usually one `register(Backbone(...))` entry** — occasionally *zero*, when a model is already covered by the generic `hf_encoder` fallback (any `AutoModelForMaskedLM` + `AutoTokenizer`, absolute positions, per-character vocab — just pass its hub id as `model_type`). In practice most protein LMs need an explicit entry: e.g. BERT-style ones (ProtBert, IgBert) expect *whitespace-separated* residues and ship tokenizer/loader quirks (a fast-tokenizer that needs `sentencepiece`, or a `config.json` with no `model_type`), all handled once in the `protein_bert` backbone. Either way, no edits to `train.py`/`generate.py`/`dataset_mlm.py` are needed. A new autoregressive or encoder-decoder architecture is instead a sibling method package, not a `Backbone` entry here.
+**Adding a new masked PLM is usually one `register(Backbone(...))` entry** — occasionally *zero*, when a model is already covered by the generic `hf_encoder` fallback (any `AutoModelForMaskedLM` + `AutoTokenizer`, absolute positions, per-character vocab — just pass its hub id as `model_type`). In practice most protein LMs need an explicit entry: e.g. BERT-style ones (ProtBert, IgBert) expect *whitespace-separated* residues and ship tokenizer/loader quirks (a fast-tokenizer that needs `sentencepiece`, or a `config.json` with no `model_type`), all handled once in the `protein_bert` backbone. Either way, no edits to `train.py`/`generate.py`/`dataset_mlm.py` are needed. A compatible autoregressive or encoder-decoder architecture belongs in the existing AR or S2S model module and backbone registry. Add a sibling method package when the objective or task contract changes.
 
 ### 3. Partner Chain Context Injection
 Biologically, Heavy and Light chains physically interact, so the framework can prepend the paired **partner chain** (the non-target chain) to `pt1` (separated by `<eos>`) when `"include_partner_chain": true` is passed, enriching structural context. It's symmetric: for a heavy (`h*`) target the partner is the light chain (run tag `_LC`); for a light (`l*`) target the partner is the heavy chain (run tag `_HC`). A single flag covers both directions — the target region determines which chain gets added.
@@ -288,8 +290,19 @@ Same "LEGO" pattern as partner-chain injection (§3), but **the injection side i
 Antigen sequences (up to ~2,300 residues for large multi-chain complexes) made the pre-existing "no truncation" gap in `MaskedInfillingDataset` actually bite, so this feature also added a real length cap, applied on whichever side carries the antigen: truncated from the left for relative-position `pt1`, from the right for absolute-position `pt2` — always dropping antigen context first and keeping the target-chain residues immediately adjacent to the masked loop.
 
 ### 5. Automated Tracking & Evaluation
+
+Method `training.py` modules use matching preparation, dataset, Trainer-construction
+and finishing stages. `prepare_training()` builds resources through `get_datasets()`
+and `build_trainer()`; the shared lifecycle then trains/evaluates/saves before
+`finish_training()`. That hook calls `common.evaluation.post_training_generation()`
+directly with the method name and its decoding/length options. The shared helper
+dispatches through the registry's `Method.evaluate()` to `eval_cli.evaluate()` and
+then `evaluation.run_generative_eval()`, using the loaded model. Objective-specific
+metrics, MLM length fitting and S2S diagnostics stay in their method modules.
+See the [workflow map](../cdrseqgen/methods/common/README.md).
+
 *   **TensorBoard:** Live tracking via `"report_to": "tensorboard"`.
-*   **Metric Extraction:** At the end of training, `train.py` parses the Hugging Face logs, dumps `epoch_metrics.csv` (loss + recovery, whole-span **and** the anchor-excluded `core`/`anchor` accuracies), and generates standalone `.png` curves.
+*   **Metric Extraction:** `common.training.train_and_save()` calls [`visualization/training_results.py`](../cdrseqgen/visualization/training_results.py) to export Trainer history as `epoch_metrics.csv` (loss + recovery, whole-span **and** the anchor-excluded `core`/`anchor` accuracies) and standalone `.png` curves.
 
 Generated-loop evaluation follows the shared workflow in [`generative.py`](../cdrseqgen/eval/generative.py):
 
@@ -299,7 +312,7 @@ select frameworks -> strategy.draw -> sequence metrics + self/judge scores
                   -> report / JSON / optional confidence figure
 ```
 
-The strategy owns generation and validity accounting; the method wrapper assembles and saves the payload. [`metrics.py`](../cdrseqgen/eval/metrics.py) defines the sequence comparisons. Their eligible candidates differ:
+The strategy owns generation and validity accounting; the method's `run_generative_eval()` assembles and saves the payload. [`metrics.py`](../cdrseqgen/eval/metrics.py) defines the sequence comparisons. Their eligible candidates differ:
 
 | Metric | Candidates included |
 |---|---|

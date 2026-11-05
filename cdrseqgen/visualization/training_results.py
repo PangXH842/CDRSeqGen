@@ -1,12 +1,13 @@
-"""What a finished run leaves behind for a human: the per-epoch CSV and the curve PNGs.
+"""Export Trainer validation history as an epoch CSV and training-curve PNGs.
 
-  * save_training_csv    -- Trainer log history -> epoch_metrics.csv (the per-epoch trajectory)
-  * plot_training_curves -- epoch_metrics.csv -> line graph PNGs (training loss and AAR breakdown
-                            whole, core, anchor)
+Functions:
+  * save_training_csv    -- Trainer log history -> epoch_metrics.csv
+  * plot_training_curves -- epoch_metrics.csv -> validation-loss and recovery PNGs
 
 Notes:
-  * HF log writes extra line for last epoch with best checkpoint (with load_best_model_at_end enabled),
-    therefore a deduplication step is needed
+  * common.training.train_and_save() calls both functions after the Trainer stages.
+  * Keep the first validation record for each epoch rounded to four decimal places,
+    preserving the trajectory when the selected checkpoint is evaluated again.
 """
 import os
 import logging

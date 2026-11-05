@@ -1,24 +1,24 @@
-"""MLM preparation and post-training hooks for the shared training workflow.
+"""Prepare MLM training resources and run method-specific finishing stages.
 
 Entry path:
   train_cli.main -> common.training.run_training_pipeline
                  -> prepare_training -> common.training.train_and_save
                  -> finish_training
 
-Hooks and helpers:
-  * prepare_training -- seed, load data/model, configure loss and build the Trainer.
-  * finish_training -- optionally fit the length head and evaluate generated loops.
-  * get_datasets -- return training/evaluation subsets and their tokenizer.
-  * post_training_generation -- pass MLM options into common.evaluation.
+Functions:
+  * prepare_training         -- seed, load data/model, resolve loss and build Trainer
+  * finish_training          -- optionally fit the length head and generate candidates
+  * get_datasets             -- train/evaluation subsets and their tokenizer
+  * compute_metrics          -- masked-position recovery, imported from mlm.recovery
+  * build_trainer            -- MLMLossTrainer, collator, metrics and callbacks
 
 Notes:
-  * train_cli owns logging and argument setup, including run-directory creation.
-  * Dataset setup respects named splits. Unlabelled data uses a random fallback;
-    this helper does not create homology-controlled splits.
-  * Evaluation uses full-span masking and disables training context dropout.
-  * The common lifecycle handles do_train/do_eval, saving and metric exports.
-    Length fitting requires do_train and train_length_predictor; generation
-    requires run_generative_eval. Common evaluation logs generation failures.
+  * Training uses its configured masking policy; evaluation masks the full span
+    and disables context dropout. Named splits use the shared selection guard.
+  * MLMLossTrainer owns the configured external objective. The selected model
+    may also train a length head; length fitting requires do_train.
+  * train_cli owns setup; common.training owns train/evaluate/save. Recovery
+    selects checkpoints; generated candidates are evaluated in a separate stage.
 """
 import functools
 import logging
@@ -32,6 +32,7 @@ from cdrseqgen.datasets.dataset_common import (
 )
 from cdrseqgen.datasets.dataset_mlm import MaskedInfillingDataset, mlm_collate_fn
 from cdrseqgen.methods.common import build_callbacks
+from cdrseqgen.methods.common import evaluation as shared_evaluation
 from cdrseqgen.methods.mlm.backbones import resolve
 from cdrseqgen.methods.mlm.losses import MLMLossTrainer, loss_config_from_args
 from cdrseqgen.methods.mlm.recovery import compute_metrics
@@ -53,17 +54,12 @@ def prepare_training(model_args, data_args, training_args):
     """
     set_seed(training_args.seed)
 
-    # 2.1 Load model type
     backbone = resolve(model_args.model_type)
-
-    # 2.2 Load datasets
     train_dataset, eval_dataset, tokenizer = get_datasets(
         model_args, data_args, training_args, backbone)
-
-    # (1.1) Update latest link for logging
+    # Validate the data and split before publishing this run as latest.
     update_latest_link(training_args.output_dir)
 
-    # 3.1 Prepare model
     # load_training_model ignores the scratch-only kwargs for pretrained backbones (**kw)
     model = backbone.load_training_model(
         model_args.model_type,
@@ -75,7 +71,6 @@ def prepare_training(model_args, data_args, training_args):
         max_len=data_args.max_len,
     )
 
-    # 3.2 Configure loss
     loss_config = loss_config_from_args(model_args, training_args)
     logger.info(
         "🎯 Loss: %s (core=%g, anchor=%g, trim=%d, label_smoothing=%g)",
@@ -86,30 +81,22 @@ def prepare_training(model_args, data_args, training_args):
         loss_config.label_smoothing,
     )
 
-    # 3.3 Prepare trainer
-    trainer = MLMLossTrainer(
-        model=model,
-        args=training_args,
-        loss_config=loss_config,
-        train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
-        data_collator=functools.partial(mlm_collate_fn, pad_token_id=tokenizer.pad_id),
-        compute_metrics=functools.partial(compute_metrics, trim=loss_config.anchor_trim),
-        callbacks=build_callbacks(model_args, training_args, logger),
-    )
-
+    trainer = build_trainer(model, training_args, train_dataset, eval_dataset, tokenizer,
+                            callbacks=build_callbacks(model_args, training_args, logger),
+                            loss_config=loss_config)
     return trainer, tokenizer
 
 
 def finish_training(trainer, tokenizer, data_args, gen_args, training_args):
-    """Run MLM extensions on the selected model after training/evaluation and saving.
+    """Run optional MLM stages on the selected or loaded model after the shared lifecycle.
 
     do_train + train_length_predictor -> fit the length head
     run_generative_eval              -> evaluate generated loops with that head
 
     These switches are independent. Evaluation-only commands may still generate
-    candidates, using no newly fitted head. Length-fitting errors propagate;
-    common post-training evaluation handles its own generation errors.
+    candidates, using no newly fitted head. This function passes decoder/length
+    options directly to common.evaluation.post_training_generation(). Length-fitting
+    errors propagate; shared candidate evaluation handles its own generation errors.
     """
     length_predictor = None
     if training_args.do_train and data_args.train_length_predictor:
@@ -128,10 +115,18 @@ def finish_training(trainer, tokenizer, data_args, gen_args, training_args):
         )
 
     if gen_args.run_generative_eval:
-        post_training_generation(
-            trainer, tokenizer, trainer.eval_dataset, data_args, gen_args, training_args,
+        shared_evaluation.post_training_generation(
+            "mlm", trainer, tokenizer, trainer.eval_dataset,
+            data_args, gen_args, training_args,
             anchor_trim=trainer.loss_config.anchor_trim,
-            length_predictor=length_predictor,
+            method_options={
+                "decoding": gen_args.gen_decoding,
+                "length_mode": gen_args.gen_length_mode,
+                "length_predictor": length_predictor,
+                "min_length": gen_args.gen_min_length,
+                "max_length": gen_args.gen_max_length,
+                "length_temperature": gen_args.gen_length_temperature,
+            },
         )
 
 
@@ -148,12 +143,10 @@ def get_datasets(
     the Trainer creates DataLoaders later. checkpoint_path lets saved-model
     evaluation reuse a checkpoint tokenizer.
     """
-    # --- Load MLM tokenizer ------
     tokenizer = backbone.build_tokenizer(model_args.model_type, checkpoint_path=checkpoint_path)
     masking_policy = getattr(data_args, "masking_policy", "full_span")
     mixed_full_span_probability = getattr(data_args, "mixed_full_span_probability", 0.5)
 
-    # --- Load MLM dataset ------
     full_dataset = MaskedInfillingDataset(
         data_args.data_path,
         tokenizer,
@@ -167,7 +160,6 @@ def get_datasets(
         context_dropout_seed=training_args.seed,
     )
 
-    # --- Select train/evaluation indices ------
     train_idx, val_idx, eval_label = select_split_indices(
         full_dataset.data, data_args.eval_split, data_path=data_args.data_path,
         seed=training_args.seed, test_size=data_args.test_size)
@@ -184,18 +176,21 @@ def get_datasets(
     return train_ds, eval_ds, tokenizer
 
 
-def post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_args, training_args,
-                             *, anchor_trim, length_predictor=None):
-    """Pass MLM decoding and length options into shared post-training evaluation.
+def build_trainer(model, training_args, train_ds, eval_ds, tokenizer, callbacks=None,
+                  *, loss_config):
+    """Build the MLM Trainer with the already resolved loss configuration.
 
-    common.evaluation handles judge setup, context regimes, output paths and
-    exception logging. The fitted length predictor is supplied when available.
+    mlm_collate_fn pads inputs and carries supervised target metadata.
+    MLMLossTrainer applies the external objective; compute_metrics uses the
+    same anchor trim. Trainer creates DataLoaders when training/evaluation starts.
     """
-    from cdrseqgen.methods.common.evaluation import post_training_generation as evaluate
-    return evaluate('mlm', trainer, tokenizer, eval_dataset, data_args, gen_args, training_args,
-                    anchor_trim=anchor_trim, method_options={
-                        'decoding': gen_args.gen_decoding,
-                        'length_mode': gen_args.gen_length_mode,
-                        'length_predictor': length_predictor,
-                        'min_length': gen_args.gen_min_length, 'max_length': gen_args.gen_max_length,
-                        'length_temperature': gen_args.gen_length_temperature})
+    return MLMLossTrainer(
+        model=model,
+        args=training_args,
+        loss_config=loss_config,
+        train_dataset=train_ds,
+        eval_dataset=eval_ds,
+        data_collator=functools.partial(mlm_collate_fn, pad_token_id=tokenizer.pad_id),
+        compute_metrics=functools.partial(compute_metrics, trim=loss_config.anchor_trim),
+        callbacks=callbacks or [],
+    )

@@ -1,11 +1,18 @@
 # IgLM adaptation test runs — 2 November 2026
 
-**GPU replay smoke passed; adaptation batches pending.** On November 2 the user replayed the first
-five examples of the stored IgLM batch on GPU: **5/5 examples, 100/100 attempts matched**, the weight
-hash matched, and runtime was 6.7 s. The saved report is
-[`iglm_replay_smoke_20261102.json`](../../results/controls/iglm_replay_smoke_20261102.json).
-The full 150-example replay and all four adaptation recipes remain pending. Batch results will go
-to `results/runs/`; completion status belongs in [RESULTS.md](../../docs/RESULTS.md).
+**Replay, zero-shot, IgLM-S fine-tuning and controls complete; large-model fine-tuning pending.** The full
+GPU replay matched 150/150 examples and 3,000/3,000 attempts, with matching weights (210.9 s). Both
+zero-shot trials, the fresh four-trial IgLM-S batch and the four-trial control batch completed with full
+validity and judge coverage. See the [November 3 audit](../../results/reviews/20261103-iglm-adaptation.md),
+the [November 5 controls audit](../../results/reviews/20261105-iglm-controls.md) and the
+[replay report](../../results/controls/iglm_replay_full_20261102.json).
+The declared validation-core rule selects lr 3e-5, epoch 11 (core accuracy 0.4072). The random-init IgLM-S
+controls reach 0.4007–0.4063, all at the 20-epoch cap, and the scratch AR of IgLM-S's size 0.4037; generated
+edit similarity is 0.3887–0.3903 for the controls and 0.3897 for the selected pretrained run. This is a
+single-seed pilot with partner-present IgBert judging. `iglm_l_finetune` remains pending.
+
+The fresh batch `20261103_165217_376850_iglm_s_finetune` supersedes the earlier stopped
+batch for completion. No replay, zero-shot or fine-tuning completion rerun is needed.
 
 ## Scientific purpose
 
@@ -18,8 +25,9 @@ steps of increasing cost:
    with a dimension-matched scratch AR as an additional reference.
 4. **Usable in the benchmark.** A fine-tuned IgLM arm runs through the benchmark adapter and judge on GPU.
 
-Already shown on the CPU and not repeated here ([CHANGELOG](../../docs/CHANGELOG.md), raw outputs in
-`temp/iglm_backbone_20261102/verification/`): perplexity matches the upstream package to 3e-6 and greedy decoding is
+Already shown on the CPU and not repeated here ([CHANGELOG](../../docs/CHANGELOG.md),
+[archived verification evidence](../../results/reviews/archives/20261105-temp-cleanup.md)):
+perplexity matches the upstream package to 3e-6 and greedy decoding is
 identical in 240/240 cases; draws seeded identically equal the upstream package's own model in 90/90, across
 transformers 4.57 and 5.17; a tiny fine-tune runs through train, evaluate, generate, the benchmark adapter and the scorer.
 Those prior parity diagnostics included some test-split records. No final comparative held-out evaluation has
@@ -86,7 +94,8 @@ its recorded weight hash is unchanged. The original config and repair record are
 On another checkout, create the control if absent; the helper refuses replacement unless `--force`
 is explicitly supplied and rejects overlapping source/output directories.
 
-1. **Replay (minutes).** The stored batch was generated on a GPU, and CPU and CUDA random streams differ, so this must run on one:
+1. **Replay — completed.** The command is retained for reference; no repeat is needed. The stored
+   batch was generated on a GPU, and CPU and CUDA random streams differ:
 
    ```bash
    CUDA_VISIBLE_DEVICES=0 python scripts/iglm_replay.py \
@@ -98,12 +107,11 @@ is explicitly supplied and rejects overlapping source/output directories.
    and at least 148 of 150 examples reproducing all 20 attempts. This threshold is not proof of equivalence:
    investigate every discrepancy in prompts, seeds, sampling settings, device and runtime. Floating-point differences
    are one possible cause of sustained divergence; the mismatch pattern alone cannot establish the cause.
-2. **Zero-shot, then fine-tuning, controls, large model** (separate batches, each a new directory):
+2. **Remaining batch: the large model, if retained** (a new directory). `iglm_zeroshot`,
+   `iglm_s_finetune` and `iglm_controls` are complete; they were launched the same way
+   (`./scripts/run.sh run <recipe> --gpus 0`) and need no repeat:
 
    ```bash
-   ./scripts/run.sh run iglm_zeroshot --gpus 0
-   ./scripts/run.sh run iglm_s_finetune --gpus 0
-   ./scripts/run.sh run iglm_controls --gpus 0
    ./scripts/run.sh run iglm_l_finetune --gpus 0
    ./scripts/run.sh status results/runs/<printed-batch-directory>
    ```

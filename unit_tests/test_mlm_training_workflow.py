@@ -3,6 +3,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch, sentinel
 
+from cdrseqgen.methods.common import evaluation as shared_evaluation
 from cdrseqgen.methods.common import training as shared_training
 from cdrseqgen.methods.mlm import train_cli, training
 
@@ -36,7 +37,10 @@ class MLMTrainingWorkflowTests(unittest.TestCase):
             max_len=384, train_length_predictor=True, length_predictor_epochs=20,
             length_predictor_learning_rate=0.01, length_predictor_batch_size=16,
         )
-        self.gen_args = SimpleNamespace(run_generative_eval=True)
+        self.gen_args = SimpleNamespace(
+            run_generative_eval=True, gen_decoding="iterative", gen_length_mode="bounded",
+            gen_min_length=6, gen_max_length=24, gen_length_temperature=0.7,
+        )
         self.training_args = SimpleNamespace(
             seed=42, output_dir="/tmp/mock-mlm-workflow", device="cpu",
             do_train=True, do_eval=True, label_smoothing_factor=0.1,
@@ -63,7 +67,9 @@ class MLMTrainingWorkflowTests(unittest.TestCase):
             "cdrseqgen.methods.mlm.length.fit_length_predictor",
             return_value=sentinel.length_predictor))
         self.events.attach_mock(self.fit, "fit_length_predictor")
-        self.generate = self.mock_stage("post_training_generation")
+        self.generate = self.enterContext(patch.object(
+            shared_evaluation, "post_training_generation"))
+        self.events.attach_mock(self.generate, "post_training_generation")
 
     def mock_stage(self, name, **kwargs):
         mocked = self.enterContext(patch.object(training, name, **kwargs))
@@ -120,9 +126,13 @@ class MLMTrainingWorkflowTests(unittest.TestCase):
             output_dir=self.training_args.output_dir, device="cpu", epochs=20,
             learning_rate=0.01, batch_size=16, seed=42)
         self.generate.assert_called_once_with(
-            self.trainer, self.tokenizer, self.eval_dataset,
+            "mlm", self.trainer, self.tokenizer, self.eval_dataset,
             self.data_args, self.gen_args, self.training_args,
-            anchor_trim=2, length_predictor=sentinel.length_predictor)
+            anchor_trim=2, method_options={
+                "decoding": "iterative", "length_mode": "bounded",
+                "length_predictor": sentinel.length_predictor,
+                "min_length": 6, "max_length": 24, "length_temperature": 0.7,
+            })
 
     def test_evaluation_only_skips_length_fitting_and_keeps_generation_available(self):
         self.training_args.do_train = False
@@ -130,7 +140,7 @@ class MLMTrainingWorkflowTests(unittest.TestCase):
         self.lifecycle.assert_called_once()
         self.fit.assert_not_called()
         self.assertIs(self.trainer.model, sentinel.initial_model)
-        self.assertIsNone(self.generate.call_args.kwargs["length_predictor"])
+        self.assertIsNone(self.generate.call_args.kwargs["method_options"]["length_predictor"])
 
     def test_extensions_can_both_be_disabled(self):
         self.data_args.train_length_predictor = False

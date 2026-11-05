@@ -3,6 +3,8 @@
 Shared API:
   resolve(model_type) -> CausalBackbone -> build_tokenizer(), load_training_model(),
   load_pretrained_model(). common.backbones supplies the descriptor and registry.
+  transformer.py and iglm.py each supply load_tokenizer, load_training_model,
+  load_pretrained_model and validate_training_args; this registry wires them lazily.
 
 AR extension:
   CausalBackbone.build_tokenizer() loads through the shared implementation, then
@@ -42,17 +44,15 @@ Notes:
 import json
 import logging
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 from typing import Callable
 
-from cdrseqgen.datasets.dataset_ar import (CausalTokenizer, causal_adapter, CDRSEQGEN_CAUSAL,
+from cdrseqgen.datasets.dataset_ar import (CDRSEQGEN_CAUSAL,
                                          layout_for, validate_layout, span_layout_metadata)
 from cdrseqgen.artifacts import atomic_write_json, find_run_config
 from cdrseqgen.datasets.dataset_common import TokenizerAdapter
 from cdrseqgen.methods.common.backbones import (
-    Backbone, BackboneRegistry, load_custom_pretrained as _load_custom_pretrained)
-from cdrseqgen.methods.common.transformer import validate_transformer_args
+    Backbone, BackboneRegistry)
 
 logger = logging.getLogger(__name__)
 
@@ -170,33 +170,15 @@ def _scratch():
     return transformer
 
 
-def _build_scratch(mt, vocab_size=None, hidden_size=128, num_layers=4, num_attention_heads=8,
-                   intermediate_size=None, max_len=512, **_ignored):
-    # Default to the causal vocab (27) rather than the masked one (25): the two extra rows are
-    # <bos>/<eos>, and sizing to 25 would make <eos> unrepresentable.
-    if vocab_size is None:
-        vocab_size = len(CausalTokenizer().vocab)
-    return _scratch().build_model(
-        vocab_size=vocab_size, hidden_size=hidden_size, num_layers=num_layers,
-        num_attention_heads=num_attention_heads, intermediate_size=intermediate_size,
-        max_len=max_len)
-
-
-def _load_scratch_pretrained(path):
-    validate_checkpoint_layout(path, causal_adapter(position_type="relative"))
-    t = _scratch()
-    return _load_custom_pretrained(path, t.CausalAntibodyModel, t.CausalAntibodyConfig)
-
-
 register(CausalBackbone(
     id="scratch",
     matches=lambda mt: mt == "scratch",
     position_type="relative",       # rotary — see models/transformer.py and Findings §8
     uses_special_tokens=False,
-    load_tokenizer=lambda mt, pos, wrap: causal_adapter(position_type=pos),
-    load_training_model=_build_scratch,
-    load_pretrained_model=_load_scratch_pretrained,
-    validate_model_args=partial(validate_transformer_args, rotary=True),
+    load_tokenizer=lambda mt, pos, wrap: _scratch().load_tokenizer(mt, pos, wrap),
+    load_training_model=lambda mt, **kw: _scratch().load_training_model(mt, **kw),
+    load_pretrained_model=lambda path: _scratch().load_pretrained_model(path),
+    validate_model_args=lambda model, data: _scratch().validate_training_args(model, data),
 ))
 
 
@@ -206,19 +188,14 @@ def _iglm():
     return iglm
 
 
-def _load_iglm_pretrained(path):
-    """Check native/imported layout identity before restoring IgLM's GPT-2 weights."""
-    return _iglm().load_model(path)
-
-
 register(CausalBackbone(
     id="iglm",
     matches=lambda mt: _iglm().matches(mt),
     position_type="absolute",
     uses_special_tokens=False,      # chain/species and markers are supplied by the SpanLayout
     load_tokenizer=lambda mt, pos, wrap: _iglm().load_tokenizer(mt, pos, wrap),
-    load_training_model=lambda mt, **kw: _iglm().load_model(mt, **kw),
-    load_pretrained_model=_load_iglm_pretrained,
+    load_training_model=lambda mt, **kw: _iglm().load_training_model(mt, **kw),
+    load_pretrained_model=lambda path: _iglm().load_pretrained_model(path),
     validate_model_args=lambda model, data: _iglm().validate_training_args(model, data),
     native_checkpoint=lambda path: _iglm().is_native_checkpoint(path),
 ))

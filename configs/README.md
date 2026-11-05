@@ -31,9 +31,11 @@ Suite names are unchanged. Config and data paths inside experiment specs are rel
 to the repository root, not the enclosing config folder. Historical run configs and
 plans under `results/` retain their original paths; use a fresh plan for new runs.
 
-All six October AR/S2S no-partner controls and all four S2S ESM-2 confirmation
-trials are complete. The next prepared stage is `mlm_no_partner_controls` (two
-runs), followed by `mlm_dropout_screen` (four runs) if cross-method robustness is
-in scope. Both share [the MLM control base](experiments/bases/h3_mlm_scratch.json).
-See the [experiment guide](experiments/README.md) for commands and
-[RESULTS.md](../docs/RESULTS.md) for saved evidence and status.
+The October no-partner controls and context/dropout batches are complete;
+completed recipes are examples, not a launch queue. The IgLM pilot now includes
+the full replay, both zero-shot runs, four IgLM-S fine-tuning trials and all four
+random-init/size-matched control trials. Larger-model fine-tuning and the adapted
+checkpoint GPU benchmark smoke remain unrun. See the
+[IgLM protocol](experiments/20261102_iglm_adaptation.md),
+[experiment guide](experiments/README.md) and [results index](../docs/RESULTS.md)
+for commands, saved evidence and current status.

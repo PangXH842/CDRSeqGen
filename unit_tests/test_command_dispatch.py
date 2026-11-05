@@ -124,7 +124,7 @@ class CommandLifecycleTests(unittest.TestCase):
                     patch("cdrseqgen.methods.common.evaluation.HfArgumentParser"), \
                     patch("cdrseqgen.methods.common.evaluation.parse_config_dict", return_value=parsed), \
                     patch("cdrseqgen.methods.common.evaluation.compatibility_problems", return_value=[]), \
-                    patch("cdrseqgen.methods.common.evaluation.evaluation_provenance", return_value={}), \
+                    patch("cdrseqgen.methods.common.evaluation.get_evaluation_source_info", return_value={}), \
                     patch("cdrseqgen.methods.common.evaluation.evaluation_context_view", return_value=dataset) as context_view, \
                     patch("cdrseqgen.methods.common.evaluation.torch.cuda.is_available", return_value=False), \
                     patch("builtins.print"):

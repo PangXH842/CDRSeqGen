@@ -5,7 +5,7 @@ The plotting layer has three levels, and this is the bottom one:
   * plot_style          -- what all charts must agree on (this file). Draws no data.
   * chart types         -- linegraph_plotter, bargraph_plotter, scatterplot_plotter. Each exposes a
                            ``draw_*(ax, ...)`` that renders onto an axes somebody else owns.
-  * analysis figures    -- sweep_plots, confidence_plot, record_results, benchmark/plot_comparison.
+  * analysis figures    -- sweep_plots, confidence_plot, training_results, benchmark/plot_comparison.
                            These choose panels and compose chart types; they own the figure.
 
 The split exists so a panel can be reused. Before it, the four plotting sites had grown four

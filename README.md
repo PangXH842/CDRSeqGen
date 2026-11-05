@@ -6,7 +6,7 @@ CDR generation and benchmarking through a shared framework. It currently impleme
 masked language modeling (MLM), autoregressive generation (AR) and encoder-decoder
 generation (S2S), with method-specific objectives and decoders.
 
-**Updated:** 2 November 2026. **Status:** the iAIM abstract was submitted on 23 October.
+**Updated:** 5 November 2026. **Status:** the iAIM abstract was submitted on 23 October.
 Current work is manual code review, manuscript integration and poster preparation;
 final held-out evaluation remains pending.
 
@@ -24,8 +24,11 @@ connect these inputs to shared configuration, run artifacts and scoring.
 Benchmark adapters support local methods, external generators and training-only references.
 
 AR now includes a native [IgLM backbone](docs/MODELS.md#pretrained-ar-backbone-iglm).
-Its [adaptation checks and experiment recipes](configs/experiments/20261102_iglm_adaptation.md)
-are prepared for user-run testing; they add no new benchmark results.
+Its [full replay, zero-shot evaluations and four IgLM-S fine-tuning trials](results/reviews/20261103-iglm-adaptation.md)
+and its [random-initialization and size-matched controls](results/reviews/20261105-iglm-controls.md)
+are complete and audited. Large-model fine-tuning is the one remaining
+[adaptation recipe](configs/experiments/20261102_iglm_adaptation.md); these single-seed pilot results remain
+separate from the frozen benchmark.
 
 ## Documentation
 
@@ -38,7 +41,7 @@ Supporting guides live in [docs/](docs/README.md).
 | [Argument reference](docs/ARGUMENTS.md) | Shared and method-specific fields, defaults, validation and config/CLI overrides |
 | [Experiment guide](configs/experiments/README.md) | Named batches, planning, execution, status and resume |
 | [Architecture reference](docs/ARCHITECTURE.md) | Full repository map, data layout and extension points |
-| [Model specifications](docs/MODELS.md) | Custom Transformer comparison, builder defaults and saved benchmark architecture/counts |
+| [Model specifications](docs/MODELS.md) | Custom Transformer comparison, native IgLM backbone, builder defaults and saved benchmark architecture/counts |
 | [Method workflow map](cdrseqgen/methods/common/README.md) | Call graph, stage ownership and the manual review sequence |
 | [Results index](docs/RESULTS.md) | Completed evidence and links to source artifacts |
 | [Detailed findings](docs/FINDINGS.md) | Measurements, protocols, historical findings and limitations |
@@ -52,9 +55,9 @@ Supporting guides live in [docs/](docs/README.md).
 
 ## Current handoff
 
-1. **Continue with AR's model and training block:** `models/transformer.py` →
-   `train_cli.py` → `training.py`, following its shared dependencies.
-   AR/S2S runtime blocks and the remaining shared modules follow.
+1. **Continue the manual code review:** finish the shared training helpers (`logging`, `run_setup`,
+   `callbacks`, `losses` and the AR/S2S decoding module), then the AR and S2S evaluation,
+   generation and sampling blocks and the remaining shared modules.
 2. **Develop the manuscript and poster** from the completed validation evidence.
    The [paper outline](../iAIM/PAPER_OUTLINE.md) maps claims to evidence; the
    [canonical abstract](../iAIM/sections/0_abstract.tex) is shared by both LaTeX entry points.
@@ -144,7 +147,7 @@ decoder-selection `print()` messages bypass logging handlers.
 ## 🏗️ Repository Structure
 
 ```text
-docs/                       Project guides, research notes and manual review checklist
+docs/                       Project guides, research notes and implementation history
 configs/                    Single-run settings and named experiment recipes
 cdrseqgen/datasets/         Source preprocessing and method-specific dataset views
 cdrseqgen/methods/          Registry, common workflows, and mlm/ar/s2s implementations
@@ -292,6 +295,8 @@ The dated development history is retained below. Planning lives in
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
 <!-- AI ACCESS ZONE ENDS -->
+- **2026-11-05** -- Aligned the MLM/AR/S2S training modules and `train.py` dispatcher; moved training-result export to `visualization/`
+- **2026-11-05** -- Audited the IgLM replay, zero-shot, fine-tuning and control runs
 - **2026-11-02** -- Added IgLM into `methods/ar/models/` registry
 - **2026-11-02** -- Consolidated shared Transformer components and backbone validation
 - **2026-10-30** -- `methods/`: realigned `arguments`, `backbones` codes across each method

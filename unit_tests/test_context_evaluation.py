@@ -71,6 +71,23 @@ class ContextEvaluationTests(unittest.TestCase):
             self.assertEqual(kws['meta']['eval_context_dropout'],0)
         self.assertNotEqual(calls[0][1]['output_path'],calls[1][1]['output_path'])
 
+    def test_ar_and_s2s_finish_forward_decode_cap_for_evaluation_only(self):
+        trainer = NS(model=object(), eval_dataset=object())
+        tokenizer, data = object(), object()
+        training = NS(do_train=False)
+        for method in ('ar', 's2s'):
+            with self.subTest(method=method):
+                gen = NS(run_generative_eval=False, gen_max_new_tokens=37)
+                finish = resolve(method).module('training').finish_training
+                with patch('cdrseqgen.methods.common.evaluation.post_training_generation') as generate:
+                    finish(trainer, tokenizer, data, gen, training, anchor_trim=3)
+                    generate.assert_not_called()
+                    gen.run_generative_eval = True
+                    finish(trainer, tokenizer, data, gen, training, anchor_trim=3)
+                generate.assert_called_once_with(
+                    method, trainer, tokenizer, trainer.eval_dataset, data, gen, training,
+                    anchor_trim=3, method_options={'max_new_tokens': 37})
+
     def test_completion_requires_both_context_outputs(self):
         config=dict(gen_eval_context_ablation=True,run_generative_eval=True)
         (self.root/'run_config.json').write_text(json.dumps(config))

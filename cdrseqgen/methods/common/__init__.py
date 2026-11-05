@@ -6,18 +6,19 @@
   * callbacks.py  -- Trainer callbacks: metric logging always, early stopping on request
   * logging.py    -- console/file logging and uncaught-exception recording
   * run_setup.py  -- run directories, latest link, dataset tags and config/provenance
-  * record_results.py -- epoch CSV export and training curves
   * losses.py     -- aligned token cross-entropy; each method owns alignment and weighting
   * backbones.py  -- model descriptors, per-method registry mechanics and loading helpers
   * transformer.py -- custom-model validation, rotary self-attention, FFNs and initialization
   * eos_decoding.py -- AR and S2S only: recovery metrics, dataset split, evaluation strategy and
                      generation record, which they share down to the sampler and label alignment
-  * training.py   -- external-loss Trainer workflow, lifecycle and finished-run artifacts
+  * training.py   -- external-loss Trainer bridge and train/evaluate/save workflow
   * generation.py -- standalone generation lifecycle: checks, loading, cases and output
   * evaluation.py -- standalone evaluation loading/provenance and post-training context regimes
 
 The membership test: **things a method needs to PRODUCE output**. Turning records into model inputs
 belongs in ``datasets/dataset_common.py``; measuring outputs belongs in ``cdrseqgen/eval/``.
+Training-result CSVs and curves belong in ``cdrseqgen/visualization/training_results.py``;
+the shared training workflow decides when to export them.
 
 Everything here started life duplicated and was consolidated after a second method existed to check
 it against — which is how ``build_callbacks`` was found to have silently lost ``LogMetricsCallback``

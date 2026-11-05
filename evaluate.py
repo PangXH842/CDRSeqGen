@@ -14,9 +14,9 @@ import json
 from cdrseqgen.artifacts import read_run_config
 from cdrseqgen.methods.common.arguments import PARTNER_CONTEXTS, add_sampling_arguments
 from cdrseqgen.methods.registry import DEFAULT_METHOD, checkpoint_method, resolve
-# Preserve helper imports used by callers of the original root module.
+# Re-export shared helpers for callers importing them from this root module.
 from cdrseqgen.methods.common.evaluation import (
-    compatibility_problems, default_output_path, evaluation_provenance,
+    compatibility_problems, default_output_path, get_evaluation_source_info,
 )
 
 

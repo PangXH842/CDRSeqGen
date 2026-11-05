@@ -1,26 +1,25 @@
-"""Training entrypoint — dispatches to the method a config declares.
+"""Select a method and pass the training command to its CLI.
 
-    python train.py configs/mlm/heavy/h3_scratch.json                 # masked-LM (the default)
-    python train.py configs/ar/h3_ar_scratch.json              # autoregressive
-    python train.py configs/mlm/heavy/h3_scratch.json --learning_rate 3e-4 --num_train_epochs 20
-    python train.py --method ar --target_region h3          # bare CLI, no config file
+To run:
+  * python train.py configs/mlm/heavy/h3_scratch.json       # MLM (the default)
+  * python train.py configs/ar/h3_ar_scratch.json           # AR
+  * python train.py configs/mlm/heavy/h3_scratch.json --learning_rate 3e-4 --num_train_epochs 20
+  * python train.py --method ar --eval_split validation --do_train --do_eval
 
-The method comes from the config's ``"method"`` key, or a ``--method`` flag, and defaults to ``mlm``
-so every pre-existing config keeps working untouched.
+Functions:
+  * resolve_method -- choose the method name and return a copy of the argument list
+  * main           -- validate that name and call <method>.train_cli.main()
 
-**This file only routes.** Each method owns its own parser and its own ``train_cli.main()``, in
-``cdrseqgen/methods/<method>/train_cli.py``. That is the point: a single shared parser would have to
-accept ``masking_policy`` and ``gen_length_mode`` from a causal run and ``gen_max_new_tokens`` from a
-masked one, and silently ignore whichever half did not apply. The arguments the methods DO share
-are inherited from ``methods/common/arguments.py``, so they cannot drift — they already had, with
-the same field called ``gen_judge_path`` on one side and ``gen_judge_weights`` on the other.
+Workflow:
+  1. Choose the method: explicit --method > config's method > default MLM.
+  2. Keep all arguments, including --method, for the method's own parser.
+  3. <method>.train_cli.main() -> logging + arguments.setup_args()
+       -> common.training.run_training_pipeline()
+       -> prepare_training -> train_and_save -> finish_training.
 
-``evaluate.py`` and ``generate.py`` are the opposite case: every method accepts the same standalone
-flags, so those are defined once (``common/arguments.add_sampling_arguments``) and each method's
-``prepare_evaluation`` / ``prepare_generation`` rejects what it cannot honour.
-
-Trailing flags override the JSON rather than replacing it. Batch rounds go through scripts/run.sh,
-which exports CDRSEQGEN_RESULTS_ROOT so every run of the round shares one batch folder.
+The method CLI and argument setup handle full parsing, validation and run setup.
+Model/data preparation and Trainer execution happen in the training modules.
+A method override still requires config fields accepted by the selected method.
 """
 import json
 import os
@@ -30,11 +29,16 @@ from cdrseqgen.methods.registry import METHODS, DEFAULT_METHOD, resolve
 
 
 def resolve_method(argv):
-    """Resolve the selected method while leaving its flag for the method-owned parser.
+    """Return (normalized method name, argv copy) without consuming any arguments.
 
-    A ``--method`` flag wins over the config, so a config can be run through the other pipeline
-    deliberately; without it the config's own declaration decides, and a config that declares
-    nothing is masked — which is every config written before 2026-09-01.
+    Selection order:
+      --method ar / --method=ar -> last explicit occurrence wins
+      train.py config.json     -> read its method field (config must be first)
+      neither specifies one    -> DEFAULT_METHOD (mlm)
+
+    argv includes the program name. Only the method name is normalized; flags
+    remain unchanged so the method parser records the same override it executes.
+    Registration is checked by main(); full config parsing belongs to setup_args().
     """
     argv = list(argv)
     method_flags = []
@@ -54,13 +58,18 @@ def resolve_method(argv):
     return DEFAULT_METHOD, argv
 
 
+# ---------- MAIN TRAINING CALLER ----------
 def main():
+    """Dispatch sys.argv to the selected method's training CLI."""
+    # ------ 1. Resolve and validate the method before importing its CLI. ------
     method, argv = resolve_method(sys.argv)
     if method not in METHODS:
         raise SystemExit(f"Unknown method {method!r}. Choose one of: {', '.join(METHODS)}")
-    # The method's own parser also consumes --method. Keeping it here makes a CLI override replace
-    # the config value in run_config.json instead of routing one way while recording another.
+
+    # ------ 2. Pass the complete argument list to the method's parser. ------
     sys.argv = argv
+
+    # ------ 3. Let the method CLI set up the run and call the shared pipeline. ------
     resolve(method).module('train_cli').main()
 
 

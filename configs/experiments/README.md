@@ -48,9 +48,9 @@ Completion status belongs in [RESULTS.md](../../docs/RESULTS.md) and each batch'
 |---|---:|---|---|
 | `mlm_no_partner_controls` | 2 | Scratch MLM trained/generated without its partner, seeds 42/43; completed | [spec](20261007_mlm_no_partner_controls.json), [protocol](20261007_mlm_context.md) |
 | `mlm_esm2_no_partner_controls` | 2 | Optional MLM ESM-2 35M length-free no-partner rows for the control table, seeds 42/43; completed and audited | [spec](20261021_mlm_esm2_no_partner_controls.json), [protocol/commands](20261021_mlm_esm2_no_partner_controls.md) |
-| `iglm_zeroshot` | 2 | IgLM-S and IgLM with no training (`do_train: false`): the zero-shot reference rows; prepared, not run | [spec](20261102_iglm_zeroshot.json), [protocol](20261102_iglm_adaptation.md) |
-| `iglm_s_finetune` | 4 | IgLM-S fine-tuned on OAS4 H3, lr 1e-5/3e-5/1e-4/3e-4, seed 42; prepared, not run | [spec](20261102_iglm_s_finetune.json), [protocol](20261102_iglm_adaptation.md) |
-| `iglm_controls` | 4 | Random-init IgLM-S at three lrs, and a size-matched scratch AR; what pretraining contributes; prepared, not run | [spec](20261102_iglm_controls.json), [protocol](20261102_iglm_adaptation.md) |
+| `iglm_zeroshot` | 2 | IgLM-S and IgLM with no training (`do_train: false`); completed and audited, 6,000 valid/judge-scored candidates | [spec](20261102_iglm_zeroshot.json), [protocol](20261102_iglm_adaptation.md) |
+| `iglm_s_finetune` | 4 | IgLM-S fine-tuned on OAS4 H3, lr 1e-5/3e-5/1e-4/3e-4, seed 42; fresh batch completed and audited, 12,000 valid/judge-scored candidates | [spec](20261102_iglm_s_finetune.json), [protocol](20261102_iglm_adaptation.md) |
+| `iglm_controls` | 4 | Random-init IgLM-S at three lrs, and a size-matched scratch AR; what pretraining contributes; completed and audited, 12,000 valid/judge-scored candidates (the random-init runs all reached the epoch cap) | [spec](20261102_iglm_controls.json), [protocol](20261102_iglm_adaptation.md) |
 | `iglm_l_finetune` | 2 | IgLM (12.9M) fine-tuned, lr 1e-5/3e-5; prepared, not run | [spec](20261102_iglm_l_finetune.json), [protocol](20261102_iglm_adaptation.md) |
 | `mlm_dropout_screen` | 4 | Scratch MLM dropout 0/0.5, seeds 42/43, both contexts; completed and audited | [spec](20261007_mlm_dropout_screen.json), [protocol](20261007_mlm_context.md) |
 | `esm2_dropout_confirmation` | 4 | S2S ESM-2 dropout 0/0.5, seeds 44/45; completed | [spec](20261006_esm2_dropout_confirmation.json), [protocol](20261006_h3_followup.md) |

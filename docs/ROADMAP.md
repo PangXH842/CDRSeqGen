@@ -13,7 +13,7 @@ Detailed personal code-review records are kept locally.
 ## ⏭️ Roadmap
 
 <!-- AI ACCESS ZONE BEGINS -->
-> **Current priority — 30 October:** the iAIM abstract is submitted, and the shared argument/backbone interfaces are aligned across all three methods. Continue with **AR's model and training block**, then its remaining runtime blocks, S2S and the remaining shared modules. Integrate the completed §17 evidence into the framework manuscript and poster.
+> **Current priority — 5 November:** the iAIM abstract is submitted. The shared backbone and training interfaces are aligned across all three methods; native IgLM replay, zero-shot, IgLM-S fine-tuning and random-init/size-matched control batches are complete. Continue manual code review using the [workflow map](../cdrseqgen/methods/common/README.md), and integrate the completed §17 evidence into the framework manuscript and poster. Automated checks and refactors do not complete manual review.
 
 ### Medium-term milestone — framework paper and final evaluation
 
@@ -28,9 +28,9 @@ Detailed personal code-review records are kept locally.
 
 ### Experiment coverage across methods
 
-Evidence snapshot: **2026-10-22**; code-review handoff updated **2026-10-30**. **☑** completed development evidence; **◐** partial/historical evidence; **☐** pending; **—** not applicable to the current implementation. These are experiment statuses, not manual code-review marks. Pending entries are claim-dependent options.
+Evidence and implementation snapshot: **2026-11-05**. **☑** completed development evidence; **◐** partial/historical evidence; **☐** pending; **—** not applicable to the current implementation. These are experiment statuses, not manual code-review marks. Pending entries are claim-dependent options.
 
-The [results index](RESULTS.md) retains historical categories; the [current handoff](PROJECT_STATUS.md#current-handoff--2026-10-30) and [§17](FINDINGS.md#17-expanded-validation-evidence-seeds-retrieval-and-capacity) link the newer evidence directly. Preserve each batch's original provenance and source/runtime differences.
+The [results index](RESULTS.md) retains historical categories; the [current handoff](PROJECT_STATUS.md) and [§17](FINDINGS.md#17-expanded-validation-evidence-seeds-retrieval-and-capacity) link the newer evidence directly. Preserve each batch's original provenance and source/runtime differences.
 
 | Experiment category | MLM | AR | S2S |
 |---|---|---|---|
@@ -41,18 +41,25 @@ The [results index](RESULTS.md) retains historical categories; the [current hand
 | Seed/framework uncertainty | ☑ No-partner benchmark | ☑ No-partner benchmark | ☑ No-partner benchmark |
 | Train with/without partner context | ☑ Matched scratch controls | ◐ Historical paired runs; no-partner controls complete | ◐ Historical paired runs; scratch/ESM-2 no-partner controls complete |
 | Context dropout in both inference regimes | ☑ Four trials, seeds 42/43 | ☑ Scratch screen, seeds 42/43 | ☑ Scratch/ESM-2 screens and ESM-2 confirmations at seeds 44/45 |
-| Pretrained backbones | ☑ Historical studies and audited ESM-2 no-partner controls | ☐ Pretrained causal adapter | ☑ ESM-2/IgBert/ProtBert encoder matrix |
-| Same-architecture pretrained/random control | ☐ Claim-dependent | — | ☐ Claim-dependent |
+| Pretrained backbones | ☑ Historical studies and audited ESM-2 no-partner controls | ☑ Native IgLM backbone; replay, zero-shot and IgLM-S fine-tuning pilot complete | ☑ ESM-2/IgBert/ProtBert encoder matrix |
+| Same-architecture pretrained/random control | ☐ Claim-dependent | ☑ IgLM-S random-init pilot at three learning rates; seed 42 | ☐ Claim-dependent |
 | Frozen-encoder/collapse diagnosis | ◐ Historical context studies | ◐ Context ablations | ◐ IgBert diagnostic trained; generation/replication pending |
 | Decoding and length sensitivity | ☑ Historical decoder/length-head studies | ☑ Historical temperature/length study | ☐ Controlled sampling screen if needed |
 | Target-loop-specific light-chain splits | ☐ Historical results only | ☐ | ☐ |
 | Final frozen held-out comparison | ☐ | ☐ | ☐ |
 
+The IgLM pilot controls completed 4/4 trials with 12,000 valid, judge-scored
+candidates, including the three same-architecture random-init runs and a
+size-matched scratch AR. These single-seed validation results remain separate
+from the frozen external benchmark. Larger-model fine-tuning and an adapted
+checkpoint GPU benchmark smoke remain unrun; see the
+[adaptation protocol](../configs/experiments/20261102_iglm_adaptation.md).
+
 ### Active milestone — code review and paper draft
 
 **Evidence is ready for drafting.** The original eight-arm comparison, IgCraft extension, three retrieval variants, seven-seed analysis, same-seed repeats and capacity study are complete. IgCraft temperature sensitivity is also complete. See §16 for the original subset and §17 for the expanded findings. All numerical comparisons remain exploratory; uncertainty varies by study and endpoint.
 
-**Abstract submitted on 23 October.** Resume the MLM evaluation/generation review and retain the canonical abstract for any later revisions. Remaining writing work is to update the main results and figures, explain the shared workflow/extension contract, expand related work and retain the limits of the data and metrics. Avoid claiming architecture superiority, equivalence or independent biological quality from these comparisons. The local split audit is complete, while final cohort selection and external pretraining membership remain unresolved.
+**Abstract submitted on 23 October.** Continue the code review described in the [current handoff](PROJECT_STATUS.md), and retain the canonical abstract for any later revisions. Remaining writing work is to update the main results and figures, explain the shared workflow/extension contract, expand related work and retain the limits of the data and metrics. Avoid claiming architecture superiority, equivalence or independent biological quality from these comparisons. The local split audit is complete, while final cohort selection and external pretraining membership remain unresolved.
 
 **Deferred historical method backlog.** The following items preserve earlier implementation and research questions. Revisit their relevance as code review and paper claims develop, and distinguish work already covered by §17 from genuinely different settings. They do not require new runs now.
 
@@ -76,7 +83,7 @@ The [results index](RESULTS.md) retains historical categories; the [current hand
 - **OAS4 scratch capacity study complete:** 18 larger-model runs across MLM/AR/S2S, three sizes and seeds 42/43 (§17). Further capacity/tuning interactions need a specific research question; this scan does not isolate architecture effects or establish a capacity ceiling.
 - [ ] **Harden `SpanLayout` before registering a second layout** (review finding 2026-09-04; none of it affects the shipped `CDRSEQGEN_CAUSAL` or any current result): `build_prompt` receives the whole framework dict **including `target`**, so a layout could leak the answer into its own prompt and the training-equals-generation test would still pass; `n_layout_tokens` is unverified metadata that drives truncation; `CausalInfillingDataset` does not validate its layout, so an invalid one trains a whole run before generation rejects it; and `validate_layout` accepts a residue token as the terminator, which would stop decoding at that amino acid
 - [ ] Record `span_layout_id` in `run_config.json` and compare it in the checkpoint-compatibility check — otherwise changing a backbone's layout silently reinterprets older checkpoints
-- [ ] **A pretrained causal backbone** through `methods/ar/backbones.py` (registry has `scratch`, `iglm` and a generic `hf_decoder` fallback). **2 November 2026:** native IgLM / IgLM-S now register as `iglm` ([MODELS.md](MODELS.md#pretrained-ar-backbone-iglm)): their layout, chain/species conditioning fields, sampler hook and output validation are in, checked against the upstream package on CPU; no GPU run yet. Still missing: a wired layout on the `hf_decoder` path (it still adds sentinels with random embeddings) and layout-aware extraction for any other native format. Format and checkpoint are separate questions — adopting IgLM's *layout* is clean, fine-tuning IgLM's *weights* is not, since it was pretrained on OAS and is the §11 baseline
+- [ ] **A pretrained causal backbone** through `methods/ar/backbones.py` (registry has `scratch`, `iglm` and a generic `hf_decoder` fallback). **5 November 2026:** native IgLM / IgLM-S register as `iglm` ([MODELS.md](MODELS.md#pretrained-ar-backbone-iglm)): their layout, chain/species conditioning fields, sampler hook and output validation are in, replayed draw for draw against the upstream package on a GPU (150/150 frameworks), and the zero-shot, IgLM-S fine-tuning and random-init/size-matched control pilots are complete ([RESULTS.md](RESULTS.md)); large-model fine-tuning is not yet run. Still missing: a wired layout on the `hf_decoder` path (it still adds sentinels with random embeddings) and layout-aware extraction for any other native format. Format and checkpoint are separate questions — adopting IgLM's *layout* is clean, fine-tuning IgLM's *weights* is not, since it was pretrained on OAS and is the §11 baseline
 - [ ] **Automate one GPU + real-judge smoke run.** Three defects reached live runs past a fully green CPU suite — device mismatch, prompt divergence, and the missing `pseudo_log_likelihood` import — because no test exercised the full GPU training-to-generation path with a real judge. The 2026-09-07 `s2s` landing ran this by hand and caught exactly those three; that is the argument for automating it, not a substitute
 
 **Encoder-decoder method**

@@ -61,9 +61,11 @@ beside their prompt and length APIs in `length.py`. S2S diagnostics
 are an optional training extension.
 
 For each chunk, record its callers, inputs, outputs and method-specific
-extensions. Shared run setup, logging and exports now live here in `run_setup.py`,
-`logging.py`, `callbacks.py` and `record_results.py`. Review their implementations
-as a separate chunk; moving them does not mark them manually reviewed.
+extensions. Shared run setup and logging live here in `run_setup.py`, `logging.py`
+and `callbacks.py`. Result export and plots live in
+[visualization/training_results.py](../../visualization/training_results.py), called
+by `training.train_and_save()`. Review these implementations as a separate chunk;
+moving them does not mark them manually reviewed.
 
 ## Root command interfaces
 
@@ -115,9 +117,25 @@ returns a Trainer/tokenizer, `train_and_save()` trains/evaluates/saves, and
 `finish_training()` runs method extensions and optional generated-loop evaluation.
 MLM can fit its length head in the finish hook; AR/S2S generate to EOS.
 
-`eval_cli.evaluate` remains the lower-level evaluator for already loaded resources.
-Post-training evaluation uses it through `Method.evaluate()` and does not repeat
-the standalone model/data loading lifecycle.
+The three method `training.py` modules share a reading order:
+
+```text
+prepare_training -> get_datasets -> load model -> build_trainer
+                 -> common.train_and_save
+                 -> finish_training -> common.evaluation.post_training_generation
+```
+
+`compute_metrics` sits beside Trainer construction (MLM imports it from `recovery.py`).
+MLM's builder selects `MLMLossTrainer` with its resolved loss config; AR/S2S builders
+use the model's loss through `Trainer`. AR shifts recovery predictions once, while
+S2S labels are already aligned. MLM's full-span evaluation view and optional length
+head, AR's layout recording, and S2S's encoder padding/diagnostic callback remain
+explicit method extensions. Shared lifecycle code still owns train/evaluate/save.
+
+`finish_training()` calls `common.evaluation.post_training_generation()` directly,
+passing the method name and its decoding/length options. The shared helper uses
+the registry's `Method.evaluate()` to call `eval_cli.evaluate()`, which delegates
+to `evaluation.run_generative_eval()` with already loaded resources.
 
 All three methods validate decoder/length options for their two saved-checkpoint
 commands through `arguments.validate_inference_args()` (AR/S2S also set
@@ -138,10 +156,10 @@ flowchart TD
     D --> E["common/training.py: train_and_save()"]
     E --> F["Method finish_training: MLM can fit its length head"]
     F --> G{"Generative evaluation enabled?"}
-    G -->|Yes| H["Method post_training_generation() wrapper"]
-    H --> I["common/evaluation.py: judge and context regimes"]
+    G -->|Yes| H["common.evaluation.post_training_generation: judge and context regimes"]
+    H --> I["Registry Method.evaluate"]
     I --> Q["Method eval_cli.evaluate"]
-    Q --> J["Method evaluator: length policy and decoding strategy"]
+    Q --> J["Method evaluation.run_generative_eval: length policy and decoding strategy"]
     J --> K["eval/generative.py: shared scoring and reporting loop"]
     G -->|No| Z["Finish"]
     K --> Z
@@ -202,7 +220,9 @@ in [train_cli.py](../mlm/train_cli.py). The common workflow calls
 [training.prepare_training() / finish_training()](../mlm/training.py) around the
 shared Trainer lifecycle; [AR](../ar/training.py) and [S2S](../s2s/training.py)
 supply the same two hooks, wired in their `train_cli.py`. Ellipses represent each
-method's construction code.
+method's construction code. `shared_evaluation` aliases `common.evaluation`;
+`method`, `anchor_trim` and `method_options` represent the values supplied by each
+method's `finish_training()`.
 
 ```python
 def reference_workflow():
@@ -228,7 +248,11 @@ def reference_workflow():
 
     # MLM optionally fits the length head on the resulting sequence model.
     if gen_args.run_generative_eval:
-        post_training_generation(...)  # Method options enter the shared setup.
+        shared_evaluation.post_training_generation(
+            method, trainer, tokenizer, trainer.eval_dataset,
+            data_args, gen_args, training_args,
+            anchor_trim=anchor_trim, method_options=method_options,
+        )  # finish_training supplies the method's decoding/length options.
 ```
 
 ## Stage ownership
@@ -248,7 +272,7 @@ Paths in this table are relative to `cdrseqgen/`.
 | Build Trainer | `methods/common/callbacks.build_callbacks()`; `methods/common/training.ExternalLossTrainer` supplies the external-loss handoff | MLM loss Trainer and recovery metrics; AR/S2S Trainer builders, collators and metrics |
 | Calculate token loss | `methods/common/losses.token_cross_entropy()`: aligned token CE | MLM loss registry and core/anchor weighting; AR/S2S models calculate their own losses. The open end for a selectable AR/S2S loss is `build_trainer(compute_loss_func=...)`: Hugging Face's `f(outputs, labels, num_items_in_batch=None)`, which must align the labels itself (AR shifts, S2S does not) and divide by the count when given (`test_loss_normalization` shows a function that does reproduces the model's loss) |
 | Run training and teacher-forced evaluation | `methods/common/training.train_and_save()` | The supplied model and Trainer determine loss, inputs and metrics |
-| Run post-training generative evaluation | `methods/common/evaluation.post_training_generation()`: judge, context regimes and artifact setup | Method wrapper supplies decoding/length options; method evaluator supplies the strategy |
+| Run post-training generative evaluation | `methods/common/evaluation.post_training_generation()`: judge, context regimes and artifact setup; registry `Method.evaluate()` dispatches to `eval_cli.evaluate()` | `finish_training()` calls the shared helper with decoding/length options; `evaluation.run_generative_eval()` supplies the strategy |
 | Draw, score and report candidates | `eval/generative.py`, `eval/metrics.py`, `methods/common/sampling.py` | Method sampling, length selection, self-scoring and judge input construction; AR/S2S share the strategy bookkeeping in `common/eos_decoding.py` |
 
 `<method>/` in the last column means `methods/mlm/`, `methods/ar/` or
@@ -282,7 +306,7 @@ its own validator. The existing baseline remains selected by `scratch`.
 | `logging.py` | Configure stdout, attach `train.log`, log uncaught exceptions | All method CLI entrypoints; shared argument setup attaches the training file handler |
 | `run_setup.py` | Select/name output directories, update latest, save resolved configuration/provenance, supply dataset tags | Shared argument setup, method training workflows, visualization tables |
 | `callbacks.py` | `LogMetricsCallback` records Trainer log events; `build_callbacks()` adds requested early stopping | Method Trainer construction |
-| `record_results.py` | Export the epoch trajectory CSV and training-curve PNGs | `training.train_and_save()` |
+| [visualization/training_results.py](../../visualization/training_results.py) | Export the epoch trajectory CSV and training-curve PNGs | `training.train_and_save()` |
 | `eos_decoding.py` | AR/S2S only: pooled recovery metrics, infilling dataset split, evaluation strategy and payload, generation record | AR and S2S `training.py`, `evaluation.py`, `generation.py` |
 
 Run configuration remains flat, with the same artifact names and dataset tags.

@@ -1,44 +1,34 @@
-"""Adapt released IgLM checkpoints to AR span infilling.
+"""Load IgLM's existing GPT-2 architecture and adapt its native AR infilling protocol.
 
-Native format:
-  [HEAVY] [HUMAN] left [MASK] right [SEP] target [CLS]
-  |---------------- prompt ----------------| |-- answer --|
+Components:
+  * matches / resolve_source / is_native_checkpoint -- source selection and format checks
+  * resolve_conditioning / IGLM_SPAN                -- chain/species tokens and span layout
+  * sample_loops                                   -- native token rules and draw validation
+  * Registry hooks: load_tokenizer, load_training_model, load_pretrained_model,
+                    validate_training_args (the same names as models/transformer.py)
 
-Entry points (registered by methods/ar/backbones.py):
-  * matches / resolve_source -- IgLM, IgLM-S, iglm:/local/path, or a saved IgLM directory
-  * is_native_checkpoint     -- the two original releases, which carry no span-layout metadata
-  * load_tokenizer           -- the native 33 token ids, with layout, conditioning and sampler attached
-  * load_model               -- GPT-2 weights unchanged; native EOS/PAD metadata repaired
-  * validate_training_args   -- reject unsupported context and oversized inputs before a run exists
+Flow:
+  backbones -> load_training_model / load_pretrained_model -> load_model -> GPT2LMHeadModel
+  [chain] [species] left [MASK] right [SEP] target [CLS]
+  |--------------- prompt ---------------| |-- answer --|
 
-Infilling:
-  * resolve_conditioning -- target chain and species tokens (human when omitted)
-  * sample_loops         -- IgLM's token restrictions, one draw per attempt, invalid draws kept
-
-Notes:
-  * Sampling retains every attempt, including duplicates and invalid outputs. Unlike IgLM's
-    convenience wrapper it does not refill a set of unique sequences or force an ending token at
-    the cap. (The wrapper's implicit top-k of 50 never truncates a 33-token vocabulary, so top-k
-    does not distinguish the two.) This is the fixed-attempt CDRSeqGen infill protocol; the
-    external benchmark adapter remains an independent implementation.
-  * The released models know only a chain, a species and one gap, so partner-chain and antigen
-    context is rejected rather than ignored, and a prompt needs a target chain.
-  * Whole-chain generation and whole-chain likelihood are outside this adapter's task contract.
-  * IgLM was pretrained on OAS and is the Findings §11 baseline. Scoring its released weights here
-    applies this protocol to that model; fine-tuning them on OAS is not a matched comparison with
-    the from-scratch arms.
+Contract:
+  * Keep the native 33 token IDs and HF model outputs; [CLS] ends the answer.
+  * Single-chain flanks only; require a chain label and default omitted species to human.
+  * Return fixed attempts, including duplicates/failures; no refill or forced ending.
+    Whole-chain tasks and research interpretation are documented outside this module.
 """
 from contextlib import contextmanager
 import importlib.util
+import inspect
 import json
 import math
-import inspect
 from pathlib import Path
 
 import torch
 
 from cdrseqgen.datasets.dataset_ar import (
-    LOOP_LENGTH_RESERVE, SpanLayout, validate_causal_decode_steps,
+    CAUSAL_DECODE_STEPS, LOOP_LENGTH_RESERVE, SpanLayout, validate_causal_decode_steps,
 )
 from cdrseqgen.datasets.dataset_common import TARGET_REGIONS, TokenizerAdapter
 
@@ -50,6 +40,7 @@ CHAIN_TOKENS = ("[HEAVY]", "[LIGHT]")
 NATIVE_VOCAB = ("[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]", *RESIDUES,
                 *SPECIES_TOKENS, *CHAIN_TOKENS)
 TOKEN_IDS = {token: index for index, token in enumerate(NATIVE_VOCAB)}
+RESIDUE_IDS = frozenset(TOKEN_IDS[residue] for residue in RESIDUES)
 # The species names IgLM's own tokenizer table maps to its six tokens (iglm/model/tokens.py).
 SPECIES_NAMES = {
     "Camel": "[CAMEL]", "human": "[HUMAN]", "HIS-mouse": "[MOUSE]", "mouse_Balb/c": "[MOUSE]",
@@ -74,6 +65,7 @@ RELEASES = {
 }
 
 
+# --- Source and tokenizer helpers ---------------------------------------------------------------
 def _config(root):
     with (Path(root) / "config.json").open() as handle:
         config = json.load(handle)
@@ -127,10 +119,10 @@ def _check_config(config):
 
 
 def is_native_checkpoint(path):
-    """Recognize the two original releases before accepting absent layout metadata.
+    """Recognize a released config/vocabulary signature permitting absent layout metadata.
 
-    A saved CDRSeqGen checkpoint must retain its recorded layout. Merely sharing
-    GPT-2's class and vocabulary is insufficient to claim original provenance.
+    This checks the declared format, not the identity of the weight bytes.
+    CDRSeqGen checkpoints must retain their own recorded layout.
     """
     root = Path(path)
     try:
@@ -189,6 +181,7 @@ def resolve_source(source):
     return str(root.resolve())
 
 
+# --- Conditioning and span layout ---------------------------------------------------------------
 def _species_token(value):
     """A native token ([MOUSE], mouse) or one of IgLM's species names; anything else is an error."""
     text = str(value).strip()
@@ -243,6 +236,7 @@ IGLM_SPAN = SpanLayout(
 MIN_MAX_LEN = LOOP_LENGTH_RESERVE + IGLM_SPAN.n_layout_tokens  # fixed answer reserve + layout
 
 
+# --- Registry hooks (shared names across AR model modules) ---------------------------------------
 def load_tokenizer(source, position_type="absolute", uses_special_tokens=False):
     """Preserve native ids and attach the infilling layout, conditioning and sampling hooks.
 
@@ -260,7 +254,7 @@ def load_tokenizer(source, position_type="absolute", uses_special_tokens=False):
     adapter = TokenizerAdapter(
         encode=encode, decode=lambda ids: backend.decode(ids).replace(" ", ""),
         vocab_size=len(NATIVE_VOCAB), pad_id=PAD_ID, mask_id=MASK_ID, cls_id=None, end_id=None,
-        chain_sep_id=SEP_ID, special_ids={*range(5), *range(TOKEN_IDS["[CAMEL]"], len(NATIVE_VOCAB))},
+        chain_sep_id=SEP_ID, special_ids=set(TOKEN_IDS.values()) - RESIDUE_IDS,
         uses_special_tokens=False, position_type="absolute",
     )
     adapter.eos_id = CLS_ID
@@ -279,10 +273,11 @@ def load_tokenizer(source, position_type="absolute", uses_special_tokens=False):
 
 
 def load_model(source, *, vocab_size=None, max_len=None, **_scratch_options):
-    """Load the existing GPT-2 architecture without token additions or embedding resizing.
+    """Validate the checkpoint and return its GPT2LMHeadModel in evaluation mode.
 
-    The scratch-model options (width, depth, heads) are accepted and ignored, as for any
-    pretrained backbone: the checkpoint fixes its own architecture.
+    Check layout/policy metadata and learned weights; permit known legacy mask buffers.
+    Preserve vocabulary size, repair EOS/PAD metadata and install protocol defaults.
+    Width/depth/head arguments are ignored: the checkpoint fixes its architecture.
     """
     from transformers import GenerationConfig, GPT2LMHeadModel
     from cdrseqgen.methods.ar.backbones import validate_checkpoint_layout
@@ -324,6 +319,11 @@ def load_model(source, *, vocab_size=None, max_len=None, **_scratch_options):
     return model
 
 
+# Fine-tuning and inference restore the same weights through the same strict loader.
+load_training_model = load_model
+load_pretrained_model = load_model
+
+
 def validate_training_args(model_args, data_args):
     """Reject unsupported context and budgets before a training run is initialized."""
     if data_args.include_partner_chain or data_args.include_antigen:
@@ -335,13 +335,13 @@ def validate_training_args(model_args, data_args):
                          "answer reserve and the checkpoint's context capacity")
 
 
+# --- Native sampling ----------------------------------------------------------------------------
 @contextmanager
 def _sampling_rng(generator, device):
-    """Make Hugging Face generate() follow an explicit generator without moving the global RNG.
+    """Bridge an explicit generator to HF's ambient sampling RNG for one sampler call.
 
-    generate() samples from the ambient RNG. One draw from the supplied generator seeds the
-    ambient CPU RNG (and the model's CUDA device) inside a forked scope that is restored on exit,
-    so the generator advances by exactly that draw and nothing else is disturbed.
+    With a generator, consume one seed and restore ambient CPU/selected CUDA state on exit.
+    With None, use and advance ambient RNG state directly (as the replay harness does).
     """
     if generator is None:
         yield
@@ -363,19 +363,27 @@ def _check_prompt(prompt):
             or prompt[1] not in (TOKEN_IDS[t] for t in SPECIES_TOKENS)
             or prompt.count(MASK_ID) != 1 or prompt.count(SEP_ID) != 1
             or prompt[-1] != SEP_ID or CLS_ID in prompt
-            or any(token not in range(5, 25) for token in prompt[2:-1] if token != MASK_ID)):
+            or any(token not in RESIDUE_IDS for token in prompt[2:-1] if token != MASK_ID)):
         raise ValueError("IgLM requires [chain][species] left[MASK]right[SEP] as its infill prompt")
 
 
 def _draw_record(tokens, prompt, tokenizer):
-    """Parse one raw draw: exactly one [MASK], [SEP] and closing [CLS], residues in between."""
+    """Return the loop, validity flags, failure reason and full prompt-plus-output token IDs.
+
+    A C [CLS]      -> terminated=True, complete=True, loop='AC'
+    [MASK] A [CLS] -> terminated=True, complete=False (repeated prompt marker)
+    A C           -> terminated=False, complete=False (missing terminator)
+
+    complete/valid describe token validity; an empty answer can be complete and is
+    excluded later from quality scoring. [MASK]/[SEP] must occur only in the prompt.
+    """
     continuation = tokens[len(prompt):]
     terminated = CLS_ID in continuation
     valid_layout = (tokens[:len(prompt)] == prompt and tokens.count(MASK_ID) == 1
                     and tokens.count(SEP_ID) == 1 and tokens.count(CLS_ID) == 1
                     and tokens[-1] == CLS_ID)
     answer = continuation[:-1] if valid_layout else []
-    valid = valid_layout and all(token in range(5, 25) for token in answer)
+    valid = valid_layout and all(token in RESIDUE_IDS for token in answer)
     return {"loop": tokenizer.decode(answer) if valid else "", "length": len(answer),
             "complete": valid, "valid": valid, "terminated": terminated,
             "failure": (None if valid else
@@ -385,7 +393,7 @@ def _draw_record(tokens, prompt, tokenizer):
 
 @torch.no_grad()
 def sample_loops(model, tokenizer, prompt_ids, *, device, num_samples=1, temperature=1.0,
-                 top_k=0, top_p=1.0, max_new_tokens=97, generator=None):
+                 top_k=0, top_p=1.0, max_new_tokens=CAUSAL_DECODE_STEPS, generator=None):
     """Make one native-decoder draw per attempt, retaining duplicates and failures.
 
     [MASK]/[SEP] remain eligible during decoding, as in IgLM. Repeated markers invalidate the

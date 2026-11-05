@@ -11,7 +11,7 @@ READMEs for configs, tests, methods and benchmarks remain beside their implement
 | [Environment](ENVIRONMENT.md) | Dependencies, verification and server restoration |
 | [Workflow](WORKFLOW.md) | Preprocessing, training, generation, evaluation and command history |
 | [Architecture](ARCHITECTURE.md) | Repository map, data/model conventions and extension points |
-| [Model specifications](MODELS.md) | Custom-model architecture, defaults, benchmark settings and paper-reporting notes |
+| [Model specifications](MODELS.md) | Custom-model architecture, native IgLM backbone, defaults, benchmark settings and paper-reporting notes |
 | [Arguments](ARGUMENTS.md) | Training fields, defaults, validation and JSON/CLI override rules |
 | [Results](RESULTS.md) | Completed validation evidence and source artifacts |
 | [Findings](FINDINGS.md) | Detailed measurements, historical findings and limitations |

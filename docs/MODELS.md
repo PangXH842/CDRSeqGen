@@ -3,10 +3,27 @@
 [Back to docs](README.md) · [Architecture](ARCHITECTURE.md) ·
 [Arguments](ARGUMENTS.md) · [Method workflow](../cdrseqgen/methods/common/README.md)
 
-Implementation snapshot: **2 November 2026**. This reference describes the current
+Implementation snapshot: **3 November 2026**. This reference describes the current
 from-scratch MLM, AR and S2S models and distinguishes builder defaults from the
 saved configurations used in the main validation benchmark. S2S's
 [PLM-backed composite](../cdrseqgen/methods/s2s/models/plm.py) is a separate model.
+
+## AR model-module interface
+
+[transformer.py](../cdrseqgen/methods/ar/models/transformer.py) and
+[iglm.py](../cdrseqgen/methods/ar/models/iglm.py) expose the same registry hooks:
+
+| Hook | Custom Transformer | IgLM |
+|---|---|---|
+| `load_tokenizer(source, position_type, uses_special_tokens)` | Fixed causal vocabulary and default span layout | Native vocabulary, conditioning, span layout and sampler |
+| `load_training_model(source, **options)` | Create fresh weights through `build_model()` | Restore weights through `load_model()` for fine-tuning |
+| `load_pretrained_model(source)` | Check layout and strictly restore custom weights | Same strict native loader used for fine-tuning |
+| `validate_training_args(model_args, data_args)` | Check architecture dimensions | Check supported context and checkpoint capacity |
+
+The registry selects a module and calls these hooks lazily; model-specific construction and
+restoration live in the model module. Existing `transformer.build_model()` and `iglm.load_model()`
+remain available. IgLM retains standard Hugging Face model outputs; the custom model returns
+its dictionary contract. Their module docstrings use Components, Flow and Contract sections.
 
 ## Current implementation and builder defaults
 
@@ -15,8 +32,8 @@ Sources: [shared components](../cdrseqgen/methods/common/transformer.py),
 [AR](../cdrseqgen/methods/ar/models/transformer.py),
 [S2S](../cdrseqgen/methods/s2s/models/transformer.py).
 
-The common module supplies reusable components. Each method defines its own
-`Config → Model → build_model()` and complete forward path.
+The common module supplies reusable components. Each custom implementation defines
+its config, model and `build_model()` factory; the factory constructs `Config → Model`.
 
 | Specification | Common components | MLM | AR | S2S |
 |---|---|---|---|---|

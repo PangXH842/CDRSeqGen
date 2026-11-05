@@ -1,40 +1,24 @@
-"""Causal training pipeline: dataset -> Trainer -> metrics, and the hooks of the shared workflow.
+"""Prepare AR training resources and run method-specific finishing stages.
 
 Entry path:
   train_cli.main -> common.training.run_training_pipeline
                  -> prepare_training -> common.training.train_and_save
                  -> finish_training
 
-  * prepare_training         -- seed, load data/model, build the Trainer
-  * finish_training          -- evaluate generated loops after training
-  * get_datasets             -- tokenizer + CausalInfillingDataset + the train/eval split
-  * compute_metrics          -- teacher-forced recovery over the answer, split core/anchor
-  * build_trainer            -- a plain HF Trainer; the model returns its own loss
-                                (``compute_loss_func`` is the open end for a selectable one)
-  * post_training_generation -- pass the decode cap into common.evaluation
+Functions:
+  * prepare_training         -- seed, load data/model, record layout and build the Trainer
+  * finish_training          -- optionally evaluate generated loops on the selected/loaded model
+  * get_datasets             -- return training/evaluation subsets and their tokenizer
+  * compute_metrics          -- align next-token predictions and calculate loop recovery
+  * build_trainer            -- connect the model, collator, recovery metric and callbacks
 
-Mirrors ``methods/mlm/training.py`` so the two are comparable, with three differences that follow
-from the objective rather than from taste:
-
-  * **No masking view.** The MLM builds a separate ``full_span`` view for evaluation so partially
-    revealed native residues cannot leak into reported recovery. A causal example never reveals any
-    of the answer — the loss mask puts -100 across the whole prompt — so train and eval share parsed
-    records, with a separate context view that disables dropout for evaluation.
-  * **No loss registry.** The model computes its own next-token loss. §13 established that
-    re-weighting core against anchor moves nothing, so there is no reason to rebuild that machinery
-    on this side.
-  * **The split guard is imported, not copied** (``dataset_common.select_split_indices``). Two
-    copies of the check that stops checkpoints being selected on the test partition is precisely the
-    duplication this project has already been burned by.
-
-The dataset split, the recovery arithmetic and the evaluation loop are shared with the
-encoder-decoder method in :mod:`cdrseqgen.methods.common.eos_decoding`; this module keeps what is
-causal: the dataset and collator, and the one-position shift in ``compute_metrics``.
-
-Metrics are teacher-forced, like the MLM's ``compute_metrics``: argmax over the true prefix, not
-free-running generation. Findings' "Teacher-forced accuracy is not generation accuracy" applies here
-too and the gap will be at least as large, so these numbers select checkpoints — they do not report
-design quality.
+  Notes:
+  * train_cli owns logging and argument setup; common.training owns train/eval/save.
+  * Named split selection is shared; evaluation disables training context dropout.
+  * Only the answer and terminator receive labels. Recovery shifts predictions once
+    and excludes the final terminator from residue scores.
+  * The backbone supplies the model's loss and span layout. compute_loss_func is an
+    optional Trainer loss override; generated-loop evaluation is a separate stage.
 """
 import functools
 import logging
@@ -45,6 +29,7 @@ from cdrseqgen.datasets.dataset_ar import CausalInfillingDataset, causal_collate
 from cdrseqgen.eval import ANCHOR_TRIM
 from cdrseqgen.methods.ar.backbones import record_training_layout, resolve
 from cdrseqgen.methods.common import build_callbacks
+from cdrseqgen.methods.common import evaluation as shared_evaluation
 from cdrseqgen.methods.common.eos_decoding import eos_recovery_metrics, get_infilling_datasets
 from cdrseqgen.methods.common.run_setup import update_latest_link
 
@@ -55,17 +40,18 @@ def prepare_training(model_args, data_args, training_args):
     """Return (Trainer, tokenizer) ready for the shared training lifecycle.
 
     Steps:
-      seed -> backbone -> datasets/tokenizer -> update latest link -> model -> Trainer/callbacks
+      seed -> backbone -> datasets/tokenizer -> update latest link
+           -> model -> record span layout -> Trainer/callbacks
 
-    Dataset/split validation precedes the latest-link update. Training starts when the shared
-    workflow calls train_and_save().
+    Validate dataset/split selection before updating the latest link. The shared
+    lifecycle starts training/evaluation after this function returns.
     """
     set_seed(training_args.seed)
 
     backbone = resolve(model_args.model_type)
     train_dataset, eval_dataset, tokenizer = get_datasets(
         model_args, data_args, training_args, backbone)
-    # Only now: everything above can succeed for a config get_datasets then rejects.
+    # Keep dataset/split failures from changing the latest-run link.
     update_latest_link(training_args.output_dir)
 
     model = backbone.load_training_model(
@@ -85,41 +71,41 @@ def prepare_training(model_args, data_args, training_args):
 
 
 def finish_training(trainer, tokenizer, data_args, gen_args, training_args, *, anchor_trim):
-    """Evaluate generated loops on the trained model when run_generative_eval is on.
+    """Optionally evaluate generated loops on the selected or loaded model.
 
-    anchor_trim is model_args.anchor_trim; train_cli binds it because the shared workflow does not
-    pass model_args to this hook.
+    Also runs for evaluation-only commands. train_cli binds anchor_trim from
+    model_args; run_generative_eval controls this stage independently of do_train.
+    Pass the AR decode cap directly to common.evaluation.post_training_generation().
     """
     if gen_args.run_generative_eval:
-        post_training_generation(trainer, tokenizer, trainer.eval_dataset, data_args, gen_args,
-                                 training_args, anchor_trim=anchor_trim)
-
-
-def post_training_generation(trainer, tokenizer, eval_dataset, data_args, gen_args, training_args,
-                             *, anchor_trim):
-    """Pass the decode cap into shared post-training evaluation.
-
-    common.evaluation handles judge setup, context regimes, output paths and exception logging.
-    """
-    from cdrseqgen.methods.common.evaluation import post_training_generation as evaluate
-    return evaluate('ar', trainer, tokenizer, eval_dataset, data_args, gen_args, training_args,
-                    anchor_trim=anchor_trim,
-                    method_options={'max_new_tokens': gen_args.gen_max_new_tokens})
+        shared_evaluation.post_training_generation(
+            "ar", trainer, tokenizer, trainer.eval_dataset,
+            data_args, gen_args, training_args,
+            anchor_trim=anchor_trim,
+            method_options={"max_new_tokens": gen_args.gen_max_new_tokens},
+        )
 
 
 def get_datasets(model_args, data_args, training_args, backbone, *, checkpoint_path=None):
-    """Tokenizer, train/eval subsets. Same signature as the MLM pipeline's."""
+    """Return (train subset, evaluation subset, tokenizer) through the shared data helper.
+
+    Both views share parsed records; evaluation disables context dropout.
+    checkpoint_path selects a saved tokenizer for standalone checkpoint evaluation.
+    """
     return get_infilling_datasets(CausalInfillingDataset, "causal", model_args, data_args,
                                   training_args, backbone, checkpoint_path=checkpoint_path)
 
 
 def compute_metrics(eval_pred, *, trim=ANCHOR_TRIM):
-    """Teacher-forced recovery over the answer: whole-loop, plus anchor-excluded core and anchor.
+    """Return teacher-forced whole/core/anchor recovery after the next-token shift.
 
-    Predictions and labels arrive UNSHIFTED, exactly as the model saw them, so the shift is redone
-    here: the logit at t is scored against the label at t+1. Getting that wrong offsets every
-    position by one and would quietly report a different quantity than the MLM's ``compute_metrics``.
-    The arithmetic itself is :func:`eos_recovery_metrics`, which also drops each row's final <eos>.
+    Example: prompt P P, loop A C
+      labels:       -100 -100 A C EOS
+      predictions:   ?     A  C EOS ?
+      comparison: predictions[:-1] against labels[1:]
+
+    Accept logits or already-decoded token IDs. eos_recovery_metrics ignores
+    prompt/padding labels and drops the final supervised terminator.
     """
     predictions, labels = eval_pred
     if predictions.ndim == 3:
@@ -129,14 +115,12 @@ def compute_metrics(eval_pred, *, trim=ANCHOR_TRIM):
 
 def build_trainer(model, training_args, train_ds, eval_ds, tokenizer, callbacks=None,
                   trim=ANCHOR_TRIM, compute_loss_func=None):
-    """A plain HF Trainer: unlike the masked side there is no external loss to bridge.
+    """Return an HF Trainer with causal collation, recovery metrics and callbacks.
 
-    The model's own shifted token-mean cross-entropy is the loss unless ``compute_loss_func`` is
-    given: the open end for a selectable objective. It follows Hugging Face's contract,
-    ``f(outputs, labels, num_items_in_batch=None) -> scalar``, receives the labels UNSHIFTED (shift
-    inside, as the model does) and must divide by ``num_items_in_batch`` itself when that is not
-    None, because the Trainer then stops averaging over accumulation steps. With None it must
-    return the plain token mean (evaluation passes no count).
+    The model calculates loss by default. An optional compute_loss_func receives
+    unshifted labels and must align them itself. Its contract is
+    f(outputs, labels, num_items_in_batch=None) -> scalar: divide summed loss by
+    the supplied accumulation-window count, or return a token mean when absent.
     """
     return Trainer(
         model=model,

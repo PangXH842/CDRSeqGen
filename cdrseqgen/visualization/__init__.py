@@ -1,9 +1,9 @@
 """Turning finished run artifacts into something a human reads — charts and tables both.
 
-Nothing here loads a model or touches a GPU. Every module reads what a completed run already wrote
-(``epoch_metrics.csv``, ``generation_eval.json``, ``run_config.json``) plus the processed dataset
-JSONs, so any figure can be regenerated long after the run, and a chart can never disagree with the
-run it describes.
+Nothing here loads a model or touches a GPU. Most modules read saved run artifacts
+(``epoch_metrics.csv``, ``generation_eval.json``, ``run_config.json``) and processed dataset JSONs.
+``training_results`` also accepts Trainer log history to export the epoch CSV;
+its curves can then be regenerated from that file after the run.
 
 Three levels, bottom up:
 
@@ -14,7 +14,8 @@ Three levels, bottom up:
                             somebody else, and a ``plot_*`` that makes a standalone figure.
   * analysis figures     -- ``sweep_plots`` (settings x seeds), ``batch_plots`` (the loop x dataset
                             x context x model matrix), ``confidence_plot`` (per-candidate scores),
-                            ``batch_tables`` (the same matrix as Markdown for the README).
+                            ``batch_tables`` (the same matrix as Markdown for the README),
+                            ``training_results`` (one run's validation trajectory).
                             These choose panels, do their own aggregation, and own the figure.
 
 The split is the usual rule in this project — a capability is added in one place. A new chart type

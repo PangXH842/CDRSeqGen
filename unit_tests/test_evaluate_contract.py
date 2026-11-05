@@ -14,7 +14,7 @@ from cdrseqgen.methods.mlm.gen_cli import prepare_generation
 from evaluate import (
     compatibility_problems,
     default_output_path,
-    evaluation_provenance,
+    get_evaluation_source_info,
 )
 
 
@@ -179,7 +179,7 @@ class EvaluationArtifactTests(unittest.TestCase):
             metadata = root / "processed.metadata.json"
             metadata.write_text(json.dumps({"processed_file_sha256": "declared"}))
 
-            provenance = evaluation_provenance(config, checkpoint, data)
+            provenance = get_evaluation_source_info(config, checkpoint, data)
 
         _git.assert_called_once_with(Path(__file__).resolve().parents[1])
         self.assertEqual(
