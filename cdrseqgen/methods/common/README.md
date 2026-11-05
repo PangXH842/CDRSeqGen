@@ -299,6 +299,10 @@ model name does not have to equal `scratch`. Current Transformer registrations u
 `common.transformer.validate_transformer_args()`; another architecture can provide
 its own validator. The existing baseline remains selected by `scratch`.
 
+The [model-integration guide](../../../docs/MODEL_INTEGRATION.md) describes when to
+reuse a fallback, add a model-family module and registration, introduce a method,
+or use a benchmark-only adapter. IgLM supplies the worked native-protocol example.
+
 ## Run setup, logging and recording
 
 | Module | Responsibility | Main callers |

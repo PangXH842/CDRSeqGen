@@ -1,15 +1,20 @@
-"""Run naming, output directories and resolved-configuration provenance.
+"""Organize run names, output directories and saved configuration/source information.
 
 Functions:
-  * results_root -- select the batch directory from the environment or timestamp
-  * unique_run_dir -- choose a new run path without overwriting an existing run
-  * update_latest_link -- point results/runs/latest at the selected batch
-  * write_run_config -- save flat resolved arguments plus dataset/runtime/Git identity
-  * dataset_tag -- map a corpus path to the run-name tag used by reports
+  * results_root        -- select the batch directory from the environment or timestamp
+  * unique_run_dir      -- choose a new run path without overwriting an existing run
+  * update_latest_link  -- point results/runs/latest at the selected batch
+  * write_run_config    -- save flat resolved arguments plus dataset/runtime/Git identity
+  * dataset_tag         -- map a corpus path to the run-name tag used by reports
 
-The shared argument setup uses these helpers, creates the run directory and
-attaches file logging. Each method updates latest after dataset validation.
-This module does not start training or create directories merely by importing.
+Notes:
+  * common.arguments.initialize_run() calls the naming/config helpers, creates the
+    run directory and attaches file logging.
+  * mlm/ar/s2s.training.prepare_training() calls update_latest_link() after dataset
+    and split validation, before model construction.
+  * The source record identifies config/data/runtime/Git settings; the declared
+    corpus hash is copied from metadata, not recomputed here.
+  * Importing this module creates no run directories and starts no training.
 """
 import json
 import logging
@@ -29,14 +34,10 @@ from cdrseqgen.artifacts import (
     processed_metadata_path,
 )
 
-# First match wins, so a more specific corpus must precede the general one. The tag is what keeps
-# incomparable test sets off one axis (see visualization/batch_plots), and a corpus built from a
-# different donor set has a different test split — so it needs its own tag even though it is still
-# OAS. Without the `oas_multi` entry ahead of `oas`, a 4-donor run would be named `h3_OAS_scratch`,
-# indistinguishable from a single-donor one, and the batch tables would silently merge the two.
+# Keep specific path fragments before broader matches; see dataset_tag().
 DATASET_TAGS = [
     ("sabdab2",   "SD2"),
-    ("oas_multi", "OAS4"),   # Jaffe 2022, all four donors, naive B cells (2026-09-03)
+    ("oas_multi", "OAS4"),
     ("oas",       "OAS"),
 ]
 UNKNOWN_DATASET_TAG = "DS"
@@ -51,15 +52,9 @@ logger = logging.getLogger(__name__)
 
 
 def unique_run_dir(root: str, run_name: str) -> str:
-    """<root>/<run_name>, suffixed with _2, _3, ... if that path is already taken.
+    """Return an available run path, adding a numeric suffix when the name exists.
 
-    Run folders carry no timestamp (the batch folder has one), which is only safe if a name clash
-    can never silently overwrite an earlier run. Two cases genuinely clash:
-      * sweep.sh reuses ONE base config for its whole grid — every grid point resolves to
-        the same name (mitigated further by CDRSEQGEN_RUN_SUFFIX, which names the grid point);
-      * re-running a config into an existing batch folder, e.g. retrying a failed run.
-    Both would otherwise land on an existing directory and overwrite real results, so the clash is
-    resolved by renaming and logged loudly rather than passing silently.
+    Example: root/trial and root/trial_2 exist -> return root/trial_3 and warn.
     """
     candidate = os.path.join(root, run_name)
     if not os.path.exists(candidate):
@@ -73,30 +68,39 @@ def unique_run_dir(root: str, run_name: str) -> str:
 
 
 def results_root() -> str:
-    """Batch directory that this run's folder is created inside (see RESULTS_ROOT_ENV)."""
+    """Return the batch directory under which initialize_run() places its run folder.
+
+    Selection:
+      CDRSEQGEN_RESULTS_ROOT is nonempty -> use that directory unchanged
+      otherwise -> ./results/runs/YYYYmmdd_HHMMSS (local timestamp)
+
+    The timestamp gives standalone runs the same batch/run directory depth as
+    scheduled batches. This function returns a path; it creates no directory.
+    """
     from_env = os.environ.get(RESULTS_ROOT_ENV)
     if from_env:
         return from_env
-    # Standalone run: give it its own batch folder so every run sits at the same depth.
     return os.path.join(DEFAULT_RESULTS_ROOT, datetime.now().strftime("%Y%m%d_%H%M%S"))
 
 
 def update_latest_link(run_dir: str) -> None:
-    """Point results/runs/latest at the newest batch unless a batch runner explicitly opts out.
+    """Point results/runs/latest at the parent batch of the supplied run directory.
 
-    A run.sh round trains many configs into one results/<batch-timestamp>/ folder; latest tracks that
-    whole round, so results/runs/latest/<config>/ addresses any run in it. Sweeps set
-    CDRSEQGEN_SKIP_LATEST=1 because their trial folders should not replace the main usable batch.
+    Example: run_dir=results/runs/batch/trial
+      -> results/runs/latest points to batch, making latest/trial accessible.
 
-    Refuses to touch results/runs/latest if it is a real directory rather than a symlink — that would
-    mean deleting real results, which is never worth a convenience shortcut.
+    Called by each method's prepare_training() after dataset/split validation.
+    Skip when CDRSEQGEN_SKIP_LATEST is 1/true/yes, or when the parent is the runs
+    root itself. The latter prevents latest from linking back to its own parent.
+
+    Replace an existing symlink, but preserve any existing nonsymlink path.
+    Store a relative link target; log filesystem errors as warnings so training
+    can continue. latest tracks a batch, not an individual trial or selected model.
     """
     if os.environ.get(SKIP_LATEST_ENV, "").strip().lower() in {"1", "true", "yes"}:
         logger.info(f"Skipping results/runs/latest update ({SKIP_LATEST_ENV} is set).")
         return
     batch_dir = os.path.dirname(os.path.abspath(run_dir))
-    # Never self-link results/runs/latest -> results (would happen only if a run dir sat directly in
-    # results/ with no batch folder; results_root() always interposes one, so this is a guard).
     if batch_dir == os.path.abspath(DEFAULT_RESULTS_ROOT):
         return
     link_path = os.path.join(DEFAULT_RESULTS_ROOT, LATEST_LINK)
@@ -114,6 +118,7 @@ def update_latest_link(run_dir: str) -> None:
 
 
 def _package_versions():
+    """Return selected installed package versions, using None for missing distributions."""
     packages = ("torch", "transformers", "accelerate", "safetensors", "pandas", "scikit-learn")
     resolved = {}
     for package in packages:
@@ -125,7 +130,17 @@ def _package_versions():
 
 
 def _training_provenance(model_args, data_args):
-    """Lightweight run identity without re-hashing a multi-gigabyte processed dataset per trial."""
+    """Return dataset/model source information, runtime versions and Git state.
+
+    Called by write_run_config(). Record the corpus path/size and hash its metadata
+    sidecar; copy the declared corpus SHA from that sidecar without rehashing or
+    verifying the corpus. model_source is the configured identifier/path, not a
+    checksum of model weights.
+
+    Locate the repository from the cdrseqgen package so moving this helper does
+    not change the checkout recorded. Git information includes the commit and
+    dirty flag, without a snapshot of uncommitted source changes.
+    """
     data_path = Path(data_args.data_path).expanduser()
     metadata_path = processed_metadata_path(data_path)
     dataset = {
@@ -140,7 +155,6 @@ def _training_provenance(model_args, data_args):
                 "processed_file_sha256"
             )
 
-    # Anchor to the package so moving this module cannot change the checkout.
     repo = Path(cdrseqgen.__file__).resolve().parent.parent
     return {
         "dataset": dataset,
@@ -154,10 +168,15 @@ def _training_provenance(model_args, data_args):
 
 
 def write_run_config(output_dir: str, model_args, data_args, gen_args, training_args) -> dict:
-    """Persist every resolved argument so a checkpoint and sweep trial are self-describing.
+    """Write run_config.json from resolved argument groups and return the saved dict.
 
-    The file remains flat for backward compatibility with generate.py and evaluate.py, which read
-    target_region and context flags directly from the top level.
+    Called by common.arguments.initialize_run() after argument validation.
+    Merge model -> data -> generation -> TrainingArguments; later groups win if
+    keys overlap. Add the source/runtime record under provenance and write atomically.
+
+    Arguments stay flat so generation/evaluation can read target_region and
+    context flags directly. These are resolved settings, including CLI overrides,
+    rather than a copy of the original input JSON.
     """
     meta = {}
     for args in (model_args, data_args, gen_args):
@@ -169,7 +188,17 @@ def write_run_config(output_dir: str, model_args, data_args, gen_args, training_
 
 
 def dataset_tag(data_path: str) -> str:
-    """Resolve the short dataset tag for a data path via DATASET_TAGS (first match wins)."""
+    """Return the first DATASET_TAGS label matching a case-insensitive path substring.
+
+    Examples:
+      processed_oas_multi.json -> OAS4 (four-donor OAS corpus)
+      processed_oas.json       -> OAS  (historical single-donor corpus)
+      unrecognized.json        -> DS, with a warning
+
+    Called by initialize_run() to name runs; reports also use DATASET_TAGS.
+    Ordering matters: oas_multi must precede oas so their runs retain distinct
+    labels in report grouping. The tag describes the path, without inspecting data.
+    """
     lowered = data_path.lower()
     for substring, tag in DATASET_TAGS:
         if substring in lowered:

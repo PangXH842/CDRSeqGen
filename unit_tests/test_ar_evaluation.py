@@ -86,6 +86,31 @@ class IndexResolutionTests(unittest.TestCase):
         self.assertEqual(strategy._judge_framework(0), ds.framework_parts(1))
         os.unlink(path)
 
+    def test_nested_eval_subsets_build_the_judge_prompt_from_the_original_record(self):
+        path = _data()
+        self.addCleanup(os.unlink, path)
+        with open(path) as handle:
+            records = json.load(handle)
+        for index, record in enumerate(records):
+            record["heavy"]["fwr1"] = "A" * (index + 1)
+        with open(path, "w") as handle:
+            json.dump(records, handle)
+
+        adapter = causal_adapter()
+        full = CausalInfillingDataset(path, adapter, target_region="h3")
+        judge = CausalInfillingDataset(path, adapter, target_region="h3")
+        subset = torch.utils.data.Subset(
+            torch.utils.data.Subset(full, [4, 1, 5, 2]), [2, 0])
+        strategy, *_ = _strategy(path, eval_dataset=subset, judge_dataset=judge)
+
+        for subset_index, original_index in enumerate((5, 4)):
+            with self.subTest(subset_index=subset_index):
+                expected_framework = judge.framework_parts(original_index)
+                self.assertEqual(strategy.framework(subset_index), expected_framework)
+                self.assertEqual(
+                    strategy.judge_inputs(subset_index, "ACD"),
+                    build_masked_judge_prompt(adapter, expected_framework, 3))
+
 
 class StrategyProtocolTests(unittest.TestCase):
     def test_length_policy_reports_eos_not_a_length_head(self):

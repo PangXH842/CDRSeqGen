@@ -1,12 +1,16 @@
 # Custom Transformer specifications
 
 [Back to docs](README.md) · [Architecture](ARCHITECTURE.md) ·
-[Arguments](ARGUMENTS.md) · [Method workflow](../cdrseqgen/methods/common/README.md)
+[Arguments](ARGUMENTS.md) · [Model integration](MODEL_INTEGRATION.md) ·
+[Method workflow](../cdrseqgen/methods/common/README.md)
 
 Implementation snapshot: **3 November 2026**. This reference describes the current
 from-scratch MLM, AR and S2S models and distinguishes builder defaults from the
 saved configurations used in the main validation benchmark. S2S's
 [PLM-backed composite](../cdrseqgen/methods/s2s/models/plm.py) is a separate model.
+
+For adding a future model family, choosing a fallback, or distinguishing a backbone
+from a new method/external adapter, use the [model-integration guide](MODEL_INTEGRATION.md).
 
 ## AR model-module interface
 

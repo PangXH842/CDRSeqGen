@@ -244,6 +244,32 @@ class MetricAlignmentTests(unittest.TestCase):
         self.assertEqual(s2s_training.compute_metrics((logits, labels), trim=2),
                          s2s_training.compute_metrics((ids, labels), trim=2))
 
+    def test_unequal_loops_pool_tokens_and_count_eos_only_rows_in_core_coverage(self):
+        # EOS-only rows count towards coverage; entirely unsupervised rows do not.
+        labels = np.full((5, 11), -100)
+        guesses = np.zeros_like(labels)
+        for row, loop in enumerate((list(range(5, 13)), list(range(5, 10)), [5, 6], [])):
+            labels[row, 1:len(loop) + 2] = loop + [self.EOS]
+            guesses[row, 1:len(loop) + 1] = loop
+        guesses[0, [1, 4]] = 24       # one wrong anchor and one wrong core residue
+        guesses[1, 1:6] = 24          # every residue of the shorter loop is wrong
+        # All EOS guesses stay wrong: terminator accuracy must not dilute residue recovery.
+        ar_labels = np.pad(labels, ((0, 0), (1, 0)), constant_values=-100)
+        ar_guesses = np.pad(guesses, ((0, 0), (0, 1)), constant_values=0)
+
+        for trim, expected in (
+            (2, {"accuracy": 8 / 15, "core_accuracy": 3 / 5,
+                 "anchor_accuracy": 5 / 10, "core_coverage": 2 / 4}),
+            (0, {"accuracy": 8 / 15, "core_accuracy": 8 / 15,
+                 "anchor_accuracy": 0.0, "core_coverage": 3 / 4}),
+        ):
+            with self.subTest(trim=trim):
+                result = s2s_training.compute_metrics((guesses, labels), trim=trim)
+                self.assertEqual(result,
+                                 ar_training.compute_metrics((ar_guesses, ar_labels), trim=trim))
+                for key, value in expected.items():
+                    self.assertAlmostEqual(result[key], value, msg=key)
+
 
 class StubStrategy(EosDecodingStrategy):
     """Samples scripted draws, so the accounting is checked without a model."""
@@ -290,14 +316,22 @@ class FailedFrameworkTests(unittest.TestCase):
         self.assertEqual(len(strategy.generation_attempts[0]["draws"]), 3)
 
     def test_a_mixed_framework_keeps_its_valid_draws_and_reports_the_failures(self):
-        strategy = self.strategy([draw("ACDE"), draw("AC"), draw(complete=False)], protocol=True)
+        draws = [draw("ACDE"), draw("AC"), draw("ACDE"), draw(""),
+                 draw("ACDE", complete=False),
+                 draw("A", complete=False, terminated=True, valid=False)]
+        strategy = self.strategy(draws, protocol=True)
         drawn = strategy.draw(0)
-        self.assertEqual(drawn.seqs, ["ACDE", "AC"])
+        self.assertEqual(drawn.seqs, ["ACDE", "AC", "ACDE"])
         self.assertEqual({k: drawn.record_extra[k] for k in ("attempts", "incomplete", "empty", "invalid",
                                                              "length_matches")},
-                         {"attempts": 3, "incomplete": 1, "empty": 0, "invalid": 0, "length_matches": 1})
+                         {"attempts": 6, "incomplete": 1, "empty": 1, "invalid": 1, "length_matches": 2})
         # an unterminated draw is penalised by at least one residue, a length match is not
-        self.assertEqual(drawn.record_extra["length_absolute_error_sum_capped"], 0 + 2 + 4)
+        self.assertEqual(drawn.record_extra["length_absolute_error_sum_capped"], 0 + 2 + 0 + 4 + 1 + 3)
+        self.assertEqual((strategy.attempts, strategy.complete_nonempty, strategy.complete_empty,
+                          strategy.incomplete, strategy.invalid, strategy.length_matches,
+                          strategy.length_absolute_error_capped), (6, 3, 1, 1, 1, 2, 10))
+        self.assertEqual(strategy.generation_attempts,
+                         [{"dataset_index": 0, "conditioning": None, "draws": draws}])
 
     def test_default_layouts_keep_their_records_free_of_native_protocol_fields(self):
         strategy = self.strategy([draw("ACDE"), draw(complete=False)])

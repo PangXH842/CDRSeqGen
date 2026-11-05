@@ -42,6 +42,7 @@ Supporting guides live in [docs/](docs/README.md).
 | [Experiment guide](configs/experiments/README.md) | Named batches, planning, execution, status and resume |
 | [Architecture reference](docs/ARCHITECTURE.md) | Full repository map, data layout and extension points |
 | [Model specifications](docs/MODELS.md) | Custom Transformer comparison, native IgLM backbone, builder defaults and saved benchmark architecture/counts |
+| [Model integration](docs/MODEL_INTEGRATION.md) | Future-model hooks, registry wiring, native protocols and backbone/method/benchmark extension choices |
 | [Method workflow map](cdrseqgen/methods/common/README.md) | Call graph, stage ownership and the manual review sequence |
 | [Results index](docs/RESULTS.md) | Completed evidence and links to source artifacts |
 | [Detailed findings](docs/FINDINGS.md) | Measurements, protocols, historical findings and limitations |

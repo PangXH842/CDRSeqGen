@@ -1,10 +1,19 @@
-"""Trainer progress logging and callback construction shared across methods.
+"""Build shared callbacks that react to Hugging Face Trainer events.
 
-Classes:
-  * LogMetricsCallback -- send Trainer log events through the run's logger
+Classes/Functions:
+  * LogMetricsCallback  -- forward Trainer metric events to Python logging
+  * build_callbacks     -- return callback instances for the method's Trainer builder
+                         -> called by: mlm/ar/s2s.training.prepare_training()
 
-Functions:
-  * build_callbacks -- always include metric logging; add requested early stopping
+Event flow:
+  Trainer logs metrics -> LogMetricsCallback.on_log() -> console/train.log handlers
+  Trainer evaluates    -> optional EarlyStoppingCallback.on_evaluate() -> stop decision
+
+Notes:
+  * A callback is an object whose event methods Trainer calls during its lifecycle.
+    This module supplies metric logging and optional early stopping for MLM, AR and S2S.
+  * Logging handlers are configured by the CLI and run setup. Other callbacks, such as
+    tokenizer saving and S2S diagnostics, are registered in their owning modules.
 """
 import logging
 
@@ -14,15 +23,18 @@ logger = logging.getLogger(__name__)
 
 
 class LogMetricsCallback(TrainerCallback):
-    """Route the Trainer's metric dicts through logging, so they reach <run_dir>/train.log.
+    """Forward nonempty Trainer log events to this module's Python logger.
 
-    HF reports metrics via PrinterCallback (print) or ProgressCallback (tqdm.write) — neither goes
-    through the logging module, so the file handler never saw them. A 15-minute run left train.log
-    with a silent gap between "Starting Training" and "Starting Evaluation" and no numbers at all.
-    `on_log` is the documented hook that receives the same dicts those callbacks print.
+    Example: logs={"epoch": 2.0, "loss": 0.375}
+      -> "📉 epoch   2.00 │ loss=0.375"
+
+    Trainer invokes on_log() when it emits training/evaluation metrics. Configured
+    handlers send these messages to the console and, when attached, train.log.
+    This callback formats messages; it does not create handlers or modify metrics.
     """
 
     def on_log(self, args, training_state, control, logs=None, **kwargs):
+        """Log one metric dictionary, including its epoch when numeric; ignore empty logs."""
         if not logs:
             return
         epoch = logs.get("epoch")
@@ -34,15 +46,20 @@ class LogMetricsCallback(TrainerCallback):
 
 
 def build_callbacks(model_args, training_args, logger=None):
-    """Metric logging ALWAYS, early stopping only when a config asks for it.
+    """Return callback instances for MLM, AR and S2S Trainer construction.
 
-    ``LogMetricsCallback`` is not optional: without it ``train.log`` records only "Starting
-    Training..." and "Starting Evaluation..." with no per-epoch numbers — the exact regression fixed
-    on 2026-07-29. Sharing this is what stops a second entrypoint quietly reintroducing it, which is
-    precisely what the first causal entrypoint did.
+    Called by each method's training.prepare_training(), which passes the returned
+    list into build_trainer(callbacks=...). Trainer invokes the callbacks later.
 
-    The gate below would drop a patience given without ``load_best_model_at_end`` without a word;
-    ``arguments.validate_early_stopping()`` rejects that combination before a run starts.
+    Returned callbacks:
+      * LogMetricsCallback -- always included, to record Trainer metric events.
+      * EarlyStoppingCallback -- included when early_stopping_patience is nonzero
+        and load_best_model_at_end is enabled. Monitors metric_for_best_model using
+        the configured patience and improvement threshold; patience counts evaluations.
+
+    Shared argument validation rejects a requested patience without best-model
+    loading before this function is called. The optional logger writes a setup
+    message when early stopping is enabled.
     """
     callbacks = [LogMetricsCallback()]
     if model_args.early_stopping_patience and training_args.load_best_model_at_end:

@@ -1,17 +1,23 @@
-"""What the two decode-to-<eos> methods, AR and S2S, share.
+"""Share EOS-based training, candidate evaluation and case reporting for AR/S2S.
 
-Both train a plain Trainer on a model that returns its own loss, end each loop with ``<eos>`` instead
-of choosing a length, and are evaluated by the same free-running sampler. They differ only in the
-conditioning input (a causal prompt against encoder ids), the sampler, the scorer and how predictions
-line up with labels, so each method supplies those and nothing else.
+Training:
+  * get_infilling_datasets  -- tokenizer and train/eval subsets with separate context views
+                             -> called by: ar/s2s.training.get_datasets()
+  * eos_recovery_metrics    -- token-pooled recovery from already aligned predictions/labels
+                             -> called by: ar/s2s.training.compute_metrics()
+Evaluation:
+  * EosDecodingStrategy     -- base for AR's CausalStrategy and S2S's Seq2SeqStrategy
+  * run_eos_generative_eval -- select frameworks, run shared scoring and return a payload
+                             -> called by: ar/s2s.evaluation.run_generative_eval() 
+Generation:
+  * eos_case_record         -- generate and score one supplied framework case
+                             -> called by: ar/s2s.generation.generate_case() 
 
-  * eos_recovery_metrics    -- pooled whole/core/anchor recovery from ALIGNED predictions and labels
-  * get_infilling_datasets  -- tokenizer and train/eval subsets of a method's infilling dataset
-  * EosDecodingStrategy     -- candidates, validity accounting and judge prompts for the shared loop
-  * run_eos_generative_eval -- select examples, run the loop, write generation_eval.json
-  * eos_case_record         -- one scored record for generate.py
-
-The masked method shares none of it: it hides positions and chooses a length (see ``mlm/``).
+Notes:
+  * Each method supplies its context builder, sampler and self-scorer. EOS determines
+    generated length; native targets support selection/scoring. Failed draws stay in
+    attempt accounting even when they produce no scored candidate record.
+    EOS means the tokenizer's end marker, including native IgLM's [CLS] token.
 """
 import logging
 import random
@@ -36,30 +42,61 @@ logger = logging.getLogger(__name__)
 
 
 def _invalid_draw(result):
-    """A terminated draw with malformed output differs from one that never stops."""
+    """Identify a terminated but invalid draw, separate from an unterminated one."""
     return bool(result.get("terminated", False)) and not result.get("valid", result["complete"])
+
+
+def _partition_attempts(results):
+    """Return retained draw dicts and counts shared by evaluation and case reporting.
+
+    Retain completed nonempty loops in their original order, including duplicates.
+    Count completed empty loops, terminated invalid draws and incomplete draws
+    separately. Each sampler result must provide complete and loop fields.
+    """
+    kept = []
+    empty = invalid = 0
+    for result in results:
+        if result["complete"]:
+            if result["loop"]:
+                kept.append(result)
+            else:
+                empty += 1
+        invalid += _invalid_draw(result)
+    return kept, {
+        "attempts": len(results),
+        "complete_nonempty": len(kept),
+        "complete_empty": empty,
+        "incomplete": len(results) - len(kept) - empty - invalid,
+        "invalid": invalid,
+    }
 
 
 # --- training: metrics and datasets ---------------------------------------------------------------
 def eos_recovery_metrics(preds, gold, *, trim):
-    """Teacher-forced recovery over each loop: whole-loop, plus anchor-excluded core and anchor.
+    """Return token-pooled whole/core/anchor recovery and row-based core coverage.
 
-    ``preds`` and ``gold`` are [N, S] arrays ALIGNED position by position: ``preds[r, t]`` is the
-    model's guess for ``gold[r, t]``. Each method does that alignment itself, because it is the one
-    thing they do differently (the causal logits arrive one position early; the encoder-decoder pair
-    is already offset). Getting it wrong offsets every position by one and quietly reports a
-    different quantity. ``gold`` is -100 outside the supervised stream.
+    Called by ar.training.compute_metrics() after its next-token shift, and by
+    s2s.training.compute_metrics() with predictions already aligned. Both inputs
+    are token-ID arrays [rows, positions]; gold=-100 marks ignored positions.
 
-    The last supervised position of each row is its <eos>; it is excluded so the number measures
-    residue prediction, comparable to the masked side, rather than being diluted by a token the
-    masked method has no equivalent of.
+    Example: trim=1, with EOS in the last supervised position
+      gold:        -100 A C D EOS -100
+      predictions:   ? A Q D  ?     ?
+      regions:         A C A          (A=anchor, C=core)
+      accuracy=2/3, core_accuracy=0/1, anchor_accuracy=2/2
+
+    Drop each row's final supervised token (the dataset's terminator). Pool token
+    hits/counts across rows; do not average per-row recovery. core_coverage is the
+    fraction of supervised rows containing a core. EOS-only rows count in that
+    denominator; entirely ignored rows do not. Callers validate trim beforehand.
     """
     whole_hits = whole_total = core_hits = core_total = anchor_hits = anchor_total = 0
-    rows_with_core = 0
+    rows = rows_with_core = 0
     for row_preds, row_gold in zip(preds, gold):
         positions = np.flatnonzero(row_gold != -100)
         if positions.size == 0:
             continue
+        rows += 1
         residues = positions[:-1]                      # drop the trailing <eos>
         if residues.size == 0:
             continue
@@ -75,7 +112,6 @@ def eos_recovery_metrics(preds, gold, *, trim):
         anchor_hits += int(correct[anchor].sum())
         anchor_total += len(anchor)
 
-    rows = int(sum(1 for row in gold if (row != -100).any()))
     return {
         "accuracy": whole_hits / whole_total if whole_total else 0.0,
         "core_accuracy": core_hits / core_total if core_total else 0.0,
@@ -86,11 +122,16 @@ def eos_recovery_metrics(preds, gold, *, trim):
 
 def get_infilling_datasets(dataset_class, kind, model_args, data_args, training_args, backbone, *,
                            checkpoint_path=None):
-    """Tokenizer and train/eval subsets of ``dataset_class``; ``kind`` only labels the log line.
+    """Return (train subset, eval subset, tokenizer) for AR/S2S training or evaluation.
 
-    Training and evaluation share the parsed records, and the evaluation view disables training
-    context dropout. The split guard (``select_split_indices``) is the one every method uses, so
-    checkpoints cannot be selected on the test partition by accident.
+    Called by each method's training.get_datasets(). dataset_class supplies its
+    input/label format; kind only labels the log message. checkpoint_path selects
+    a saved tokenizer when evaluating an existing checkpoint.
+
+    Flow: tokenizer -> parse records once -> select split indices -> subset views.
+    The evaluation view shares records but disables context dropout. The shared
+    split guard rejects implicit test selection; explicitly requesting test is
+    allowed. These are datasets; Trainer creates their DataLoaders later.
     """
     tokenizer = backbone.build_tokenizer(model_args.model_type, checkpoint_path=checkpoint_path)
     full = dataset_class(
@@ -117,15 +158,23 @@ def get_infilling_datasets(dataset_class, kind, model_args, data_args, training_
 
 # --- evaluation: strategy for the shared loop in cdrseqgen.eval.generative ------------------------
 class EosDecodingStrategy:
-    """Decode-to-<eos> candidates for the shared evaluation loop.
+    """Adapt AR/S2S generation to eval.generative.run_eval_loop().
 
-    A method subclasses this and defines three hooks:
+    Subclasses: ar.evaluation.CausalStrategy, s2s.evaluation.Seq2SeqStrategy.
+    Each supplies three hooks:
+      * context(framework) -- build the training-compatible prompt or encoder IDs
+      * sample(context)   -- return raw draw dictionaries from the method sampler
+      * score(spans)      -- self-perplexities for ordered (context, loop IDs) pairs
 
-      * ``context(framework)``  -- the conditioning input its sampler takes (prompt or encoder ids);
-                                   it must match the one training built for this framework
-      * ``sample(context)``     -- call the method's ``sample_loops``; ``sampling_options()`` has
-                                   the arguments every method passes
-      * ``score(spans)``        -- the method's ``perplexities`` over (context, loop ids) pairs
+    Shared flow:
+      draw(i) -> framework -> context -> sample -> account for every attempt
+              -> Draw of retained candidates, or None when none remain
+      self_scores(Draw) -> method self-scorer
+      judge_inputs(i, seq) -> masked judge prompt at this candidate's length
+
+    Counters include failed frameworks. Native-protocol tokenizers also retain
+    raw draw details. The judge dataset is the full corpus or the eval dataset
+    object itself; evaluation indices may pass through nested Subsets.
     """
 
     supplies_native_length = False
@@ -152,24 +201,29 @@ class EosDecodingStrategy:
 
     # --- the three hooks a method supplies --------------------------------------------------
     def context(self, framework):
+        """Build the method's conditioning input from public framework context."""
         raise NotImplementedError("subclasses build the sampler's conditioning input")
 
     def sample(self, context):
+        """Return raw sampler results using this strategy's sampling options."""
         raise NotImplementedError("subclasses call their sample_loops")
 
     def score(self, spans):
+        """Return one self-perplexity per ordered (context, loop-token IDs) pair."""
         raise NotImplementedError("subclasses call their perplexities")
 
     def sampling_options(self):
+        """Return shared sampler kwargs, including the seeded generator and decode cap."""
         return dict(device=self.device, num_samples=self.num_samples, temperature=self.temperature,
                     top_k=self.top_k, top_p=self.top_p, max_new_tokens=self.max_new_tokens,
                     generator=self.generator)
 
     # --- framework lookup -------------------------------------------------------------------
-    # `framework_for_dataset` already unwraps a Subset, so the eval side passes the SUBSET index
-    # and lets it resolve. The judge dataset is the full one, so that side resolves the index first.
-    # Doing both is the bug this comment exists to prevent: it indexes the mapping twice.
     def framework(self, i):
+        """Resolve an eval-view index once; cache the most recently requested framework.
+
+        framework_for_dataset() unwraps Subsets itself. Pass i unchanged here.
+        """
         cached_index, cached = self._framework_cache
         if cached_index != i:
             cached = framework_for_dataset(self.eval_dataset, i)
@@ -177,44 +231,51 @@ class EosDecodingStrategy:
         return cached
 
     def _judge_framework(self, i):
+        """Map an eval-view index to the corresponding full-corpus judge framework.
+
+        Example: eval=Subset(Subset(full, [4, 1, 5]), [2, 0])
+          eval index 0 -> inner index 2 -> full judge index 5.
+        An identical eval/judge dataset uses the eval lookup directly.
+        """
         if self.judge_dataset is self.eval_dataset:
             return self.framework(i)
-        full_index = self.eval_dataset.indices[i] if hasattr(self.eval_dataset, "indices") else i
+        dataset, full_index = self.eval_dataset, i
+        while isinstance(dataset, torch.utils.data.Subset):
+            full_index = dataset.indices[full_index]
+            dataset = dataset.dataset
         return framework_for_dataset(self.judge_dataset, full_index)
 
     # --- the strategy protocol --------------------------------------------------------------
     def payload_length_policy(self):
+        """Describe generated length as inferred by EOS termination."""
         return {"mode": "inferred", "source": "eos_token"}
 
     def draw(self, i):
+        """Generate candidates for eval index i and update cumulative attempt counts.
+
+        Only completed nonempty loops enter Draw.seqs; failed/empty draws still
+        contribute to counters. Return None after accounting when none survive.
+        Capped length error includes all attempts and penalizes each failed draw
+        by at least one residue. Native length supports scoring only.
+        """
         framework = self.framework(i)
         context = self.context(framework)
         native = framework["target"].upper().strip()
         results = self.sample(context)
 
-        # Keep quality metrics conditional on a biologically non-empty completed loop, but retain
-        # every failed attempt in the run-level validity accounting. Otherwise frameworks where the
-        # model never emits EOS disappear and make the remaining sample look artificially healthy.
-        complete = [r for r in results if r["complete"]]
-        kept = [r for r in complete if r["loop"]]
-        invalid = sum(_invalid_draw(result) for result in results)
-        incomplete = len(results) - len(complete) - invalid
-        empty = len(complete) - len(kept)
-        self.attempts += len(results)
-        length_matches = sum(
-            r["complete"] and bool(r["loop"]) and len(r["loop"]) == len(native)
-            for r in results)
-        # An unterminated draw has no chosen length. Its cutoff length is still useful for sweep
-        # ranking as long as it is penalized by at least one residue rather than looking exact when
-        # the cutoff happens to equal the native length.
-        capped_errors = [max(1, abs(len(r["loop"]) - len(native))) if not r["complete"]
-                         else abs(len(r["loop"]) - len(native)) for r in results]
-        self.complete_nonempty += len(kept)
-        self.complete_empty += empty
-        self.incomplete += incomplete
-        self.invalid += invalid
+        kept, counts = _partition_attempts(results)
+        native_length = len(native)
+        length_matches = sum(len(r["loop"]) == native_length for r in kept)
+        capped_error_sum = sum(
+            max(1, abs(len(r["loop"]) - native_length)) if not r["complete"]
+            else abs(len(r["loop"]) - native_length) for r in results)
+        self.attempts += counts["attempts"]
+        self.complete_nonempty += counts["complete_nonempty"]
+        self.complete_empty += counts["complete_empty"]
+        self.incomplete += counts["incomplete"]
+        self.invalid += counts["invalid"]
         self.length_matches += length_matches
-        self.length_absolute_error_capped += sum(capped_errors)
+        self.length_absolute_error_capped += capped_error_sum
         prompt_meta = getattr(self, "prompt_metadata", {})
         native_protocol = getattr(self.tokenizer, "causal_sampling_metadata", None)
         if native_protocol is not None:
@@ -226,34 +287,35 @@ class EosDecodingStrategy:
             return None
         seqs = [r["loop"].upper() for r in kept]
         extra = {
-            "attempts": len(results), "incomplete": incomplete, "empty": empty,
+            "attempts": counts["attempts"], "incomplete": counts["incomplete"],
+            "empty": counts["complete_empty"],
             "length_matches": length_matches,
-            "length_absolute_error_sum_capped": sum(capped_errors),
+            "length_absolute_error_sum_capped": capped_error_sum,
         }
         if native_protocol is not None:
-            extra["invalid"] = invalid
+            extra["invalid"] = counts["invalid"]
             extra["conditioning"] = prompt_meta.get("conditioning")
         return Draw(
             native=native,
             seqs=seqs,
             spans=[(context, self.tokenizer.encode(s)) for s in seqs],
-            target_len=len(native),
+            target_len=native_length,
             length_policy=self.payload_length_policy(),
             record_extra=extra,
         )
 
     @torch.no_grad()
     def self_scores(self, drawn):
-        """True perplexity of each candidate under the model that produced it.
+        """Delegate candidate self-perplexity scoring to the method's score() hook.
 
-        exp of the mean negative log-likelihood over the answer tokens (loop + <eos>), from a single
-        forward pass. The masked side needs one pass per position for its pseudo-perplexity; a
-        properly factorised decoder does not.
+        Each score is exp(mean answer-token NLL), including the terminator.
+        AR/S2S currently use one forward pass per candidate; S2S reuses its encoder
+        output across candidates from the same framework. No gradients are recorded.
         """
         return self.score(drawn.spans)
 
     def judge_inputs(self, i, seq):
-        """Rebuild the judge's masked prompt at THIS candidate's length; generated lengths vary."""
+        """Return a masked judge prompt at the candidate's length, or None for an empty loop."""
         framework = self._judge_framework(i)
         if not seq:
             return None
@@ -266,10 +328,23 @@ def run_eos_generative_eval(strategy_class, method, mode, model, tokenizer, eval
                             max_new_tokens, stratify=False, seed=42, skip_perplexity=False,
                             output_path=None, title="", judge_name=None, anchor_trim=ANCHOR_TRIM,
                             meta=None):
-    """Sample from held-out frameworks and write generation_eval.json for an <eos> method.
+    """Run AR/S2S candidate evaluation and return its scored payload.
 
-    ``method`` and ``mode`` are the labels the payload records ("ar"/"causal", "s2s"/"seq2seq").
+    Called by each method's evaluation.run_generative_eval(), including standalone
+    and post-training evaluation. strategy_class supplies that method's three hooks;
+    method/mode label the payload (ar/causal or s2s/seq2seq).
+
+    Steps:
+      1. Set eval mode, validate trim, seed sampling and select framework indices.
+      2. Build the strategy -> eval.generative.run_eval_loop() -> scored records.
+      3. Combine all-attempt validity with retained-candidate metric summaries.
+      4. Log the report, optionally write JSON/figure outputs, return the payload.
+
+    Frameworks with no retained candidates stay in validity counts, without a
+    scored record. Native lengths may stratify selection and support scoring;
+    the method samplers choose generated length through EOS.
     """
+    # ------ 1. Prepare deterministic sampling and select evaluation frameworks. ------
     model.eval()
     validate_anchor_trim(anchor_trim)
 
@@ -279,6 +354,7 @@ def run_eos_generative_eval(strategy_class, method, mode, model, tokenizer, eval
     selected = select_indices(lengths, num_examples, stratify, random.Random(seed))
     generator = torch.Generator(device=device).manual_seed(seed)
 
+    # ------ 2. Let the method strategy generate candidates for the shared scorer. ------
     strategy = strategy_class(
         model=model, tokenizer=tokenizer, device=device, generator=generator,
         eval_dataset=eval_dataset,
@@ -291,6 +367,7 @@ def run_eos_generative_eval(strategy_class, method, mode, model, tokenizer, eval
         skip_perplexity=skip_perplexity, judge_model=judge_model,
         judge_tokenizer=judge_tokenizer, anchor_trim=anchor_trim)
 
+    # ------ 3. Keep every attempt in validity; summarize scored candidates separately. ------
     attempts = strategy.attempts
     validity = {
         "frameworks_selected": len(selected),
@@ -337,6 +414,7 @@ def run_eos_generative_eval(strategy_class, method, mode, model, tokenizer, eval
         # Include failed frameworks too: otherwise an all-invalid framework
         # disappears from the scored-record population and loses its reasons.
         payload["generation_attempts"] = strategy.generation_attempts
+    # ------ 4. Report, optionally persist outputs, and return the payload. ------
     log_report(records, title=title, judge_name=judge_name)
     write_payload(payload, output_path, len(records))
     write_confidence_figure(payload, output_path, title)
@@ -346,8 +424,22 @@ def run_eos_generative_eval(strategy_class, method, mode, model, tokenizer, eval
 # --- generate.py: one qualitative record ----------------------------------------------------------
 def eos_case_record(model, tokenizer, device, args, generator, case, print_callback, *, mode,
                     build_context, sample_loops, perplexities):
-    """Sample, score and record one supplied framework, using the same context builder, sampler and
-    self-scorer as evaluation. ``mode`` labels the decoding in the record ("causal", "seq2seq")."""
+    """Return one generated-case record for AR/S2S generate.py commands.
+
+    Called by each method's generation.generate_case(), which supplies its context
+    builder, sampler and self-scorer. mode labels the result as causal or seq2seq.
+
+    Steps:
+      1. Build the conditioning input from flanks and optional public context.
+      2. Sample attempts; retain completed nonempty loops, preserving duplicates.
+      3. Optionally self-score; use target_truth only for reference measurements.
+      4. Call print_callback() and return samples, metrics and attempt accounting.
+
+    The native sequence/length never enters the generation framework. Native-
+    protocol records also include conditioning, raw draws and separate invalid
+    counts. Legacy case records group all noncomplete draws under incomplete.
+    """
+    # ------ 1. Build the prompt/encoder input without native truth or length. ------
     pt1, pt2 = case['pt1'], case['pt2']
     # Native sequence/length never enters this generation framework.
     framework = dict(pt1=pt1, pt2=pt2, target_length=0, max_len=args.max_len,
@@ -362,10 +454,15 @@ def eos_case_record(model, tokenizer, device, args, generator, case, print_callb
     if 'species_token' not in framework and case.get('species'):
         framework['species_token'] = case['species']
     context, context_meta = build_context(tokenizer, framework)
+
+    # ------ 2. Generate and account for attempts before selecting scored candidates. ------
     attempts = sample_loops(model, tokenizer, context, device=device, generator=generator,
                             num_samples=args.num_samples, temperature=args.temperature,
                             top_k=args.top_k, top_p=args.top_p, max_new_tokens=args.max_new_tokens)
-    valid = [r['loop'] for r in attempts if r['complete'] and r['loop']]
+    kept, counts = _partition_attempts(attempts)
+    valid = [r['loop'] for r in kept]
+
+    # ------ 3. Score retained loops; reference truth is used only after generation. ------
     native = (case.get('target_truth') or '').strip().upper() or None
     scores = [None] * len(valid) if args.skip_perplexity else perplexities(
         model, tokenizer, device, [(context, tokenizer.encode(seq)) for seq in valid])
@@ -380,26 +477,28 @@ def eos_case_record(model, tokenizer, device, args, generator, case, print_callb
         samples.append(record)
     metrics = calculate(valid, native)
     lengths = [len(s) for s in valid]
+    unique_lengths = sorted(set(lengths))
+
+    # ------ 4. Print the case and return its existing output schema. ------
     print_callback(case.get('name', 'Unnamed Test'), pt1, pt2,
-                   '/'.join(map(str, sorted(set(lengths)))) or '—', native, args, samples, metrics)
+                   '/'.join(map(str, unique_lengths)) or '—', native, args, samples, metrics)
     record = {'name': case.get('name', 'Unnamed Test'), 'pt1': pt1, 'pt2': pt2,
-              'native': native, 'target_length': lengths[0] if len(set(lengths)) == 1 else None,
+              'native': native, 'target_length': unique_lengths[0] if len(unique_lengths) == 1 else None,
               'generated_lengths': lengths, 'length_policy': {'mode': 'inferred', 'source': 'eos_token'},
               'samples': samples, 'metrics': metrics,
               'decoding': {'mode': mode, 'temperature': args.temperature, 'top_k': args.top_k,
                            'top_p': args.top_p, 'seed': args.seed, 'max_new_tokens': args.max_new_tokens,
                            'num_samples': len(samples)},
-              'generation_validity': {'attempts': len(attempts), 'complete_nonempty': len(valid),
-                                      'incomplete': sum(not r['complete'] for r in attempts),
-                                      'complete_empty': sum(r['complete'] and not r['loop']
-                                                            for r in attempts)}}
+              'generation_validity': {'attempts': counts['attempts'],
+                                      'complete_nonempty': counts['complete_nonempty'],
+                                      'incomplete': counts['incomplete'] + counts['invalid'],
+                                      'complete_empty': counts['complete_empty']}}
     if 'conditioning' in context_meta:      # which chain/species tokens a native layout actually used
         record['conditioning'] = context_meta['conditioning']
     protocol = getattr(tokenizer, 'causal_sampling_metadata', None)
     if protocol is not None:
-        invalid = sum(_invalid_draw(attempt) for attempt in attempts)
         record['decoding']['protocol'] = dict(protocol)
         record['generation_attempts'] = attempts
-        record['generation_validity']['invalid'] = invalid
-        record['generation_validity']['incomplete'] -= invalid
+        record['generation_validity']['invalid'] = counts['invalid']
+        record['generation_validity']['incomplete'] = counts['incomplete']
     return record
