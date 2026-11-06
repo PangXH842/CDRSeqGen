@@ -12,7 +12,7 @@ Functions:
   * compute_metrics          -- align next-token predictions and calculate loop recovery
   * build_trainer            -- connect the model, collator, recovery metric and callbacks
 
-  Notes:
+Notes:
   * train_cli owns logging and argument setup; common.training owns train/eval/save.
   * Named split selection is shared; evaluation disables training context dropout.
   * Only the answer and terminator receive labels. Recovery shifts predictions once

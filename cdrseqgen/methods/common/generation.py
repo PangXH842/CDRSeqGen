@@ -1,9 +1,26 @@
-"""Shared generation command lifecycle for all methods.
+"""Load a checkpoint and generate CDR candidates for supplied framework cases.
 
-A method supplies option validation, optional state loading and its per-case
-producer. After gen_cli initializes logging, this module resolves/reports config,
-checks compatibility, loads cases/model/tokenizer, seeds
-sampling, preserves case order and writes the scored output payload.
+Functions:
+  * run_generation_pipeline -- validate -> load -> generate cases -> save records
+  * resolve_config          -- resolve checkpoint/CLI settings and their source
+  * load_test_cases         -- read supplied JSON cases or build one from CLI args
+  * infer_loop_number       -- estimate the CDR number from a flank-length heuristic
+  * check_compatibility     -- report target/context mismatches before model loading
+  * _print_case             -- display a method's samples and case measurements
+
+Generation workflow:
+  1. generate.py parses inputs -> <method>.gen_cli.main() configures logging.
+  2. The CLI connects method functions to run_generation_pipeline():
+       prepare_generation -> load model/tokenizer -> generation_state
+       -> generate_case for each case -> optional JSON -> return case records.
+  3. Each method builds its prompts, samples loops and calculates case measurements.
+
+Notes:
+  * Cases are supplied inputs, not a selected validation/test cohort. Native truth
+    is optional; methods report diversity and any available reference/self scores.
+  * CLI logging, shared loading/output and method decoding have separate owners.
+    This workflow neither trains weights nor loads an independent judge.
+  * One model, sampling generator and optional method state are reused across cases.
 """
 import json
 import logging
@@ -18,19 +35,18 @@ logger = logging.getLogger(__name__)
 
 
 def resolve_config(args, *, run_config=None):
-    """Resolve generation settings and report checkpoint/CLI context expectations.
+    """Return resolved settings tagged with their checkpoint or CLI source.
 
-    Reuse a preloaded run_config when supplied ({} means no saved config). Without
-    one, read it from args.model_dir. Call after CLI logging setup to retain INFO
-    messages as well as warnings.
+    Sources:
+      run_config=None -> read args.model_dir/run_config.json
+      run_config={}   -> no saved config; use CLI assumptions
+      nonempty dict  -> copy saved settings, applying the model_type override
 
-    Returns a config dict, carrying a "source" key for which of the two it came from. That
-    difference matters downstream: a CLI-built config only restates this invocation, so it cannot
-    be used to check the invocation against (see check_compatibility).
+    Missing saved configuration permits CLI fallback; malformed configuration
+    propagates its error. source='run_config' enables context compatibility checks;
+    source='cli' describes assumptions, not independently verified training inputs.
+    Call after CLI logging setup so source and mismatch messages are visible.
     """
-    # A corrupt run config is deliberately fatal. Falling back to CLI args would set
-    # source="cli", which makes check_compatibility skip both context checks — the failure mode
-    # that costs 0.98 -> 0.26 recovery — so an unreadable file must stop the run, not soften it.
     if run_config is None:
         try:
             config, _ = load_run_config(args.model_dir)
@@ -41,9 +57,7 @@ def resolve_config(args, *, run_config=None):
 
     if config:
         config["source"] = "run_config"
-        # --model_type picks the tokenizer as well as the backbone, so the wrong one mis-encodes
-        # every residue. Only warn when a flag was actually passed and disagrees — omitting it just
-        # means "use whatever this checkpoint is", which is the resolution on the next line.
+        # An explicit model_type override also selects the tokenizer.
         trained_type = config.get("model_type")
         if args.model_type and trained_type and args.model_type != trained_type:
             logger.warning(f"⚠️  Model type mismatch: checkpoint was trained as '{trained_type}', but "
@@ -60,7 +74,7 @@ def resolve_config(args, *, run_config=None):
                   "max_len": args.max_len or 256,
                   "source": "cli"}
 
-    # Print the config
+    # Report checkpoint expectations or the assumptions made from CLI inputs.
     ctx = [n for f, n in [("include_partner_chain", "partner chain"),
                           ("include_antigen", "antigen")] if config.get(f)]
     lead = "🧬 Checkpoint expects" if config["source"] == "run_config" else "🧬 Assuming from CLI args"
@@ -73,7 +87,12 @@ def resolve_config(args, *, run_config=None):
 
 
 def load_test_cases(args):
-    """Test cases to run: a JSON batch if --test_file, else the single case built from CLI args."""
+    """Return supplied JSON cases or one framework case assembled from CLI args.
+
+    --test_file is a generation-case input, not a dataset split selector. JSON
+    contents pass through unchanged; the CLI case carries flanks, optional native
+    truth and length settings for the method's preparation function.
+    """
     if args.test_file:
         with open(args.test_file, "r") as f:
             test_cases = json.load(f)
@@ -90,23 +109,21 @@ def load_test_cases(args):
     return test_cases
 
 
-# Where the loop sits along the chain, as the length of pt1 (everything before the gap). This is
-# the ONLY loop signal present in the input: pt1 for a CDR1 target is just fwr1, for CDR2 it is
-# fwr1+cdr1+fwr2, and for CDR3 everything up to fwr3. Measured over all 25,090 entries of both
-# processed datasets (both chains, so 50,180 frameworks) the three are cleanly separated:
-#
-#     CDR1   8 .. 26        CDR2  33 .. 57        CDR3  78 .. 106
-#
-# with empty gaps at 26..33 and 57..78; the cuts below sit in the middle of those. The wide floors
-# come from SAbDab2, whose crystal structures are often ragged at the N-terminus (CDR1 pt1 down to
-# 8). What this CANNOT do is separate heavy from light: H1 (23-25) and L1 (24-26) overlap outright,
-# as do H2 and L2. So the number is inferable and the chain is not, and the check below only ever
-# claims the number.
+# Historical flank-length bands used only for compatibility warnings.
 LOOP_PT1_BANDS = [(1, 0, 30), (2, 31, 67), (3, 68, 10**6)]
 
 
 def infer_loop_number(pt1_len):
-    """Which CDR (1/2/3) a gap at this offset looks like; None if pt1 is too short to judge"""
+    """Estimate the CDR number from residues before the gap; return None if unknown.
+
+    Bands:
+      pt1 length: <8   8..30   31..67   68..1,000,000
+      returned:   None 1       2        3
+
+    The cutoffs come from historical OAS/SAbDab2 frameworks. This warning heuristic
+    does not validate numbering, distinguish heavy/light chains or inspect model
+    conditioning. Truncated frameworks can fall into another loop's band.
+    """
     if pt1_len < 8:      # below every framework observed — a deliberately truncated stub
         return None
     for number, lo, hi in LOOP_PT1_BANDS:
@@ -116,11 +133,21 @@ def infer_loop_number(pt1_len):
 
 
 def check_compatibility(config, cases, args):
-    """Check for arg mismatches, returns problems and warnings for logging / printing."""
+    """Return (problems, warnings) for supplied target/context mismatches.
+
+    Checks:
+      target declaration or flank-length mismatch -> warning
+      missing/unexpected partner or antigen      -> problem
+
+    Context checks require source='run_config'; CLI assumptions cannot establish
+    what training used. Context may come from CLI defaults or individual cases.
+    This function collects messages; run_generation_pipeline decides whether
+    problems stop the command or are recorded with an explicit --force override.
+    """
     problems, warnings = [], []
     trained_for = (config or {}).get("target_region")
 
-    # WARNING: CLI arg target_loop mismatch
+    # Warn when the requested target differs from the recorded training target.
     if args.target_loop and trained_for and args.target_loop.lower() != trained_for.lower():
         warnings.append(
             f"LOOP: checkpoint was trained to design CDR '{trained_for}', but --target_loop says "
@@ -128,8 +155,7 @@ def check_compatibility(config, cases, args):
             f"emit something — it just won't be a '{args.target_loop}' model's answer."
         )
 
-    # WARNING: the gap sits at the wrong offset for the expected loop. Needs no declaration, so it
-    # is the only loop check that still fires when --target_loop is omitted.
+    # The flank-length heuristic also runs when --target_loop is omitted.
     loop = trained_for or args.target_loop
     if loop and loop[-1].isdigit():
         expected_n = int(loop[-1])
@@ -147,10 +173,7 @@ def check_compatibility(config, cases, args):
                 f"pt1's length; heavy vs light is not, so an h/l mix-up cannot be caught this way."
             )
 
-    # PROBLEM: missing or unexpected partner chain / antigen context. Only meaningful against a
-    # real run_config. A CLI-built config sets include_* from what this run supplies, so checking
-    # one against the other would be comparing args with themselves — and would misfire outright
-    # on a test file whose cases carry their own context keys.
+    # Only saved training settings provide an independent context contract.
     if config.get("source") != "run_config":
         return problems, warnings
     for flag, key, name in [("include_partner_chain", "partner_chain", "partner chain"),
@@ -174,7 +197,11 @@ def check_compatibility(config, cases, args):
 
 
 def _print_case(name, pt1, pt2, target_length, native, args, samples, metrics):
-    """Human-readable console report for one case."""
+    """Display supplied samples and metrics for one case without recalculating them.
+
+    Methods call this callback after scoring. show_samples limits displayed
+    candidates; the returned/saved case still contains all retained samples.
+    """
     print("\n" + "=" * 72)
     print(f"🧪 {name}")
     print(f"   context {len(pt1)}aa │ gap {target_length} │ {len(pt2)}aa   "
@@ -215,14 +242,22 @@ def _print_case(name, pt1, pt2, target_length, native, args, samples, metrics):
 
 def run_generation_pipeline(method, args, config, *, prepare_generation,
                             generation_state, generate_case):
-    """Validate, load and generate supplied cases; return their scored records.
+    """Run the shared supplied-case workflow; return case records in input order.
 
-    Raw routing metadata is resolved/reported here after CLI logging setup;
-    a config with a source marker is already resolved. Compatibility and
-    method-option checks precede checkpoint loading. A single
-    seeded generator and optional method state are shared across cases. Output
-    retains the model/context compatibility record and original case order.
+    General pipeline:
+      1. Resolve config/cases and check compatibility; prepare_generation()
+           validates method options and returns policies or None.
+      2. Load the checkpoint/tokenizer, seed sampling, then call
+           generation_state(args, policies, device) for optional shared state.
+      3. generate_case(..., case, state, _print_case) produces each scored record.
+      4. Optionally save model/context metadata and cases; return the case list.
+
+    Compatibility and method-option checks precede weight loading. --force only
+    overrides collected compatibility problems. output='none' skips saving;
+    otherwise the default is model_dir/generation_results.json. Output OSErrors
+    are printed and records still return; loading/generation failures propagate.
     """
+    # ------ 1.1 Resolve the method, configuration and supplied cases. ------
     method = resolve(method)
     print(f"🧬 Checkpoint: {args.model_dir}")
     if 'source' not in config:
@@ -231,6 +266,7 @@ def run_generation_pipeline(method, args, config, *, prepare_generation,
         args.max_len = config.get('max_len', 256)
     test_cases = load_test_cases(args)
 
+    # ------ 1.2 Check the saved target/context contract before loading weights. ------
     problems, warnings = check_compatibility(config, test_cases, args)
     for w in warnings:
         logger.warning(f"⚠️  {w}")
@@ -246,14 +282,13 @@ def run_generation_pipeline(method, args, config, *, prepare_generation,
         logger.warning(f"🔓 --force given: continuing despite {len(problems)} problem(s). "
                        f"They are recorded under 'model.compatibility' in the output.")
 
-    # Validate method-specific options before loading any checkpoint weights.
+    # ------ 1.3 Validate method options and resolve per-case policies. ------
     try:
         policies = prepare_generation(args, test_cases, config)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
 
-    # Load model for inference. model_type comes from config, not args: --model_type is optional and
-    # falls back to whatever the checkpoint says it is.
+    # ------ 2.1 Load the tokenizer and checkpoint for inference. ------
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_type = config["model_type"]
     print(f"🧬 Loading '{model_type}' weights onto {device}…")
@@ -263,20 +298,19 @@ def run_generation_pipeline(method, args, config, *, prepare_generation,
     model.to(device)
     model.eval()
 
-    # Set seed
+    # ------ 2.2 Seed sampling and load optional method state once. ------
     torch.manual_seed(args.seed)
     generator = torch.Generator(device=device)
     generator.manual_seed(args.seed)
 
     state = generation_state(args, policies, device)
+    # ------ 3. Generate, measure and display each case in input order. ------
     results = [generate_case(model, tokenizer, device, args, generator, case, state, _print_case)
                for case in test_cases]
 
-    # Persist samples + metrics for downstream analysis (mirrors train.py's per-run CSV habit).
+    # ------ 4. Save the outer metadata/case payload when output is enabled. ------
     if args.output != "none":
         out_path = args.output or os.path.join(args.model_dir, "generation_results.json")
-        # Wrap the per-case records with what produced them. Without this a generation_results.json
-        # from a deliberate off-target run is indistinguishable from an on-target one later.
         payload = {
             "model": {
                 "model_path": args.model_dir,     # key unchanged: saved outputs and their readers use it

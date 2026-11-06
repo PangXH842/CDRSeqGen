@@ -3,19 +3,19 @@
 [Back to README](../README.md) · [Results index](RESULTS.md) · [Research notes](FINDINGS.md) ·
 [Roadmap](ROADMAP.md)
 
-Updated **5 November 2026** for code, IgLM-run and manual-review progress. Research evidence and
+Updated **6 November 2026** for code, IgLM-run and poster progress. Research evidence and
 manuscript tasks carry forward the **23 October handoff**; their dated audit and artifact
 notes retain their original scope. No experiments or manuscript artifacts were regenerated.
 
 <a id="current-handoff--2026-10-23"></a>
 
-## Current handoff — 2026-11-05
+## Current handoff — 2026-11-06
 
 The [completed evidence inventory](RESULTS.md#completed-validation-evidence) links the audited batches. Detailed measurements and historical caveats live in [FINDINGS.md](FINDINGS.md).
 
 **What the paper can now show.** The framework makes allowed inputs, length policy, attempt accounting and scoring populations explicit across methods. The expanded results add a useful reference: primary flank retrieval reaches **0.3589** edit similarity versus **0.2817** for unconditional sampling. Seven-seed scratch means are **0.3918 MLM**, **0.3868 AR** and **0.3882 S2S**; IgLM scores **0.3880** and IgCraft **0.3769**. See [§17](FINDINGS.md#17-expanded-validation-evidence-seeds-retrieval-and-capacity) for the completed analyses and limits. The earlier eight-arm table in §16 is the original subset.
 
-**Abstract submitted; writing and presentation work:**
+**Abstract accepted for an in-person poster; writing and presentation work:**
 
 The abstract was submitted on **23 October**, as confirmed by the user. The [canonical abstract](../../iAIM/sections/0_abstract.tex), [PDF](../../iAIM/abstract.pdf) and [plain-text copy](../../iAIM/abstract_submission.txt) were refreshed for submission; check their contents together before further distribution. The [coauthor review kit](../../iAIM/COAUTHOR_HANDOFF.md), prepared on October 22, provides a [five-slide overview](../../iAIM/coauthor_brief.pdf), [editable slides](../../iAIM/coauthor_brief.tex) and [email introduction](../../iAIM/coauthor_email.md). Its dated notes and archives precede the final abstract edits.
 
@@ -32,9 +32,13 @@ IgLM-S fine-tuning batch and the four-trial control batch are complete and audit
 All 12,000 fine-tuned and 12,000 control candidates are valid and judge-scored; exported weights match
 the selected checkpoints. The validation-core criterion selects lr 3e-5, epoch 11 (core 0.407213;
 edit similarity 0.389715 versus zero-shot IgLM-S 0.385881). The random-init IgLM-S controls reach core
-0.400739–0.406348, all at the 20-epoch cap and so not converged, and a scratch AR of the same size 0.403734;
-at the highest learning rate random-init matches the pretrained run on core accuracy. Large-model
-fine-tuning (`iglm_l_finetune`) is not yet launched, and no adapted-checkpoint benchmark smoke has run
+0.400739–0.406348, all at the 20-epoch cap with convergence unestablished, and a scratch AR of the same size 0.403734;
+at the highest learning rate random-init matches the pretrained run on core accuracy.
+Both [larger-IgLM trials](../results/reviews/20261106-iglm-large.md) are also complete and audited:
+6,000 valid, judge-scored candidates; validation core selects lr 1e-5, epoch 4 (core 0.409725,
+edit similarity 0.386728). No clear generated-edit improvement over the selected IgLM-S is shown.
+All adaptation training recipes are complete. The two-checkpoint benchmark smoke is prepared
+and its CPU plan passes, but GPU execution remains pending
 (see the [adaptation protocol](../configs/experiments/20261102_iglm_adaptation.md)).
 Keep these seed-42, partner-present-judge pilot results separate from the frozen external benchmark.
 Earlier CPU parity diagnostics used some test-split records. Document that development exposure
@@ -82,4 +86,7 @@ does not complete a manual review. Detailed personal review records are kept loc
 
 **Reading older notes:** dated recipes, the baseline-scope memo and the results index contain preparation-time statements that precede these completions. Use this handoff, §17 and the linked saved outputs for current run status. No new broad training batch is needed before drafting. Experiment execution remains user-run.
 
-Conference milestones: **abstract submitted 23 October** (deadline: 1 November); **poster presentations 4–5 December**. Acceptance and presentation instructions remain subject to the conference's notification.
+Conference milestones: **abstract submitted 23 October and accepted for an in-person poster**, submission **9941**;
+conference **3–5 December**, poster sessions **4–5 December**. The [poster template](../../iAIM/poster.tex)
+and [preparation guide](../../iAIM/POSTER_GUIDE.md) are ready. Assigned session and poster specifications
+remain pending; the acceptance email requires registration within two weeks of receipt.

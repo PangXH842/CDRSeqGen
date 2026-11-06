@@ -13,7 +13,7 @@ Detailed personal code-review records are kept locally.
 ## ⏭️ Roadmap
 
 <!-- AI ACCESS ZONE BEGINS -->
-> **Current priority — 5 November:** the iAIM abstract is submitted. The shared backbone and training interfaces are aligned across all three methods; native IgLM replay, zero-shot, IgLM-S fine-tuning and random-init/size-matched control batches are complete. Continue manual code review using the [workflow map](../cdrseqgen/methods/common/README.md), and integrate the completed §17 evidence into the framework manuscript and poster. Automated checks and refactors do not complete manual review.
+> **Current priority — 6 November:** the iAIM abstract is accepted for an in-person poster. The shared backbone and training interfaces are aligned across all three methods; native IgLM replay, zero-shot, both fine-tuning sizes and random-init/size-matched control batches are complete. The selected-checkpoint benchmark smoke is prepared and awaits user execution. Continue manual code review using the [workflow map](../cdrseqgen/methods/common/README.md), and integrate the completed §17 evidence into the framework manuscript and poster. Automated checks and refactors do not complete manual review.
 
 ### Medium-term milestone — framework paper and final evaluation
 
@@ -41,7 +41,7 @@ The [results index](RESULTS.md) retains historical categories; the [current hand
 | Seed/framework uncertainty | ☑ No-partner benchmark | ☑ No-partner benchmark | ☑ No-partner benchmark |
 | Train with/without partner context | ☑ Matched scratch controls | ◐ Historical paired runs; no-partner controls complete | ◐ Historical paired runs; scratch/ESM-2 no-partner controls complete |
 | Context dropout in both inference regimes | ☑ Four trials, seeds 42/43 | ☑ Scratch screen, seeds 42/43 | ☑ Scratch/ESM-2 screens and ESM-2 confirmations at seeds 44/45 |
-| Pretrained backbones | ☑ Historical studies and audited ESM-2 no-partner controls | ☑ Native IgLM backbone; replay, zero-shot and IgLM-S fine-tuning pilot complete | ☑ ESM-2/IgBert/ProtBert encoder matrix |
+| Pretrained backbones | ☑ Historical studies and audited ESM-2 no-partner controls | ☑ Native IgLM backbone; replay, zero-shot and both fine-tuning sizes complete | ☑ ESM-2/IgBert/ProtBert encoder matrix |
 | Same-architecture pretrained/random control | ☐ Claim-dependent | ☑ IgLM-S random-init pilot at three learning rates; seed 42 | ☐ Claim-dependent |
 | Frozen-encoder/collapse diagnosis | ◐ Historical context studies | ◐ Context ablations | ◐ IgBert diagnostic trained; generation/replication pending |
 | Decoding and length sensitivity | ☑ Historical decoder/length-head studies | ☑ Historical temperature/length study | ☐ Controlled sampling screen if needed |
@@ -51,8 +51,9 @@ The [results index](RESULTS.md) retains historical categories; the [current hand
 The IgLM pilot controls completed 4/4 trials with 12,000 valid, judge-scored
 candidates, including the three same-architecture random-init runs and a
 size-matched scratch AR. These single-seed validation results remain separate
-from the frozen external benchmark. Larger-model fine-tuning and an adapted
-checkpoint GPU benchmark smoke remain unrun; see the
+from the frozen external benchmark. Both larger-IgLM trials also passed the
+[November 6 audit](../results/reviews/20261106-iglm-large.md): 6,000 valid candidates; validation core selects
+lr 1e-5, epoch 4. The selected-checkpoint GPU benchmark smoke is prepared but unrun; see the
 [adaptation protocol](../configs/experiments/20261102_iglm_adaptation.md).
 
 ### Active milestone — code review and paper draft
@@ -83,7 +84,7 @@ checkpoint GPU benchmark smoke remain unrun; see the
 - **OAS4 scratch capacity study complete:** 18 larger-model runs across MLM/AR/S2S, three sizes and seeds 42/43 (§17). Further capacity/tuning interactions need a specific research question; this scan does not isolate architecture effects or establish a capacity ceiling.
 - [ ] **Harden `SpanLayout` before registering a second layout** (review finding 2026-09-04; none of it affects the shipped `CDRSEQGEN_CAUSAL` or any current result): `build_prompt` receives the whole framework dict **including `target`**, so a layout could leak the answer into its own prompt and the training-equals-generation test would still pass; `n_layout_tokens` is unverified metadata that drives truncation; `CausalInfillingDataset` does not validate its layout, so an invalid one trains a whole run before generation rejects it; and `validate_layout` accepts a residue token as the terminator, which would stop decoding at that amino acid
 - [ ] Record `span_layout_id` in `run_config.json` and compare it in the checkpoint-compatibility check — otherwise changing a backbone's layout silently reinterprets older checkpoints
-- [ ] **A pretrained causal backbone** through `methods/ar/backbones.py` (registry has `scratch`, `iglm` and a generic `hf_decoder` fallback). **5 November 2026:** native IgLM / IgLM-S register as `iglm` ([MODELS.md](MODELS.md#pretrained-ar-backbone-iglm)): their layout, chain/species conditioning fields, sampler hook and output validation are in, replayed draw for draw against the upstream package on a GPU (150/150 frameworks), and the zero-shot, IgLM-S fine-tuning and random-init/size-matched control pilots are complete ([RESULTS.md](RESULTS.md)); large-model fine-tuning is not yet run. Still missing: a wired layout on the `hf_decoder` path (it still adds sentinels with random embeddings) and layout-aware extraction for any other native format. Format and checkpoint are separate questions — adopting IgLM's *layout* is clean, fine-tuning IgLM's *weights* is not, since it was pretrained on OAS and is the §11 baseline
+- [ ] **A pretrained causal backbone** through `methods/ar/backbones.py` (registry has `scratch`, `iglm` and a generic `hf_decoder` fallback). **6 November 2026:** native IgLM / IgLM-S register as `iglm` ([MODELS.md](MODELS.md#pretrained-ar-backbone-iglm)): their layout, chain/species conditioning fields, sampler hook and output validation are in, replayed draw for draw against the upstream package on a GPU (150/150 frameworks), and the zero-shot, both fine-tuning sizes and random-init/size-matched control pilots are complete ([RESULTS.md](RESULTS.md)); the selected-checkpoint benchmark smoke is prepared but unrun. Still missing: a wired layout on the `hf_decoder` path (it still adds sentinels with random embeddings) and layout-aware extraction for any other native format. Format and checkpoint are separate questions — adopting IgLM's *layout* is clean, fine-tuning IgLM's *weights* is not, since it was pretrained on OAS and is the §11 baseline
 - [ ] **Automate one GPU + real-judge smoke run.** Three defects reached live runs past a fully green CPU suite — device mismatch, prompt divergence, and the missing `pseudo_log_likelihood` import — because no test exercised the full GPU training-to-generation path with a real judge. The 2026-09-07 `s2s` landing ran this by hand and caught exactly those three; that is the argument for automating it, not a substitute
 
 **Encoder-decoder method**

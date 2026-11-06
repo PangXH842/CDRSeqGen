@@ -1,26 +1,26 @@
-"""Configure MLM evaluation and coordinate scoring of generated CDR loops.
+"""Evaluate generated MLM CDR candidates against a selected reference dataset.
 
 Entry paths:
   evaluate.py -> eval_cli.main -> common.evaluation.run_evaluation_pipeline
               -> run_generative_eval
-  training -> common.evaluation.post_training_generation -> eval_cli.evaluate
-  eval_cli.evaluate aliases run_generative_eval for already-loaded resources.
+  training.finish_training -> common.evaluation.post_training_generation
+                           -> eval_cli.evaluate (alias of run_generative_eval)
 
 Functions:
-  * resolve_decoding    -- choose an explicit/saved decoder or independent fallback.
-  * prepare_evaluation -- validate options and set decoder/length modes in args.
-  * evaluation_options -- load the optional length head and build evaluator kwargs.
-  * run_generative_eval -- select examples/strategy, score and return the payload.
+  * prepare_evaluation  -- validate options and resolve decoder/length modes
+  * evaluation_options  -- load an optional length head and return evaluator kwargs
+  * resolve_decoding    -- choose an explicit/saved decoder or independent fallback
+  * run_generative_eval -- select frameworks/strategy, score and return a payload
 
-Main flow:
-  select frameworks -> choose length strategy -> eval.generative.run_eval_loop
-                    -> report -> payload + optional JSON/figure
-
-Dependencies:
-  * mlm.length: policies, fitted head and fixed-native/variable-length strategies.
-  * eval.generative / eval.metrics: shared scoring, aggregation and output helpers.
-  * common.evaluation: resource loading and context views.
-  * mlm.recovery: separate Trainer validation metrics during training.
+Notes:
+  * common.evaluation loads standalone resources and controls context regimes;
+    this module receives a loaded model, tokenizer, dataset and optional judge.
+  * mlm.length owns policies, the fitted head and both evaluation strategies;
+    mlm.sampling supplies residue decoding and generator pseudo-perplexity.
+  * fixed_native exposes the native mask count; bounded/inferred use the length
+    head. Native references also support framework selection and scoring.
+  * eval.generative / eval.metrics own shared scoring, aggregation and reports.
+    Trainer validation recovery lives separately in mlm.recovery.
 """
 
 import random
@@ -154,7 +154,7 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
       needs judge_model, judge_tokenizer and the corresponding judge_dataset.
       eval_cli.evaluate is an alias for this function.
 
-    Flow:
+    Steps:
       1. model.eval(), validate anchor_trim and seed Torch/local sampling RNGs.
       2. Read target_len from the dataset and call select_indices() using
          num_examples, stratify and a seeded Python RNG.
@@ -182,6 +182,7 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
         failures with warnings. Model evaluation mode and the Torch seed are not
         restored on return.
     """
+    # ------ 1. Prepare the loaded model, validate trim and seed sampling. ------
     model.eval()
     validate_anchor_trim(anchor_trim)
 
@@ -189,11 +190,12 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
     generator = torch.Generator(device=device)
     generator.manual_seed(seed)
 
-    # This length list selects examples; each strategy controls its generation inputs.
+    # ------ 2. Select frameworks, optionally stratifying by native length. ------
     lengths = [eval_dataset[i]["target_len"] for i in range(len(eval_dataset))]
     rng = random.Random(seed)
     selected = select_indices(lengths, num_examples, stratify, rng)
 
+    # ------ 3. Resolve the length policy and construct the candidate strategy. ------
     shared = dict(
         model=model, tokenizer=tokenizer, device=device, generator=generator,
         eval_dataset=eval_dataset, judge_dataset=judge_dataset, judge_tokenizer=judge_tokenizer,
@@ -213,6 +215,7 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
     else:
         strategy = FixedNativeStrategy(**shared)
 
+    # ------ 4. Generate and score candidates for the selected frameworks. ------
     records = run_eval_loop(
         strategy, selected,
         model=model, tokenizer=tokenizer, device=device,
@@ -221,6 +224,7 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
         anchor_trim=anchor_trim,
     )
 
+    # ------ 5. Report, aggregate and optionally write the evaluation payload. ------
     log_report(records, title=title, judge_name=judge_name)
 
     payload = dict(meta or {})

@@ -6,7 +6,8 @@ CDR generation and benchmarking through a shared framework. It currently impleme
 masked language modeling (MLM), autoregressive generation (AR) and encoder-decoder
 generation (S2S), with method-specific objectives and decoders.
 
-**Updated:** 5 November 2026. **Status:** the iAIM abstract was submitted on 23 October.
+**Updated:** 6 November 2026. **Status:** the iAIM abstract was submitted on 23 October
+and accepted for an in-person poster (submission 9941).
 Current work is manual code review, manuscript integration and poster preparation;
 final held-out evaluation remains pending.
 
@@ -26,9 +27,9 @@ Benchmark adapters support local methods, external generators and training-only 
 AR now includes a native [IgLM backbone](docs/MODELS.md#pretrained-ar-backbone-iglm).
 Its [full replay, zero-shot evaluations and four IgLM-S fine-tuning trials](results/reviews/20261103-iglm-adaptation.md)
 and its [random-initialization and size-matched controls](results/reviews/20261105-iglm-controls.md)
-are complete and audited. Large-model fine-tuning is the one remaining
-[adaptation recipe](configs/experiments/20261102_iglm_adaptation.md); these single-seed pilot results remain
-separate from the frozen benchmark.
+are complete and audited, as are both [larger-IgLM fine-tuning trials](results/reviews/20261106-iglm-large.md).
+All adaptation training recipes are complete. The selected-checkpoint benchmark smoke
+is prepared and remains user-run; these single-seed pilot results stay separate from the frozen benchmark.
 
 ## Documentation
 
@@ -62,7 +63,8 @@ Supporting guides live in [docs/](docs/README.md).
 2. **Develop the manuscript and poster** from the completed validation evidence.
    The [paper outline](../iAIM/PAPER_OUTLINE.md) maps claims to evidence; the
    [canonical abstract](../iAIM/sections/0_abstract.tex) is shared by both LaTeX entry points.
-   Poster presentations are scheduled for 4–5 December; acceptance is not yet recorded here.
+   The abstract is accepted for an in-person poster; the [editable poster template](../iAIM/poster.tex)
+   is ready. Sessions are scheduled for 4–5 December; assigned session and specifications remain pending.
 3. **Freeze the final held-out protocol** before inference: cohort, systems, checkpoints,
    decoding, length support, primary comparisons and reporting. The audit-eligible
    test pool is not yet a frozen evaluation manifest.
@@ -295,6 +297,7 @@ The dated development history is retained below. Planning lives in
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
+- **2026-11-06** -- Audited both completed larger-IgLM trials (6,000 valid, judge-scored candidates); prepared the selected-checkpoint benchmark smoke. Recorded poster acceptance.
 <!-- AI ACCESS ZONE ENDS -->
 - **2026-11-05** -- Aligned the MLM/AR/S2S training modules and `train.py` dispatcher; moved training-result export to `visualization/`
 - **2026-11-05** -- Audited the IgLM replay, zero-shot, fine-tuning and control runs

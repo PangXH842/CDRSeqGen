@@ -1,0 +1,43 @@
+{
+  "name": "iglm_selected_20261106",
+  "manifest": "benchmark/manifests/oas4_h3_validation_length_free_v1.json",
+  "smoke_manifest": "benchmark/manifests/oas4_h3_validation_length_free_smoke_v1.json",
+  "sampling": {
+    "num_samples": 20,
+    "smoke_num_samples": 5,
+    "temperature": 1.0,
+    "top_k": 0,
+    "top_p": 0.9,
+    "length_temperature": 1.0,
+    "seed": 42,
+    "max_new_tokens": 97
+  },
+  "judge": {
+    "name": "Exscientia/IgBert",
+    "max_len": 384
+  },
+  "endpoint": "Framework-averaged native edit similarity; length, diversity, conditional recovery and judge scores are supporting.",
+  "arms": [
+    {
+      "label": "iglm_s_lr3e-5",
+      "method": "ar",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261103_165217_376850_iglm_s_finetune/h3_OAS4_ar_IgLM-S_iglm_s_lr3e-5"
+    },
+    {
+      "label": "iglm_lr1e-5",
+      "method": "ar",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261105_191920_847836_iglm_l_finetune/h3_OAS4_ar_IgLM_iglm_lr1e-5"
+    }
+  ],
+  "limits": [
+    "Validation software smoke for two adapted native-IgLM checkpoints; no final test estimate or significance claim.",
+    "Selected separately within each model size by best validation core accuracy, not generated edit similarity: IgLM-S lr 3e-5 epoch 11; IgLM lr 1e-5 epoch 4.",
+    "One training seed (42). Checkpoints retain each saved batch source/runtime; benchmark inference and scoring pin the current source.",
+    "IgLM/IgBert pretraining overlap with OAS is unresolved. The judge sees heavy chain only for every arm.",
+    "Earlier post-training diagnostics used partner-present judging. Keep those scores separate from these benchmark outputs.",
+    "Only selected local checkpoints are requested; completed zero-shot, controls and external baseline pools are not regenerated."
+  ],
+  "externals": []
+}

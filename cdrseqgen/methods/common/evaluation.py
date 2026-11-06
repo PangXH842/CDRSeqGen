@@ -1,4 +1,4 @@
-"""Coordinate standalone and post-training candidate evaluation for MLM, AR and S2S.
+"""Load evaluation resources and assess generated CDR candidates across methods.
 
 Functions:
   * run_evaluation_pipeline     -- validate, load resources and call a method evaluator
@@ -7,25 +7,24 @@ Functions:
   * get_evaluation_source_info  -- identify source/config/data/checkpoint artifacts
   * default_output_path         -- build a result filename from the evaluation settings
 
-Eval workflow:
-  1. evaluate.py -> <method>.eval_cli.main() -> run_evaluation_pipeline().
-  2. Check options/checkpoint/output, then load data, tokenizer, model and optional judge.
-  3. Call the method evaluator to generate candidates, score them and write requested outputs.
-
-Post-training eval:
-  1. common.training.run_training_pipeline() completes train_and_save().
-  2. <method>.training.finish_training() optionally calls this module's
-     post_training_generation() directly, supplying decoding/length options.
-  3. Reuse trainer.model for generation/scoring; optionally repeat without generator
-     partner context, keeping the same judge. No checkpoint reload is needed.
+Evaluation workflow:
+  1. evaluate.py parses inputs -> <method>.eval_cli.main() configures logging.
+  2. The CLI connects method functions to run_evaluation_pipeline():
+       prepare_evaluation -> load data/model -> evaluation_options -> evaluate
+       -> candidate records, summary and optional JSON/figure output.
+  3. After training, finish_training() can instead call post_training_generation():
+       reuse trainer.model -> registry's eval_cli.evaluate -> same method evaluator.
 
 Notes:
-  * Both paths use <method>.eval_cli.evaluate, an alias for evaluation.run_generative_eval.
-    Each method generates candidates; cdrseqgen.eval supplies measurements and reports.
-  * Post-training generation requires run_generative_eval; it can also follow an
-    evaluation-only training command, using the already loaded model.
-  * Standalone errors propagate. Post-training generation errors are logged;
-    previously saved training artifacts remain available.
+  * eval_cli.evaluate aliases the method's evaluation.run_generative_eval. Methods
+    supply candidate strategies; cdrseqgen.eval owns shared measurements/reports.
+  * The configured dataset split determines validation or test use. This is
+    generated-candidate assessment, separate from Trainer's label-based validation.
+  * Generator and judge partner context are resolved separately. Post-training
+    context ablations reuse one judge across generator views.
+  * finish_training guards its optional stage with run_generative_eval, including
+    evaluation-only training commands. Standalone errors propagate; post-training
+    errors are logged and return None, leaving saved training artifacts available.
 """
 import hashlib
 import json
@@ -206,22 +205,24 @@ def _context_meta(data_args, *, partner, judge_partner):
 
 def run_evaluation_pipeline(method, args, supplied_config, run_config, *,
                             prepare_evaluation, evaluation_options, evaluate):
-    """Load a checkpoint and return the method evaluator's generated-candidate payload.
+    """Run standalone generated-candidate assessment; return the evaluator's payload.
 
-    Method functions:
+    Method hooks supplied by eval_cli.main():
       * prepare_evaluation(args, config) -- validate and resolve options in args.
       * evaluation_options(args, device) -- load optional method state and return kwargs.
       * evaluate(model, tokenizer, dataset, ...) -- generate, score and write results.
 
-    Workflow (matching the numbered comments below):
+    General pipeline (matching the numbered comments below):
       1. Setup: parse options -> check checkpoint compatibility -> check output path.
       2. Resources: load data/tokenizer -> apply context -> load checkpoint/method state
          -> optionally load a judge with its own context setting.
       3. Evaluation: call evaluate() with these resources, sampling options and
          source/context metadata; return its payload. Output files are optional.
 
-    Compatibility and overwrite checks precede model loading. Errors propagate to
-    the caller; post_training_generation() handles post-training failures separately.
+    The method evaluator selects frameworks and returns records/summary; it also
+    handles requested JSON/figure output. output='none' passes no output path.
+    Compatibility and overwrite checks precede model loading. --force overrides
+    recorded compatibility mismatches; other errors propagate to the caller.
     """
     # ------ 1.1 Resolve the method, normalize its options and parse the config. ------
     method = resolve(method)
@@ -327,6 +328,9 @@ def run_evaluation_pipeline(method, args, supplied_config, run_config, *,
 def post_training_generation(method, trainer, tokenizer, eval_dataset, data_args, gen_args,
                              training_args, *, anchor_trim, method_options=None):
     """Evaluate trainer.model and return the primary payload, or None on failure.
+
+    Called by a method's finish_training() when run_generative_eval is enabled.
+    Registry dispatch reaches eval_cli.evaluate, the method evaluator's alias.
 
     Steps:
       1. Load the optional judge with its own partner-context setting.

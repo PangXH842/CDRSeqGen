@@ -9,16 +9,20 @@ reorganized on **26 October 2026** without rerunning experiments. The later seed
 analyses extend the original seven-arm benchmark. Historical category entries below
 retain their own populations and protocol caveats.
 
-**IgLM adaptation pilot, audited November 3 and 5:** the [full GPU replay](../results/controls/iglm_replay_full_20261102.json)
+**IgLM adaptation pilot, audited November 3–6:** the [full GPU replay](../results/controls/iglm_replay_full_20261102.json)
 matches 150/150 examples and 3,000/3,000 attempts. The two-model zero-shot batch, the four-trial
 IgLM-S fine-tuning batch and the four-trial control batch completed with 6,000, 12,000 and 12,000 valid,
 fully judge-scored candidates respectively. The declared validation-core criterion
-selects **lr 3e-5, epoch 11** (core accuracy 0.407213; edit similarity 0.389715,
+selects **IgLM-S lr 3e-5, epoch 11** (core accuracy 0.407213; edit similarity 0.389715,
 versus zero-shot IgLM-S 0.385881); see the [audit and per-LR table](../results/reviews/20261103-iglm-adaptation.md).
 The [controls audit](../results/reviews/20261105-iglm-controls.md) adds random-init IgLM-S at three learning
 rates (core accuracy 0.400739–0.406348, every run at the 20-epoch cap) and a scratch AR of the same size
 (0.403734); pretrained minus random-init core accuracy at matched learning rates is +0.0065, +0.0015 and
-−0.000005. No completion rerun is needed; large-model fine-tuning is still pending in the
+−0.000005. Both [larger-IgLM trials](../results/reviews/20261106-iglm-large.md) are also complete:
+6,000 valid, fully judge-scored candidates, matching selected checkpoint weights and independently
+reproduced edit/length/score means. Validation core selects **IgLM lr 1e-5, epoch 4**
+(core 0.409725, edit similarity 0.386728). No completion rerun is needed; only the prepared
+selected-checkpoint GPU benchmark smoke remains pending in the
 [adaptation protocol](../configs/experiments/20261102_iglm_adaptation.md).
 
 These seed-42 pilot results use partner-present IgBert judging and remain separate
@@ -69,10 +73,10 @@ read them in place rather than editing them.
 | Experiment type | Results to read | What the evidence covers |
 | --- | --- | --- |
 | Scratch baseline | [validation OAS matrix](../results/by_experiment/scratch_baseline/validation_oas_matrix/batch_tables.md), [AR length-corrected](../results/by_experiment/scratch_baseline/ar_length_corrected/batch_tables.md), [S2S pair](../results/by_experiment/scratch_baseline/s2s_scratch_pair/batch_tables.md), [three-method comparison](../results/by_experiment/scratch_baseline/three_method_comparison/batch_tables.md) | Completed exploratory MLM/AR/S2S runs. The earliest 07-24 and 07-29 matrices and pre-validation 08-17 matrix are also indexed, but selected on the test partition or predate the validation-safe OAS rerun. |
-| Pretrained models | [S2S encoder matrix](../results/by_experiment/pretrained_models/s2s_encoder_matrix/batch_tables.md), [validation OAS matrix](../results/by_experiment/pretrained_models/validation_oas_matrix/batch_tables.md), [IgLM pilot audit](../results/reviews/20261103-iglm-adaptation.md) | ESM-2/IgBert/ProtBert S2S encoders, older MLM ESM-2 and the IgLM-S pretrained AR pilot (zero-shot and fine-tuned, one seed). These are system comparisons; the isolated contrast is the row below. |
+| Pretrained models | [S2S encoder matrix](../results/by_experiment/pretrained_models/s2s_encoder_matrix/batch_tables.md), [validation OAS matrix](../results/by_experiment/pretrained_models/validation_oas_matrix/batch_tables.md), [IgLM-S pilot audit](../results/reviews/20261103-iglm-adaptation.md), [larger-IgLM audit](../results/reviews/20261106-iglm-large.md) | ESM-2/IgBert/ProtBert S2S encoders, older MLM ESM-2 and both sizes of the pretrained IgLM AR pilot (zero-shot and fine-tuned, one seed). These are system comparisons; the isolated contrast is the row below. |
 | Partner context | [three-method comparison](../results/by_experiment/partner_context/three_method_comparison/batch_tables.md), [S2S encoder matrix](../results/by_experiment/partner_context/s2s_encoder_matrix/batch_tables.md), [six AR/S2S no-partner controls](../results/reviews/20261007-no-partner-controls.md), [two MLM controls](../results/reviews/20261007-mlm-no-partner-controls.md), [context review](../results/misc/reviews/0915-0917-review.md) | Ten no-partner controls are audited: scratch/ESM-2 MLM, scratch AR and scratch/ESM-2 S2S at seeds 42/43. The [new MLM ESM-2 audit](../results/reviews/20261022-mlm-esm2-no-partner-controls.md) adds 6,000 returned candidates; four MLM controls now return 12,000 without an attempt-validity ledger. The new MLM dropout comparison completes six matched checkpoints and ten evaluations; [audit](../results/reviews/20261007-mlm-dropout-screen.md). The September AR/S2S screen uses earlier source/runtime versions. |
 | Context dropout | [AR/S2S screen](../results/by_experiment/context_dropout/ar_s2s_screen/batch_tables.md), [October confirmation audit](../results/reviews/20261007-esm2-confirmation.md) | AR/S2S screen at seeds 42/43, four audited ESM-2 trials at seeds 44/45, and the [completed four-run MLM screen](../results/reviews/20261007-mlm-dropout-screen.md), each evaluated in both regimes. Historical and new batches retain their distinct source/runtime provenance. |
-| Pretrained vs random initialization | [IgLM controls audit](../results/reviews/20261105-iglm-controls.md) | AR only: random-init IgLM-S at three learning rates and a scratch AR of the same size, one seed, validation. Every random-init run reached the 20-epoch cap, so the contrast is exploratory and not converged. No MLM or S2S control yet. |
+| Pretrained vs random initialization | [IgLM controls audit](../results/reviews/20261105-iglm-controls.md) | AR only: random-init IgLM-S at three learning rates and a scratch AR of the same size, one seed, validation. Every random-init run reached the 20-epoch cap; convergence is unestablished and the contrast remains exploratory. No MLM or S2S control yet. |
 | Frozen encoder | [IgBert diagnostic](../results/by_experiment/frozen_encoder/igbert_three_arm_diagnostic/batch_tables.md) | Three-epoch frozen/trainable diagnostic at one seed; generation from the saved checkpoints is pending. |
 | Conditioning/collapse diagnostics | [collapse report](../results/by_experiment/conditioning_diagnostics/igbert_collapse_report/REPORT.md), [diagnostic summary](../results/by_experiment/conditioning_diagnostics/igbert_diagnostic_summary/REPORT.md) | One collapse and one same-seed non-reproduction; incidence and a preventive intervention are unknown. |
 | Length-free generation | [three-method comparison](../results/by_experiment/length_free_generation/three_method_comparison/batch_tables.md), [S2S encoder matrix](../results/by_experiment/length_free_generation/s2s_encoder_matrix/batch_tables.md) | EOS/inferred-length results and length analysis. The assembled three-method comparison is explicitly marked as spliced in its `PROVENANCE.md`; use the fresh comparison for headline analysis. |

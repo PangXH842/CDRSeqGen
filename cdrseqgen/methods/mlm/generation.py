@@ -1,21 +1,23 @@
-"""Configure MLM generation and build scored records for supplied frameworks.
+"""Generate MLM CDR candidates and case records for supplied frameworks.
 
 Entry path:
   generate.py -> gen_cli.main -> common.generation.run_generation_pipeline
               -> prepare_generation -> generation_state -> generate_case
 
-Callbacks:
-  * prepare_generation -- validate decoder options and resolve each case's policy.
-  * generation_state   -- load one saved length head if any policy needs it.
-  * generate_case      -- resolve native truth/policy and build one scored record.
+Functions:
+  * prepare_generation -- validate options, select a decoder and resolve case lengths
+  * generation_state   -- load one saved length head if any case needs it
+  * generate_case      -- sample one case, calculate measurements and return its record
 
-Candidate flow:
-  generate_case -> length.sample_length_conditioned_spans -> sampling decoders
-                -> metrics and optional self-scoring -> display callback -> record
-
-length.py owns policies, prompt construction, length selection and span sampling.
-common.generation loads cases/model/tokenizer, seeds sampling and writes the outer
-payload. gen_cli.main configures logging; this module installs no handlers.
+Notes:
+  * gen_cli owns logging; common.generation loads cases/model/tokenizer, seeds
+    sampling and writes the output. This module supplies the three method hooks.
+  * length.py owns policies, prompts, length selection and span sampling;
+    sampling.py supplies independent/iterative decoding and self-scoring.
+  * Native truth is optional. It supports reference scores; its length affects
+    generation only when use_native_length is explicitly enabled.
+  * These are supplied-case results. Dataset selection, judge scoring and
+    aggregation across evaluation frameworks belong to the evaluation workflow.
 """
 
 from cdrseqgen.eval.metrics import amino_acid_recovery, calculate
@@ -66,18 +68,26 @@ def generation_state(args, policies, device):
 
 
 def generate_case(model, tokenizer, device, args, generator, case, state, print_callback):
-    """Generate, score and serialize one fixed, bounded or inferred-length case.
+    """Return candidates, measurements and length metadata for one supplied case.
 
-    state is the optional length head returned by generation_state(). Native truth
-    is retained for scoring; an explicit native-length policy may also use its length.
-    print_callback receives the case summary before the JSON-ready record is returned.
+    Steps:
+      1. Resolve native truth, length policy, flanks and optional context.
+      2. sample_length_conditioned_spans() -> prompts, lengths and residue samples.
+      3. Decode candidates, calculate sequence metrics and optionally self-score.
+      4. Call print_callback() and return the JSON-ready case record.
+
+    state is the optional saved length head from generation_state(). Native truth
+    is optional; per-candidate AAR requires a native-length match. skip_perplexity
+    disables generator pseudo-perplexity. No external judge is loaded here.
     """
+    # ------ 1. Resolve this case's length policy and conditioning inputs. ------
     native, length_policy = resolve_case_length(case, args)
     name = case.get("name", "Unnamed Test")
     pt1, pt2 = case["pt1"], case["pt2"]
     partner = case.get("partner_chain") or args.partner_chain
     antigen = case.get("antigen") or args.antigen
 
+    # ------ 2. Choose lengths, assemble prompts and sample the masked spans. ------
     generated, length_metadata = sample_length_conditioned_spans(
         model,
         tokenizer,
@@ -98,6 +108,7 @@ def generate_case(model, tokenizer, device, args, generator, case, state, print_
         length_temperature=getattr(args, "length_temperature", 1.0),
     )
 
+    # ------ 3. Measure candidates, using native truth only where available. ------
     samples = []
     for generated_span in generated:
         seq = tokenizer.decode(generated_span.token_ids).upper().strip()
@@ -127,6 +138,7 @@ def generate_case(model, tokenizer, device, args, generator, case, state, print_
         metrics["pseudo_perplexity_min"] = min(perplexities)
         metrics["pseudo_perplexity_max"] = max(perplexities)
 
+    # ------ 4. Display the case and return its candidates and metadata. ------
     selected_lengths = [sample["length"] for sample in samples]
     distinct_lengths = sorted(set(selected_lengths))
     gap_display = "/".join(map(str, distinct_lengths)) or "—"
