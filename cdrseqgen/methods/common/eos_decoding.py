@@ -1,5 +1,9 @@
 """Share EOS-based training, candidate evaluation and case reporting for AR/S2S.
 
+Command setup:
+  * resolve_eos_decode_cap    -- resolve/validate the generation or evaluation cap
+  * validate_eos_case_lengths -- reject unsupported lengths in supplied cases
+                               -> called by: ar/s2s.generation.prepare_generation()
 Training:
   * get_infilling_datasets  -- tokenizer and train/eval subsets with separate context views
                              -> called by: ar/s2s.training.get_datasets()
@@ -39,6 +43,35 @@ from cdrseqgen.eval.metrics import (
 from cdrseqgen.methods.common.arguments import validate_anchor_trim
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_eos_decode_cap(args, config, *, default, validate):
+    """Resolve args.max_new_tokens in place, validate it and return the cap.
+
+    Priority: explicit args value -> saved gen_max_new_tokens -> method default.
+    Called by ar/s2s prepare_generation() and prepare_evaluation(). Each method
+    supplies its own default and validator. A saved None is retained and validated,
+    rather than treated as an absent key. The cap is assigned before validation,
+    preserving the resolved settings when a validator raises.
+    """
+    if args.max_new_tokens is None:
+        args.max_new_tokens = config.get("gen_max_new_tokens", default)
+    validate(args.max_new_tokens)
+    return args.max_new_tokens
+
+
+def validate_eos_case_lengths(args, cases, *, method):
+    """Reject requested fixed/bounded/native lengths for EOS-generated cases.
+
+    A present case value overrides its CLI counterpart, including None or False.
+    Only those two values disable a control; numerical zero remains unsupported.
+    method labels errors as AR or S2S. Checks run before checkpoint loading.
+    """
+    for case in cases:
+        for key in ("min_length", "max_length", "target_length", "use_native_length"):
+            value = case.get(key, getattr(args, key, None))
+            if value is not None and value is not False:
+                raise ValueError(f"{method} chooses length via EOS; {key} is unsupported")
 
 
 def _invalid_draw(result):

@@ -1,47 +1,49 @@
-"""Seq2seq decoding: generate a loop from an encoded framework until <eos>.
+"""Sample S2S CDR loops and calculate their generator self-perplexities.
 
-  * sample_loops -- batched decode against one encoder pass, one loop string per candidate
+Entry paths:
+  generation.generate_case / evaluation.Seq2SeqStrategy -> sample_loops / perplexities
 
-Contract-identical to ``methods/ar/sampling.py`` — same return shape, same ``complete`` semantics,
-same shared ``warp_logits``/``ban_tokens`` so "top_p=0.9" means one thing across all three methods —
-with two mechanical differences that follow from having two streams:
+Functions:
+  * sample_loops -- encode one framework, then decode a batch of candidate attempts
+  * perplexities -- score ordered encoder-input/loop pairs under the generating model
 
-  * **The encoder runs ONCE per framework and every candidate reuses it.** Twenty candidates cost
-    one framework encode plus twenty short decodes, where the causal sampler re-reads the whole
-    prompt on every step of every draw. This is not just a speed note: it is also why the candidates
-    are guaranteed to condition on byte-identical framework states, so any variation between them is
-    sampling noise rather than a re-tokenised prompt.
-
-  * **No left-padding, and no padding at all.** The causal sampler must left-pad because prompts
-    differ in length and ``logits[:, -1]`` would otherwise read a different position in each row.
-    Here every decoder row starts at ``<bos>`` and grows in lockstep, so the last position is the
-    last position for all of them. ``s2s_collate_fn``'s warning about right padding therefore does
-    not apply to this path — there is nothing to pad.
-
-The two shared decisions carry over unchanged:
-
-  * **temperature = 0 means greedy and returns ONE candidate**, matching both siblings.
-  * **Special tokens are banned except <eos>**, so a loop is all residues; the model could otherwise
-    emit ``<mask>`` or ``<pad>`` mid-loop and have it scored as a residue.
-
-A draw is *invalid* if the model never emitted <eos> within ``max_new_tokens``; that is reported
-rather than silently truncated, because a truncated loop is not a length the model chose.
+Notes:
+  * EOS selects length. The decoder bans other special tokens, retains duplicates
+    and reports unfinished draws without refilling or forcing EOS.
+  * temperature=0 returns one greedy attempt; other temperatures request num_samples.
+  * Sampling encodes the framework once. Decoder rows start with BOS and grow
+    together, reusing the same encoder states throughout generation.
+  * Self-scoring reuses the most recent encoder result across consecutive spans.
+    Independent judge scoring lives in eval/.
+  * Functions disable gradients; sampling sets eval mode and scoring preserves it.
 """
 import torch
 
-from cdrseqgen.datasets.dataset_s2s import S2S_DECODE_STEPS, validate_s2s_decode_steps
-from cdrseqgen.methods.common import ban_tokens, logits_of, warp_logits
+from cdrseqgen.datasets.dataset_s2s import (
+    S2S_DECODE_STEPS, build_decoder_pair, validate_s2s_decode_steps,
+)
+from cdrseqgen.methods.common import ban_tokens, logits_of, perplexity_from_nll, warp_logits
 
 
 @torch.no_grad()
 def sample_loops(model, tokenizer, encoder_ids, *, device, num_samples=1, temperature=1.0,
                  top_k=0, top_p=1.0, max_new_tokens=S2S_DECODE_STEPS, generator=None):
-    """Decode `num_samples` loops from one encoder input.
+    """Return ordered decoding attempts for one already assembled encoder input.
 
-    Returns a list of dicts: ``{"loop": str, "length": int, "complete": bool}``. ``complete`` is
-    False when <eos> never arrived inside ``max_new_tokens`` — such a draw has no length the model
-    chose, so a caller should treat it as a failure rather than a short loop.
+    Steps:
+      validate cap -> encode framework once -> prepare BOS decoder batch
+                   -> predict/sample one token per step -> attempt records
+
+    Example: max_new_tokens=3
+      A C EOS -> {"loop": "AC", "length": 2, "complete": True}
+      A C D   -> {"loop": "ACD", "length": 3, "complete": False}
+
+    The cap includes the terminator, which is excluded from returned loops.
+    Early EOS can produce a complete empty loop; a missing EOS is incomplete.
+    Greedy decoding returns one attempt and bypasses top-k/top-p. Stochastic
+    draws retain their original order and duplicates. generator controls RNG.
     """
+    # ------ 1. Validate the contract and encode the framework once. ------
     validate_s2s_decode_steps(max_new_tokens)
     greedy = temperature == 0
     draws = 1 if greedy else num_samples
@@ -49,16 +51,17 @@ def sample_loops(model, tokenizer, encoder_ids, *, device, num_samples=1, temper
 
     source = torch.tensor([list(encoder_ids)], dtype=torch.long, device=device)
     encoder_mask = torch.ones_like(source)
-    # One encode, shared by every candidate for this framework.
     encoded = model.encode(source, attention_mask=encoder_mask).expand(draws, -1, -1)
     encoder_mask = encoder_mask.expand(draws, -1)
 
+    # ------ 2. Prepare decoder rows and allowed tokens. ------
     banned = {i for i in tokenizer.special_ids if i != tokenizer.eos_id}
     decoder_ids = torch.full((draws, 1), tokenizer.bos_id, dtype=torch.long, device=device)
 
     generated = [[] for _ in range(draws)]
     finished = torch.zeros(draws, dtype=torch.bool, device=device)
 
+    # ------ 3. Advance all attempts; completed rows remain padded. ------
     for _ in range(max_new_tokens):
         outputs = model(encoder_hidden_states=encoded, attention_mask=encoder_mask,
                         decoder_input_ids=decoder_ids)
@@ -71,15 +74,50 @@ def sample_loops(model, tokenizer, encoder_ids, *, device, num_samples=1, temper
             nxt = torch.multinomial(probs, 1, generator=generator).squeeze(-1)
 
         nxt = torch.where(finished, torch.full_like(nxt, tokenizer.pad_id), nxt)
-        for row in range(draws):
-            if not finished[row] and nxt[row].item() != tokenizer.eos_id:
-                generated[row].append(int(nxt[row].item()))
+        # Transfer step bookkeeping in batches instead of synchronizing each GPU scalar.
+        for tokens, token, was_finished in zip(generated, nxt.tolist(), finished.tolist()):
+            if not was_finished and token != tokenizer.eos_id:
+                tokens.append(token)
         finished |= nxt.eq(tokenizer.eos_id)
         if bool(finished.all()):
             break
 
         decoder_ids = torch.cat([decoder_ids, nxt[:, None]], dim=1)
 
-    return [{"loop": tokenizer.decode(tokens), "length": len(tokens),
-             "complete": bool(finished[row])}
-            for row, tokens in enumerate(generated)]
+    # ------ 4. Keep every attempt, including complete-empty and incomplete ones. ------
+    return [{"loop": tokenizer.decode(tokens), "length": len(tokens), "complete": complete}
+            for tokens, complete in zip(generated, finished.tolist())]
+
+
+@torch.no_grad()
+def perplexities(model, tokenizer, device, spans):
+    """Return one generator perplexity per ordered (encoder IDs, loop IDs) pair.
+
+    Steps:
+      build_decoder_pair -> encode/reuse framework -> one decode per candidate
+                         -> aligned answer-token loss -> exp(mean NLL)
+
+    The decoder input/label pair includes the terminator and is already aligned;
+    no further shift is applied. Consecutive candidates with identical encoder
+    input reuse its encoding. Non-finite or overflowing perplexity yields None.
+    An empty spans list returns []. Generation and evaluation share this scorer.
+    """
+    # Cache only the most recently encoded framework.
+    scores = []
+    cached_source = None
+    encoded = None
+    for encoder_ids, loop_ids in spans:
+        decoder_input, labels = build_decoder_pair(tokenizer, loop_ids)
+        source_key = tuple(encoder_ids)
+        if source_key != cached_source:
+            source = torch.tensor([source_key], dtype=torch.long, device=device)
+            encoded = model.encode(source)
+            cached_source = source_key
+        decoder = torch.tensor([decoder_input], dtype=torch.long, device=device)
+        gold = torch.tensor([labels], dtype=torch.long, device=device)
+        logits = logits_of(model(encoder_hidden_states=encoded, decoder_input_ids=decoder)).float()
+        nll = torch.nn.functional.cross_entropy(
+            logits.reshape(-1, logits.size(-1)), gold.reshape(-1),
+            ignore_index=-100, reduction="mean")
+        scores.append(perplexity_from_nll(nll))
+    return scores

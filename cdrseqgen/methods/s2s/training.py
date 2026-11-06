@@ -5,7 +5,8 @@ Entry path:
                  -> prepare_training -> common.training.train_and_save
                  -> finish_training
 
-Functions:
+Classes/Functions:
+  * ConditioningProbe        -- optional encoder-conditioning measurements and diagnostic stop
   * prepare_training         -- seed, load data/model, build the Trainer, attach diagnostics
   * finish_training          -- optionally evaluate generated loops on the selected/loaded model
   * get_datasets             -- return training/evaluation subsets and their tokenizer
@@ -20,9 +21,13 @@ Method details:
     optional compute_loss_func override; ConditioningProbe is attached when requested.
 """
 import functools
+import json
 import logging
+import random
+from pathlib import Path
 
-from transformers import Trainer, set_seed
+import torch
+from transformers import Trainer, TrainerCallback, set_seed
 
 from cdrseqgen.datasets.dataset_s2s import Seq2SeqInfillingDataset, s2s_collate_fn
 from cdrseqgen.eval import ANCHOR_TRIM
@@ -71,7 +76,6 @@ def prepare_training(model_args, data_args, training_args):
                             trim=model_args.anchor_trim)
 
     if model_args.conditioning_probe_steps or model_args.diagnostic_stop_epoch:
-        from cdrseqgen.methods.s2s.diagnostics import ConditioningProbe
         trainer.add_callback(ConditioningProbe(
             eval_dataset, trainer.data_collator, model_args.conditioning_probe_steps,
             model_args.diagnostic_stop_epoch))
@@ -143,3 +147,78 @@ def build_trainer(model, training_args, train_ds, eval_ds, tokenizer, callbacks=
         compute_loss_func=compute_loss_func,
         callbacks=callbacks or [],
     )
+
+
+class ConditioningProbe(TrainerCallback):
+    """Probe S2S encoder conditioning during training, with optional diagnostic stop.
+
+    Caller:
+      prepare_training -> trainer.add_callback -> Trainer event methods
+
+    Measurements:
+      fixed validation batch -> normal encoder context vs row-swapped context
+                             -> encoder spread, finite values and prediction changes
+                             -> conditioning_probe.jsonl
+
+    interval enables measurements at train start, every interval optimizer steps
+    and each epoch end, on the main process. stop_epoch independently requests
+    stopping, evaluation and saving without changing the planned LR schedule.
+    Measurements preserve model mode and Torch RNG; they do not select checkpoints.
+    """
+    def __init__(self, dataset, collate, interval=250, stop_epoch=0):
+        """Choose up to 16 fixed validation rows; collate them when probing is enabled."""
+        self.interval = interval
+        self.stop_epoch = stop_epoch
+        indices = random.Random(42).sample(range(len(dataset)), min(16, len(dataset)))
+        if interval and len(indices) < 2:
+            raise ValueError("Conditioning probes require at least two validation examples")
+        self.indices = indices
+        self.batch = collate([dataset[i] for i in indices]) if interval else None
+
+    def measure(self, args, state, model):
+        """Append one conditioning record while preserving model mode and Torch RNG."""
+        device = next(model.parameters()).device
+        batch = {k: v.to(device) for k, v in self.batch.items()}
+        was_training = model.training
+        # Even future stochastic probe operations must not alter the training RNG stream.
+        devices = [device.index] if device.type == "cuda" else []
+        try:
+            model.eval()
+            with torch.random.fork_rng(devices=devices), torch.inference_mode():
+                memory = model.encode(batch['input_ids'], batch['attention_mask'])
+                valid = batch['attention_mask'].bool()
+                original = model(**batch, encoder_hidden_states=memory)['logits']
+                swapped = dict(batch, attention_mask=batch['attention_mask'].roll(1, 0))
+                changed = model(**swapped, encoder_hidden_states=memory.roll(1, 0))['logits']
+                targets = batch['labels'].ne(-100)
+                row = dict(step=state.global_step, epoch=state.epoch,
+                           validation_subset_indices=self.indices,
+                           projected_token_std=memory[valid].float().std(0).mean().item(),
+                           finite=bool(torch.isfinite(memory[valid]).all() and torch.isfinite(original[targets]).all()),
+                           swap_mean_abs_logit_change=(original-changed).abs()[targets].mean().item(),
+                           swap_argmax_change_rate=(original.argmax(-1)[targets]
+                                                    != changed.argmax(-1)[targets]).float().mean().item())
+        finally:
+            model.train(was_training)
+        with (Path(args.output_dir) / 'conditioning_probe.jsonl').open('a') as handle:
+            handle.write(json.dumps(row) + '\n')
+
+    def on_train_begin(self, args, state, control, model=None, **kwargs):
+        """Measure the initial model on the main process when probing is enabled."""
+        if self.interval and state.is_world_process_zero:
+            self.measure(args, state, model)
+
+    def on_step_end(self, args, state, control, model=None, **kwargs):
+        """Measure periodically and request stop/evaluation/save at stop_epoch."""
+        if self.interval and state.global_step % self.interval == 0 and state.is_world_process_zero:
+            self.measure(args, state, model)
+        if self.stop_epoch and state.epoch >= self.stop_epoch:
+            control.should_training_stop = True
+            control.should_evaluate = True
+            control.should_save = True
+        return control
+
+    def on_epoch_end(self, args, state, control, model=None, **kwargs):
+        """Measure after each epoch on the main process when probing is enabled."""
+        if self.interval and state.is_world_process_zero:
+            self.measure(args, state, model)

@@ -1,4 +1,9 @@
-"""Fill MLM masks and score completed candidate loops.
+"""Decode masked CDR spans and calculate masked-LM self/judge scores.
+
+Entry paths:
+  mlm.length -> sample_masked_span -> independent or iterative decoder
+  mlm.generation / length evaluation strategies -> pseudo_log_likelihood
+  eval.generative.score_with_judge -> pseudo_log_likelihood
 
 Functions:
   * sample_masked_span    -- select the independent or iterative decoder for a masked prompt
@@ -6,15 +11,13 @@ Functions:
   * sample_iterative      -- fill one position per draw per pass, in confidence order
   * pseudo_log_likelihood -- re-mask each candidate position and return (PLL, pseudo-ppl)
 
-Callers:
-  * mlm.length uses sample_masked_span for case/benchmark sampling and evaluation.
-  * MLM evaluation strategies use pseudo_log_likelihood for generator self-scoring.
-  * eval.generative uses the same scorer for the shared masked-LM judge.
-
 Notes:
-  * ban_tokens, logits_of and warp_logits are shared helpers imported from methods.common.
-  * Both decoders exclude banned_ids and return one candidate at temperature=0.
-  * Tensor comments use S=prompt length, L=loop length, V=vocabulary size, N=draws.
+  * Callers assemble prompts, choose lengths and put models in evaluation mode.
+    These helpers disable autograd and leave model mode unchanged.
+  * Both decoders exclude banned tokens and return one candidate at temperature=0.
+    Sampling retains duplicates; iterative fills residues back into its prompt.
+  * methods.common supplies logit extraction, token banning and sampling filters.
+    Pseudo-likelihood re-masks completed candidates for self or judge scoring.
 """
 
 from __future__ import annotations
@@ -81,19 +84,24 @@ def sample_independent(model, input_ids, mask_positions, banned_ids, *, device,
 
     Predictions at different positions use the same supplied prompt; sampled
     residues are not fed back into the model. temperature=0 returns one argmax
-    sequence and bypasses top-k/top-p filtering.
+    sequence and bypasses top-k/top-p filtering. An empty span returns one empty
+    list per effective draw without a model forward or RNG consumption.
     """
-    x = torch.tensor([input_ids], dtype=torch.long, device=device)
-    logits = logits_of(model(input_ids=x))[0]                           # [S, V]
-    mask_logits = ban_tokens(logits[mask_positions].clone(), banned_ids)  # [L, V]
+    if len(mask_positions) == 0:
+        num_draws = 1 if temperature == 0 else num_samples
+        return [[] for _ in range(num_draws)]
+
+    prompt = torch.tensor([input_ids], dtype=torch.long, device=device)
+    logits = logits_of(model(input_ids=prompt))[0]                    # [sequence, vocab]
+    mask_logits = ban_tokens(logits[mask_positions].clone(), banned_ids)  # [span, vocab]
 
     if temperature == 0:                                            # greedy: argmax, one sequence
         return [torch.argmax(mask_logits, dim=-1).tolist()]
 
     mask_logits = warp_logits(mask_logits, temperature, top_k, top_p)
-    probs = torch.softmax(mask_logits, dim=-1)                      # [L, V]
-    draws = torch.multinomial(probs, num_samples, replacement=True, generator=generator)  # [L, N]
-    return draws.t().tolist()                                       # N sequences, each length L
+    probs = torch.softmax(mask_logits, dim=-1)                       # [span, vocab]
+    draws = torch.multinomial(probs, num_samples, replacement=True, generator=generator)
+    return draws.t().tolist()                                       # [draws, span]
 
 
 @torch.no_grad()
@@ -114,37 +122,37 @@ def sample_iterative(model, input_ids, mask_positions, banned_ids, mask_id, *, d
       * temperature=0 returns one greedy sequence and bypasses top-k/top-p filtering.
       * An empty span returns one empty list per effective draw.
     """
-    L = len(mask_positions)
+    span_length = len(mask_positions)
     greedy = temperature == 0
-    N = 1 if greedy else num_samples                                # argmax is deterministic -> one
-    if L == 0:
-        return [[] for _ in range(N)]
+    num_draws = 1 if greedy else num_samples
+    if span_length == 0:
+        return [[] for _ in range(num_draws)]
 
-    mp = torch.tensor(mask_positions, dtype=torch.long, device=device)       # [L]
-    cur = torch.tensor([input_ids], dtype=torch.long, device=device).repeat(N, 1)  # [N, S]
-    cur[:, mp] = mask_id                                                     # start all-masked
-    filled = torch.zeros(N, L, dtype=torch.bool, device=device)
-    rows = torch.arange(N, device=device)
+    positions = torch.tensor(mask_positions, dtype=torch.long, device=device)
+    candidates = torch.tensor([input_ids], dtype=torch.long, device=device).repeat(num_draws, 1)
+    candidates[:, positions] = mask_id                              # [draws, sequence]
+    filled = torch.zeros(num_draws, span_length, dtype=torch.bool, device=device)
+    rows = torch.arange(num_draws, device=device)
 
-    for _ in range(L):
-        logits = logits_of(model(input_ids=cur))                            # [N, S, V]
-        pos_logits = ban_tokens(logits[:, mp, :].clone(), banned_ids)       # [N, L, V]
+    for _ in range(span_length):
+        logits = logits_of(model(input_ids=candidates))             # [draws, sequence, vocab]
+        pos_logits = ban_tokens(logits[:, positions, :].clone(), banned_ids)
         if not greedy:
             pos_logits = warp_logits(pos_logits, temperature, top_k, top_p)
-        probs = torch.softmax(pos_logits, dim=-1)                           # [N, L, V]
+        probs = torch.softmax(pos_logits, dim=-1)                    # [draws, span, vocab]
 
-        # Easy-first: commit each sample's most-confident still-unfilled position
-        confidence = probs.max(dim=-1).values.masked_fill(filled, NEG_INF)  # [N, L]
-        chosen = confidence.argmax(dim=-1)                                  # [N]
+        # Commit each draw's most-confident still-unfilled position.
+        confidence = probs.max(dim=-1).values.masked_fill(filled, NEG_INF)
+        chosen = confidence.argmax(dim=-1)                         # [draws]
         if greedy:
-            token = probs[rows, chosen].argmax(dim=-1)                      # [N] deterministic
+            token = probs[rows, chosen].argmax(dim=-1)
         else:
-            token = torch.multinomial(probs[rows, chosen], 1, generator=generator).squeeze(1)  # [N]
+            token = torch.multinomial(probs[rows, chosen], 1, generator=generator).squeeze(1)
 
-        cur[rows, mp[chosen]] = token
+        candidates[rows, positions[chosen]] = token
         filled[rows, chosen] = True
 
-    return cur[:, mp].tolist()                                              # N sequences length L
+    return candidates[:, positions].tolist()                        # [draws, span]
 
 
 @torch.no_grad()
@@ -159,30 +167,33 @@ def pseudo_log_likelihood(model, input_ids, mask_positions, token_ids, banned_id
       pseudo-ppl: exp(-PLL / 3); p=0.5 at every position gives 2.0
 
     Notes:
-      * token_ids must correspond one-to-one with mask_positions.
+      * token_ids must correspond one-to-one with mask_positions; unequal
+        lengths raise ValueError before any model forward.
       * All single-mask variants are scored together in one batched forward pass.
       * Probabilities are normalized after excluding banned_ids; standard callers
         use this to restrict scoring to amino-acid tokens.
       * An empty span returns (0.0, 1.0).
     """
-    L = len(mask_positions)
-    if L == 0:
+    span_length = len(mask_positions)
+    if len(token_ids) != span_length:
+        raise ValueError("token_ids must contain one token per mask position")
+    if span_length == 0:
         return 0.0, 1.0
 
     base = list(input_ids)
-    for pos, tok in zip(mask_positions, token_ids):
-        base[pos] = tok                                       # fill the candidate residues in
-    batch = torch.tensor([base], dtype=torch.long, device=device).repeat(L, 1)  # [L, S]
-    mp = torch.tensor(mask_positions, dtype=torch.long, device=device)
-    rows = torch.arange(L, device=device)
-    batch[rows, mp] = mask_id                                 # variant i re-masks position i only
+    for position, token_id in zip(mask_positions, token_ids):
+        base[position] = token_id
+    batch = torch.tensor([base], dtype=torch.long, device=device).repeat(span_length, 1)
+    positions = torch.tensor(mask_positions, dtype=torch.long, device=device)
+    rows = torch.arange(span_length, device=device)
+    batch[rows, positions] = mask_id                             # variant i re-masks position i
 
-    logits = logits_of(model(input_ids=batch))               # [L, S, V]
-    at_masked = ban_tokens(logits[rows, mp, :].clone(), banned_ids)  # [L, V] logit rows at each masked pos
-    log_probs = torch.log_softmax(at_masked, dim=-1)         # amino-acid-restricted log-probs
-    tok = torch.tensor(token_ids, dtype=torch.long, device=device)
-    per_pos = log_probs[rows, tok]                           # [L] log p(true residue | rest)
+    logits = logits_of(model(input_ids=batch))                  # [span, sequence, vocab]
+    at_masked = ban_tokens(logits[rows, positions, :].clone(), banned_ids)
+    log_probs = torch.log_softmax(at_masked, dim=-1)             # [span, vocab]
+    candidate_tokens = torch.tensor(token_ids, dtype=torch.long, device=device)
+    token_log_probs = log_probs[rows, candidate_tokens]         # log p(residue | rest)
 
-    pll = float(per_pos.sum())
-    pseudo_ppl = float(torch.exp(-per_pos.mean()))
+    pll = float(token_log_probs.sum())
+    pseudo_ppl = float(torch.exp(-token_log_probs.mean()))
     return pll, pseudo_ppl

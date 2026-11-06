@@ -10,9 +10,10 @@ method's preparation, shared training/saving and method extensions. `common/`
 implements shared stages and utilities; it does not have an executable `main()` that
 the methods inherit or override. Argument classes inherit shared base classes;
 backbone descriptors and ordered registry mechanics also live in common.
-AR and S2S also share `common/eos_decoding.py`: their recovery arithmetic, dataset
-split, evaluation strategy and generation record, which differ only in the
-conditioning input, the sampler and how predictions line up with labels.
+AR and S2S also share `common/eos_decoding.py`: EOS command checks and decode-cap
+resolution, recovery arithmetic, dataset split, evaluation strategy and generation
+record. Their conditioning input, sampler and prediction/label alignment stay
+method-specific.
 The reference skeleton below describes the common sequence and its extension
 points using the existing callers.
 
@@ -30,7 +31,7 @@ have been reviewed.
 |---|---|---|
 | **1. Routing and configuration** | `methods/registry.py`; common and method `arguments.py`; method `train_cli.py`, `eval_cli.py` and `gen_cli.py`; root `train.py`, `generate.py`, `evaluate.py` as callers | Which command selects the method, how are settings resolved, and which stages does it invoke? |
 | **2. Models and tokenizers** | Common and method `backbones.py`; method `models/` | How are models and tokenizers built, saved and reloaded, and what input/output contract do they expose? |
-| **3. Training and checkpoint selection** | Common and method `training.py`; common `callbacks.py` and `losses.py`; MLM `losses.py` and `recovery.py`; AR/S2S metrics and dataset split in common `eos_decoding.py`; S2S `diagnostics.py` | What is supervised, how is loss computed, and how do validation, callbacks and checkpoint selection control the run? |
+| **3. Training and checkpoint selection** | Common and method `training.py`; common `callbacks.py` and `losses.py`; MLM `losses.py` and `recovery.py`; AR/S2S metrics and dataset split in common `eos_decoding.py`; `ConditioningProbe` in S2S `training.py` | What is supervised, how is loss computed, and how do validation, callbacks and checkpoint selection control the run? |
 | **4. MLM length handling** | MLM `length.py`: policies, prompts, fitted head, span sampling and evaluation adapters; length-related call sites in arguments, command modules and generation | What length information is allowed, how is the head fitted/loaded, and how does a policy produce a chosen length? |
 | **5. Candidate generation** | Common `generation.py` and common/method `sampling.py`; MLM and AR/S2S `generation.py` (AR/S2S records come from common `eos_decoding.py`) | How do context and decoding settings become candidate loops, and when is a draw considered complete? |
 | **6. Generative evaluation** | Common and method `evaluation.py`; MLM strategies in `length.py`; AR/S2S strategy in common `eos_decoding.py`; the already-reviewed `eval/generative.py` and `eval/metrics.py` as shared dependencies | How are candidates and native references passed separately into generation/scoring, how is judge context built, and which populations contribute to reported metrics? |
@@ -140,8 +141,25 @@ to `evaluation.run_generative_eval()` with already loaded resources.
 All three methods validate decoder/length options for their two saved-checkpoint
 commands through `arguments.validate_inference_args()` (AR/S2S also set
 `args.decoding`; MLM leaves that to `evaluation.resolve_decoding()`, which also
-serves `generation.prepare_generation()`). MLM's per-case length helper belongs to
-`length.py`. The CLI modules import only what `main()` wires up.
+serves `generation.prepare_generation()`). AR/S2S preparation calls
+`common.eos_decoding.resolve_eos_decode_cap()`; supplied-case generation also calls
+`validate_eos_case_lengths()`. AR retains native IgLM target-region setup locally.
+MLM's per-case length helper belongs to `length.py`. The CLI modules import only
+what `main()` wires up.
+
+Each method's `sampling.py` owns residue decoding and generator self-scoring:
+AR/S2S `perplexities()` and MLM `pseudo_log_likelihood()`. Both generation and
+evaluation import those functions. AR/S2S `evaluation.perplexities` remains
+available as a compatibility re-export; independent judge scoring stays in
+`eval/generative.py`.
+
+Shared sampling helpers accept dictionary, `.logits` and `(logits, ...)` model
+outputs. Default decoders use the same token bans and temperature/top-k/top-p
+filters; native hooks retain their own sampling protocol. AR/S2S token collection
+uses batched transfers while preserving the order of random draws and returned
+attempts. Their perplexity conversion returns `None` for non-finite or overflowing
+scores. MLM PLL scoring requires one candidate token per mask position; empty
+masked spans return immediately without a model forward or RNG use.
 
 ## Relationship graph
 
@@ -311,7 +329,7 @@ or use a benchmark-only adapter. IgLM supplies the worked native-protocol exampl
 | `run_setup.py` | Select/name output directories, update latest, save resolved configuration/provenance, supply dataset tags | Shared argument setup, method training workflows, visualization tables |
 | `callbacks.py` | `LogMetricsCallback` records Trainer log events; `build_callbacks()` adds requested early stopping | Method Trainer construction |
 | [visualization/training_results.py](../../visualization/training_results.py) | Export the epoch trajectory CSV and training-curve PNGs | `training.train_and_save()` |
-| `eos_decoding.py` | AR/S2S only: pooled recovery metrics, infilling dataset split, evaluation strategy and payload, generation record | AR and S2S `training.py`, `evaluation.py`, `generation.py` |
+| `eos_decoding.py` | AR/S2S only: EOS command setup, pooled recovery metrics, infilling dataset split, evaluation strategy and payload, generation record | AR and S2S `training.py`, `evaluation.py`, `generation.py` |
 
 Run configuration remains flat, with the same artifact names and dataset tags.
 The provenance checkout is located from the `cdrseqgen` package, independently

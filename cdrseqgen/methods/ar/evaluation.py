@@ -11,7 +11,7 @@ Classes/Functions:
   * evaluation_options  -- return method options for the shared command pipeline
   * CausalStrategy      -- supply AR prompts, sampling and generator self-scoring
   * run_generative_eval -- select frameworks, score candidates and return a payload
-  * perplexities        -- score candidate answers under their generating model
+  * perplexities        -- generator self-scorer, re-exported from ar.sampling
 
 Notes:
   * common.evaluation loads standalone resources and controls context regimes;
@@ -23,24 +23,21 @@ Notes:
   * Generated-loop results are separate from Trainer's teacher-forced recovery.
     Self-perplexity uses the generator; an independent judge has its own inputs.
 """
-import math
-
-import torch
-
 from cdrseqgen.datasets.dataset_ar import (
-    CAUSAL_DECODE_STEPS, build_causal_prompt, layout_for, validate_causal_decode_steps,
+    CAUSAL_DECODE_STEPS, build_causal_prompt, validate_causal_decode_steps,
 )
 from cdrseqgen.methods.ar.arguments import validate_inference_args
-from cdrseqgen.methods.ar.sampling import sample_loops
-from cdrseqgen.methods.common import logits_of
-from cdrseqgen.methods.common.eos_decoding import EosDecodingStrategy, run_eos_generative_eval
+from cdrseqgen.methods.ar.sampling import perplexities, sample_loops
+from cdrseqgen.methods.common.eos_decoding import (
+    EosDecodingStrategy, resolve_eos_decode_cap, run_eos_generative_eval,
+)
 
 
 def prepare_evaluation(args, config):
     """Validate AR evaluation, resolve settings in args and return None.
 
     Steps:
-      inference checks -> set causal/inferred modes -> resolve/check decode cap
+      inference checks -> set causal/inferred modes -> resolve_eos_decode_cap
 
     Only inferred length is supported. max_new_tokens comes from args, then saved
     gen_max_new_tokens, then the AR default. The shared standalone pipeline calls
@@ -50,9 +47,8 @@ def prepare_evaluation(args, config):
     if args.length_mode not in (None, 'inferred'):
         raise ValueError('AR evaluation chooses length via EOS; use --length_mode inferred')
     args.length_mode = 'inferred'
-    if args.max_new_tokens is None:
-        args.max_new_tokens = config.get('gen_max_new_tokens', CAUSAL_DECODE_STEPS)
-    validate_causal_decode_steps(args.max_new_tokens)
+    resolve_eos_decode_cap(args, config, default=CAUSAL_DECODE_STEPS,
+                          validate=validate_causal_decode_steps)
 
 
 def evaluation_options(args, device):
@@ -107,27 +103,3 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, max_new_tokens=CAUSAL
     """
     return run_eos_generative_eval(CausalStrategy, "ar", "causal", model, tokenizer, eval_dataset,
                                    max_new_tokens=max_new_tokens, **options)
-
-
-@torch.no_grad()
-def perplexities(model, tokenizer, device, spans):
-    """Return one generator perplexity per ordered (prompt, loop-token IDs) pair.
-
-    The layout builds each answer, including its terminator. Prompt labels are
-    ignored; logits/labels are shifted once for next-token prediction. Each score
-    is exp(mean answer-token NLL), using one forward pass per candidate.
-    Non-finite NLL yields None. Generation case reporting also uses this function.
-    """
-    scores = []
-    for prompt, answer_ids in spans:
-        answer = layout_for(tokenizer).build_answer(tokenizer, answer_ids)
-        ids = list(prompt) + answer
-        labels = [-100] * len(prompt) + answer
-        tensor = torch.tensor([ids], dtype=torch.long, device=device)
-        logits = logits_of(model(input_ids=tensor)).float()
-        gold = torch.tensor([labels], dtype=torch.long, device=device)
-        nll = torch.nn.functional.cross_entropy(
-            logits[:, :-1].reshape(-1, logits.size(-1)), gold[:, 1:].reshape(-1),
-            ignore_index=-100, reduction="mean")
-        scores.append(float(math.exp(nll.item())) if torch.isfinite(nll) else None)
-    return scores

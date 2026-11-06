@@ -11,7 +11,7 @@ Classes/Functions:
   * evaluation_options  -- return method options for the shared command pipeline
   * Seq2SeqStrategy     -- supply encoder inputs, sampling and generator self-scoring
   * run_generative_eval -- select frameworks, score candidates and return a payload
-  * perplexities        -- score candidate answers under their generating model
+  * perplexities        -- generator self-scorer, re-exported from s2s.sampling
 
 Notes:
   * common.evaluation loads standalone resources and controls context regimes;
@@ -23,24 +23,21 @@ Notes:
   * Generated-loop results are separate from Trainer's teacher-forced recovery.
     Self-perplexity uses the generator; an independent judge has its own inputs.
 """
-import math
-
-import torch
-
 from cdrseqgen.datasets.dataset_s2s import (
-    S2S_DECODE_STEPS, build_decoder_pair, build_encoder_input, validate_s2s_decode_steps,
+    S2S_DECODE_STEPS, build_encoder_input, validate_s2s_decode_steps,
 )
-from cdrseqgen.methods.common import logits_of
-from cdrseqgen.methods.common.eos_decoding import EosDecodingStrategy, run_eos_generative_eval
+from cdrseqgen.methods.common.eos_decoding import (
+    EosDecodingStrategy, resolve_eos_decode_cap, run_eos_generative_eval,
+)
 from cdrseqgen.methods.s2s.arguments import validate_inference_args
-from cdrseqgen.methods.s2s.sampling import sample_loops
+from cdrseqgen.methods.s2s.sampling import perplexities, sample_loops
 
 
 def prepare_evaluation(args, config):
     """Validate S2S evaluation, resolve settings in args and return None.
 
     Steps:
-      inference checks -> set seq2seq/inferred modes -> resolve/check decode cap
+      inference checks -> set seq2seq/inferred modes -> resolve_eos_decode_cap
 
     Only inferred length is supported. max_new_tokens comes from args, then saved
     gen_max_new_tokens, then the S2S default. The shared standalone pipeline calls
@@ -50,9 +47,8 @@ def prepare_evaluation(args, config):
     if args.length_mode not in (None, 'inferred'):
         raise ValueError('S2S evaluation chooses length via EOS; use --length_mode inferred')
     args.length_mode = 'inferred'
-    if args.max_new_tokens is None:
-        args.max_new_tokens = config.get('gen_max_new_tokens', S2S_DECODE_STEPS)
-    validate_s2s_decode_steps(args.max_new_tokens)
+    resolve_eos_decode_cap(args, config, default=S2S_DECODE_STEPS,
+                          validate=validate_s2s_decode_steps)
 
 
 def evaluation_options(args, device):
@@ -107,34 +103,3 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, max_new_tokens=S2S_DE
     """
     return run_eos_generative_eval(Seq2SeqStrategy, "s2s", "seq2seq", model, tokenizer,
                                    eval_dataset, max_new_tokens=max_new_tokens, **options)
-
-
-@torch.no_grad()
-def perplexities(model, tokenizer, device, spans):
-    """Return one generator perplexity per ordered (encoder IDs, loop IDs) pair.
-
-    build_decoder_pair() aligns decoder inputs and labels, including the answer
-    terminator; no further shift is applied. Each score is exp(mean answer-token
-    NLL). Consecutive candidates with the same encoder input reuse its encoding;
-    the decoder runs for each candidate. Non-finite NLL yields None.
-    Generation case reporting also uses this function.
-    """
-    # Cache only the most recently encoded framework.
-    scores = []
-    cached_source = None
-    encoded = None
-    for encoder_ids, loop_ids in spans:
-        decoder_input, labels = build_decoder_pair(tokenizer, loop_ids)
-        source_key = tuple(encoder_ids)
-        if source_key != cached_source:
-            source = torch.tensor([source_key], dtype=torch.long, device=device)
-            encoded = model.encode(source)
-            cached_source = source_key
-        decoder = torch.tensor([decoder_input], dtype=torch.long, device=device)
-        gold = torch.tensor([labels], dtype=torch.long, device=device)
-        logits = logits_of(model(encoder_hidden_states=encoded, decoder_input_ids=decoder)).float()
-        nll = torch.nn.functional.cross_entropy(
-            logits.reshape(-1, logits.size(-1)), gold.reshape(-1),
-            ignore_index=-100, reduction="mean")
-        scores.append(float(math.exp(nll.item())) if torch.isfinite(nll) else None)
-    return scores

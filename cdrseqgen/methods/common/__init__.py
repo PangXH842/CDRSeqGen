@@ -2,7 +2,7 @@
 
   * arguments.py  -- base ModelArguments / DataArguments / GenerationArguments, config+CLI parsing,
                      and run-directory setup. A method subclasses the bases and adds only its own.
-  * sampling.py   -- logit shaping (temperature/top-k/top-p) and model-output normalisation
+  * sampling.py   -- logit shaping, model-output access and finite perplexity conversion
   * callbacks.py  -- Trainer callbacks: metric logging always, early stopping on request
   * logging.py    -- console/file logging and uncaught-exception recording
   * run_setup.py  -- run directories, latest link, dataset tags and config/provenance
@@ -26,4 +26,4 @@ on the causal side, reintroducing a `train.log` regression fixed in July.
 """
 from cdrseqgen.methods.common.callbacks import build_callbacks  # noqa: F401
 from cdrseqgen.methods.common.sampling import (  # noqa: F401
-    NEG_INF, ban_tokens, logits_of, warp_logits)
+    NEG_INF, ban_tokens, logits_of, perplexity_from_nll, warp_logits)

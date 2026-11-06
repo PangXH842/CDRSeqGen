@@ -89,8 +89,8 @@ CDRSeqGen/
 │   │   │   ├── run_setup.py    # Run directories/latest, dataset tags and config/provenance
 │   │   │   ├── losses.py       # Aligned token cross-entropy shared by method objectives
 │   │   │   ├── transformer.py  # Custom-model validation, rotary self-attention, FFNs and initialization
-│   │   │   ├── sampling.py     # warp_logits / ban_tokens / logits_of — so "top_p=0.9" means the
-│   │   │   │                   #   same thing on both sides of an AR-vs-MLM table
+│   │   │   ├── sampling.py     # Shared logit filters, dict/attribute/tuple output access and
+│   │   │   │                   #   finite perplexity conversion for AR/S2S self-scores
 │   │   │   ├── callbacks.py    # LogMetricsCallback + build_callbacks; optional early stopping
 │   │   │   ├── eos_decoding.py # AR/S2S only: recovery metrics, dataset split, evaluation strategy and
 │   │   │   │                   #   generation record; they differ in context, sampler and alignment
@@ -103,9 +103,8 @@ CDRSeqGen/
 │   │   │   │                   #   resizes it: those rows start random (see its docstring)
 │   │   │   ├── training.py     # Preparation/finish hooks, datasets, recovery metrics and Trainer.
 │   │   │   │                   #   No masking view (nothing to hide), no loss registry (§13)
-│   │   │   ├── sampling.py     # Causal decode to <eos>. Replaces the masked side's sampling +
-│   │   │   │                   #   generation + length mechanics: the model picks its
-│   │   │   │                   #   own length, so §10's gap-sentinel head has no counterpart
+│   │   │   ├── sampling.py     # EOS decoding, native sampler delegation and generator self-ppl;
+│   │   │   │                   #   length comes from EOS, with one returned record per attempt
 │   │   │   ├── arguments.py    # Causal args: subclasses the shared bases, adds gen_max_new_tokens
 │   │   │   ├── train_cli.py    # Logging/config setup -> common training workflow + AR hooks
 │   │   │   ├── eval_cli.py     # main(): saved-checkpoint evaluation entrypoint
@@ -130,8 +129,8 @@ CDRSeqGen/
 │   │   │   │                   #   native tokenizers; all decoders use the same residue vocabulary
 │   │   │   ├── training.py     # Preparation/finish hooks, datasets, metrics and Trainer. Metrics do
 │   │   │   │                   #   NOT re-shift: dataset_s2s already offset the decoder pair
-│   │   │   ├── sampling.py     # Decode to <eos>. ONE encoder pass shared by every candidate, and
-│   │   │   │                   #   no padding at all — every decoder row starts at <bos>
+│   │   │   ├── sampling.py     # EOS decoding and generator self-ppl; sampling shares one encoder
+│   │   │   │                   #   pass, while self-scoring reuses consecutive framework encodings
 │   │   │   ├── evaluation.py   # Seq2SeqStrategy for the SHARED loop in eval/generative.py
 │   │   │   ├── generation.py   # generate.py callbacks: EOS-only length checks, seq2seq case record
 │   │   │   └── models/

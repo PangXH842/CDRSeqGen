@@ -22,16 +22,17 @@ from cdrseqgen.datasets.dataset_ar import (
     CAUSAL_DECODE_STEPS, build_causal_prompt, validate_causal_decode_steps,
 )
 from cdrseqgen.methods.ar.arguments import validate_inference_args
-from cdrseqgen.methods.ar.evaluation import perplexities
-from cdrseqgen.methods.ar.sampling import sample_loops
-from cdrseqgen.methods.common.eos_decoding import eos_case_record
+from cdrseqgen.methods.ar.sampling import perplexities, sample_loops
+from cdrseqgen.methods.common.eos_decoding import (
+    eos_case_record, resolve_eos_decode_cap, validate_eos_case_lengths,
+)
 
 
 def prepare_generation(args, cases, config):
     """Validate AR generation, resolve settings in args and return None.
 
     Steps:
-      inference checks -> reject case/CLI length controls -> resolve/check decode cap
+      validate_inference_args -> validate_eos_case_lengths -> resolve_eos_decode_cap
                        -> set the public target region for layouts that use it
 
     max_new_tokens comes from args, then saved gen_max_new_tokens, then the AR
@@ -39,15 +40,10 @@ def prepare_generation(args, cases, config):
     may use it to select a chain token. No model loading or sampling happens here.
     """
     validate_inference_args(args)
-    for case in cases:
-        for key in ('min_length', 'max_length', 'target_length', 'use_native_length'):
-            value = case.get(key, getattr(args, key, None))
-            if value is not None and value is not False:
-                raise ValueError(f'AR chooses length via EOS; {key} is unsupported')
+    validate_eos_case_lengths(args, cases, method="AR")
     args.max_new_tokens = getattr(args, 'max_new_tokens', None)
-    if args.max_new_tokens is None:
-        args.max_new_tokens = config.get('gen_max_new_tokens', CAUSAL_DECODE_STEPS)
-    validate_causal_decode_steps(args.max_new_tokens)
+    resolve_eos_decode_cap(args, config, default=CAUSAL_DECODE_STEPS,
+                          validate=validate_causal_decode_steps)
     # Only a layout that declares target_region as a public field reads this (IgLM's chain token).
     args.target_region = getattr(args, 'target_loop', None) or config.get('target_region')
     return None

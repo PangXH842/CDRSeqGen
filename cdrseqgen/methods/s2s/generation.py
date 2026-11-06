@@ -21,32 +21,28 @@ Notes:
 from cdrseqgen.datasets.dataset_s2s import (
     S2S_DECODE_STEPS, build_encoder_input, validate_s2s_decode_steps,
 )
-from cdrseqgen.methods.common.eos_decoding import eos_case_record
+from cdrseqgen.methods.common.eos_decoding import (
+    eos_case_record, resolve_eos_decode_cap, validate_eos_case_lengths,
+)
 from cdrseqgen.methods.s2s.arguments import validate_inference_args
-from cdrseqgen.methods.s2s.evaluation import perplexities
-from cdrseqgen.methods.s2s.sampling import sample_loops
+from cdrseqgen.methods.s2s.sampling import perplexities, sample_loops
 
 
 def prepare_generation(args, cases, config):
     """Validate S2S generation, resolve settings in args and return None.
 
     Steps:
-      inference checks -> reject case/CLI length controls -> resolve/check decode cap
+      validate_inference_args -> validate_eos_case_lengths -> resolve_eos_decode_cap
 
     max_new_tokens comes from args, then saved gen_max_new_tokens, then the S2S
     default. EOS selects the actual loop length. No model loading or sampling
     happens here.
     """
     validate_inference_args(args)
-    for case in cases:
-        for key in ('min_length', 'max_length', 'target_length', 'use_native_length'):
-            value = case.get(key, getattr(args, key, None))
-            if value is not None and value is not False:
-                raise ValueError(f'S2S chooses length via EOS; {key} is unsupported')
+    validate_eos_case_lengths(args, cases, method="S2S")
     args.max_new_tokens = getattr(args, 'max_new_tokens', None)
-    if args.max_new_tokens is None:
-        args.max_new_tokens = config.get('gen_max_new_tokens', S2S_DECODE_STEPS)
-    validate_s2s_decode_steps(args.max_new_tokens)
+    resolve_eos_decode_cap(args, config, default=S2S_DECODE_STEPS,
+                          validate=validate_s2s_decode_steps)
     return None
 
 

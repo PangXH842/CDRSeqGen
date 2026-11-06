@@ -7,7 +7,7 @@ import torch
 from transformers import Trainer, TrainingArguments
 from cdrseqgen.experiments import suite_trials, spec_trials
 from cdrseqgen.datasets.dataset_s2s import s2s_collate_fn
-from cdrseqgen.methods.s2s.diagnostics import ConditioningProbe
+from cdrseqgen.methods.s2s.training import ConditioningProbe
 from cdrseqgen.methods.s2s.models.transformer import build_model
 
 
