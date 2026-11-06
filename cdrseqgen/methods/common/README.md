@@ -109,7 +109,11 @@ parsing to its command module. The evaluation/generation commands supply their s
 to `common/evaluation.run_evaluation_pipeline()` or
 `common/generation.run_generation_pipeline()`. Those lifecycles handle shared
 compatibility checks, model/data loading and output setup. Generation preserves
-case order and delegates each scored record to the method's case producer.
+case order and delegates each scored record to the method's case producer. It
+also validates the supplied cases where they enter (`load_test_cases()`: one case
+object or a list, string `pt1`/`pt2`), cleans their residue strings (strip,
+uppercase), warns about residues the loaded tokenizer cannot encode, and creates
+and checks the output path before any weights load; results are written atomically.
 All three methods' evaluation and generation CLI modules supply their functions
 directly from `main()`.
 
@@ -160,6 +164,15 @@ uses batched transfers while preserving the order of random draws and returned
 attempts. Their perplexity conversion returns `None` for non-finite or overflowing
 scores. MLM PLL scoring requires one candidate token per mask position; empty
 masked spans return immediately without a model forward or RNG use.
+
+Both standalone pipelines check finite numeric sampling options through
+`common.arguments.validate_sampling_args()` before loading models. Scorers must
+return one scalar or `None` per candidate; `eval.generative.normalize_scores()`
+rejects count mismatches and excludes non-finite values from means and coverage.
+EOS attempt flags must agree before records are counted. MLM length handling checks
+prompt/reservation capacities and converts backbone features to the fitted head's
+device/dtype. Nested dataset views share `datasets.dataset_common.unwrap_subsets()`;
+judge inputs resolve to the corresponding full-corpus record or identical view.
 
 ## Relationship graph
 
@@ -282,7 +295,7 @@ Paths in this table are relative to `cdrseqgen/`.
 | Route a training request | `methods/registry.py`, root `train.py` | `<method>/train_cli.main()` |
 | Orchestrate the configured run | `common.training.run_training_pipeline()`: prepare → train/evaluate/save → finish | `train_cli.main()` supplies the method's `prepare_training` and `finish_training` |
 | Prepare standalone evaluation | `common/evaluation.run_evaluation_pipeline()`: checks, data/model/judge loading and output setup | `eval_cli.main()` supplies method-specific setup and evaluator functions |
-| Generate supplied frameworks | `common/generation.run_generation_pipeline()`: checks, loading, case coordination and output writing | `gen_cli.main()` supplies setup, state and case functions; each method builds and scores records in `generation.generate_case()`; AR/S2S delegate to `common/eos_decoding.eos_case_record()` |
+| Generate supplied frameworks | `common/generation.run_generation_pipeline()`: case validation and cleaning, compatibility and output-path checks, loading, case coordination and atomic output writing | `gen_cli.main()` supplies setup, state and case functions; each method builds and scores records in `generation.generate_case()`; AR/S2S delegate to `common/eos_decoding.eos_case_record()` |
 | Parse and validate settings | `methods/common/arguments.py`: base classes, parsing, validation, run initialization, and the flags `evaluate.py`/`generate.py` share (`add_sampling_arguments()`) | `<method>/arguments.py`: additional fields, validation and `setup_args()` |
 | Load input views and splits | `datasets/dataset_common.py`: context and split helpers | `<method>/training.get_datasets()` (AR/S2S through `common/eos_decoding.get_infilling_datasets()`) and `datasets/dataset_<method>.py` |
 | Load backbone and tokenizer | `methods/common/backbones.py`: shared descriptor, ordered registry and checkpoint/tokenizer helpers | `<method>/backbones.py`: its own registry instance, registrations and loaders; AR extends tokenizer construction with span-layout checks; S2S assembles its encoder/decoder; concrete models stay in `<method>/models/` |

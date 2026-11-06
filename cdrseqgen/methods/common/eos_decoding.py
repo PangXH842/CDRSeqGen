@@ -25,16 +25,18 @@ Notes:
 """
 import logging
 import random
+from collections.abc import Mapping
 
 import numpy as np
 import torch
 
+from cdrseqgen.artifacts import GENERATION_EVAL_SCHEMA
 from cdrseqgen.datasets.dataset_common import (
-    evaluation_context_view, framework_for_dataset, select_split_indices,
+    evaluation_context_view, framework_for_dataset, select_split_indices, unwrap_subsets,
 )
 from cdrseqgen.eval import ANCHOR_TRIM
 from cdrseqgen.eval.generative import (
-    Draw, SUMMARY_KEYS, aggregate, build_masked_judge_prompt, log_report, run_eval_loop,
+    Draw, SUMMARY_KEYS, aggregate, build_masked_judge_prompt, log_report, normalize_scores, run_eval_loop,
     select_indices, write_confidence_figure, write_payload,
 )
 from cdrseqgen.eval.metrics import (
@@ -84,11 +86,24 @@ def _partition_attempts(results):
 
     Retain completed nonempty loops in their original order, including duplicates.
     Count completed empty loops, terminated invalid draws and incomplete draws
-    separately. Each sampler result must provide complete and loop fields.
+    separately. Each result must supply a string loop and boolean complete.
+    Optional valid/terminated flags must agree with completion; contradictory
+    records raise ValueError rather than corrupting attempt counts.
     """
     kept = []
     empty = invalid = 0
     for result in results:
+        if not isinstance(result, Mapping) or not isinstance(result.get("loop"), str):
+            raise ValueError("sampler attempts must provide a string loop")
+        if not isinstance(result.get("complete"), bool):
+            raise ValueError("sampler attempts must provide a boolean complete flag")
+        for flag in ("valid", "terminated"):
+            if flag in result and not isinstance(result[flag], bool):
+                raise ValueError(f"sampler attempt {flag} must be a boolean")
+        if "valid" in result and result["valid"] != result["complete"]:
+            raise ValueError("sampler attempt valid and complete flags disagree")
+        if result["complete"] and result.get("terminated") is False:
+            raise ValueError("a complete sampler attempt cannot be unterminated")
         if result["complete"]:
             if result["loop"]:
                 kept.append(result)
@@ -272,10 +287,7 @@ class EosDecodingStrategy:
         """
         if self.judge_dataset is self.eval_dataset:
             return self.framework(i)
-        dataset, full_index = self.eval_dataset, i
-        while isinstance(dataset, torch.utils.data.Subset):
-            full_index = dataset.indices[full_index]
-            dataset = dataset.dataset
+        _, full_index = unwrap_subsets(self.eval_dataset, i)
         return framework_for_dataset(self.judge_dataset, full_index)
 
     # --- the strategy protocol --------------------------------------------------------------
@@ -319,22 +331,22 @@ class EosDecodingStrategy:
         if not kept:
             return None
         seqs = [r["loop"].upper() for r in kept]
-        extra = {
+        record_extra = {
             "attempts": counts["attempts"], "incomplete": counts["incomplete"],
             "empty": counts["complete_empty"],
             "length_matches": length_matches,
             "length_absolute_error_sum_capped": capped_error_sum,
         }
         if native_protocol is not None:
-            extra["invalid"] = counts["invalid"]
-            extra["conditioning"] = prompt_meta.get("conditioning")
+            record_extra["invalid"] = counts["invalid"]
+            record_extra["conditioning"] = prompt_meta.get("conditioning")
         return Draw(
             native=native,
             seqs=seqs,
             spans=[(context, self.tokenizer.encode(s)) for s in seqs],
             target_len=native_length,
             length_policy=self.payload_length_policy(),
-            record_extra=extra,
+            record_extra=record_extra,
         )
 
     @torch.no_grad()
@@ -422,7 +434,7 @@ def run_eos_generative_eval(strategy_class, method, mode, model, tokenizer, eval
 
     payload = dict(meta or {})
     payload.update({
-        "schema_version": "cdrseqgen.generation_eval.v1",
+        "schema_version": GENERATION_EVAL_SCHEMA,
         # A BLOSUM number without its matrix and gap penalties is not reproducible.
         "blosum": blosum_provenance(),
         "method": method,
@@ -471,6 +483,10 @@ def eos_case_record(model, tokenizer, device, args, generator, case, print_callb
     The native sequence/length never enters the generation framework. Native-
     protocol records also include conditioning, raw draws and separate invalid
     counts. Legacy case records group all noncomplete draws under incomplete.
+
+    The record matches MLM's: a candidate of another length than the native has
+    recovery=None, decoding.num_samples counts retained candidates, and metrics gain
+    perplexity_mean/min/max over the finite self-scores (MLM names them pseudo_*).
     """
     # ------ 1. Build the prompt/encoder input without native truth or length. ------
     pt1, pt2 = case['pt1'], case['pt2']
@@ -493,31 +509,37 @@ def eos_case_record(model, tokenizer, device, args, generator, case, print_callb
                             num_samples=args.num_samples, temperature=args.temperature,
                             top_k=args.top_k, top_p=args.top_p, max_new_tokens=args.max_new_tokens)
     kept, counts = _partition_attempts(attempts)
-    valid = [r['loop'] for r in kept]
+    seqs = [r['loop'].upper() for r in kept]
 
     # ------ 3. Score retained loops; reference truth is used only after generation. ------
     native = (case.get('target_truth') or '').strip().upper() or None
-    scores = [None] * len(valid) if args.skip_perplexity else perplexities(
-        model, tokenizer, device, [(context, tokenizer.encode(seq)) for seq in valid])
+    scores = [None] * len(seqs) if args.skip_perplexity else perplexities(
+        model, tokenizer, device, [(context, tokenizer.encode(seq)) for seq in seqs])
+    scores = normalize_scores(scores, len(seqs), label="case self scorer")
     samples = []
-    for seq, score in zip(valid, scores):
-        record = {'seq': seq, 'length': len(seq)}
+    for seq, score in zip(seqs, scores):
+        sample = {'seq': seq, 'length': len(seq)}
         if native:
-            record['length_match'] = len(seq) == len(native)
-            record['recovery'] = amino_acid_recovery(seq, native) if record['length_match'] else None
+            sample['length_match'] = len(seq) == len(native)
+            sample['recovery'] = amino_acid_recovery(seq, native) if sample['length_match'] else None
         if score is not None:
-            record['perplexity'] = score
-        samples.append(record)
-    metrics = calculate(valid, native)
-    lengths = [len(s) for s in valid]
-    unique_lengths = sorted(set(lengths))
+            sample['perplexity'] = score
+        samples.append(sample)
+    metrics = calculate(seqs, native)
+    scored = [sample['perplexity'] for sample in samples if 'perplexity' in sample]
+    if scored:
+        metrics['perplexity_mean'] = sum(scored) / len(scored)
+        metrics['perplexity_min'] = min(scored)
+        metrics['perplexity_max'] = max(scored)
+    generated_lengths = [len(seq) for seq in seqs]
+    distinct_lengths = sorted(set(generated_lengths))
+    gap_display = '/'.join(map(str, distinct_lengths)) or '—'
 
     # ------ 4. Print the case and return its existing output schema. ------
-    print_callback(case.get('name', 'Unnamed Test'), pt1, pt2,
-                   '/'.join(map(str, unique_lengths)) or '—', native, args, samples, metrics)
+    print_callback(case.get('name', 'Unnamed Test'), pt1, pt2, gap_display, native, args, samples, metrics)
     record = {'name': case.get('name', 'Unnamed Test'), 'pt1': pt1, 'pt2': pt2,
-              'native': native, 'target_length': unique_lengths[0] if len(unique_lengths) == 1 else None,
-              'generated_lengths': lengths, 'length_policy': {'mode': 'inferred', 'source': 'eos_token'},
+              'native': native, 'target_length': distinct_lengths[0] if len(distinct_lengths) == 1 else None,
+              'generated_lengths': generated_lengths, 'length_policy': {'mode': 'inferred', 'source': 'eos_token'},
               'samples': samples, 'metrics': metrics,
               'decoding': {'mode': mode, 'temperature': args.temperature, 'top_k': args.top_k,
                            'top_p': args.top_p, 'seed': args.seed, 'max_new_tokens': args.max_new_tokens,

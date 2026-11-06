@@ -27,7 +27,7 @@ import random
 
 import torch
 
-from cdrseqgen.artifacts import read_run_config
+from cdrseqgen.artifacts import GENERATION_EVAL_SCHEMA, read_run_config
 from cdrseqgen.eval import ANCHOR_TRIM
 from cdrseqgen.eval.generative import (
     SUMMARY_KEYS,
@@ -169,8 +169,13 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
 
     Example: two selected frameworks, num_samples=20, both draws succeed
       records:     2 framework records, each with 20 candidate sequences
+      n_selected:  2                 (frameworks chosen from the eval dataset)
       n_generated: 2                 (framework records, not candidate count)
       summary:     metric means across contributing framework records
+
+    The payload carries the same method, n_selected and schema_version keys as the AR/S2S
+    payload. It has no generation_validity block: every draw is retained, because the
+    length is chosen before decoding rather than discovered by an end-of-sequence token.
 
     Notes:
       * Native lengths support selection/reporting. Only fixed_native supplies
@@ -229,9 +234,10 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
 
     payload = dict(meta or {})
     payload.update({
-        "schema_version": "cdrseqgen.generation_eval.v1",
+        "schema_version": GENERATION_EVAL_SCHEMA,
         # A BLOSUM number without its matrix and gap penalties is not reproducible.
         "blosum": blosum_provenance(),
+        "method": "mlm",
         "judge": judge_name,
         "length_policy": strategy.payload_length_policy(),
         "anchor_trim_each_end": anchor_trim,
@@ -240,6 +246,7 @@ def run_generative_eval(model, tokenizer, eval_dataset, *, device,
             "top_k": top_k, "top_p": top_p, "seed": seed,
         },
         "n_eval_total": len(eval_dataset),
+        "n_selected": len(selected),
         "n_generated": len(records),
         "summary": {key: aggregate(records, key)[0] for key, _ in SUMMARY_KEYS},
         "records": records,

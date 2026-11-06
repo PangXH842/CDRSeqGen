@@ -591,10 +591,19 @@ multi-run comparison doesn't lose the other lines. Charts default to `results/fi
 
 ## Step 4: Qualitative Sampling on Curated Frameworks (`generate.py`)
 Give it a framework with its CDR loop cut out (`pt1` / gap / `pt2`) and it fills the gap: samples a
-library of candidate loops (default **iterative**) and prints them, each with recovery-vs-native (when
+library of candidate loops (default **independent**; a mixed-masking checkpoint keeps its recorded
+decoder) and prints them, each with recovery-vs-native (when
 you provide the native) and pseudo-perplexity, plus per-framework diversity/novelty. It also reports
 which CDR the checkpoint was trained for (read from `run_config.json`). Samples + metrics are written to
 `<model_dir>/generation_results.json`.
+
+> **Case files and output.** `--test_file` holds one case object or a list of them. Each case needs
+> string `pt1` and `pt2`; `name`, `target_truth`, `partner_chain`, `antigen` and the length controls are
+> optional. Residue strings are stripped and uppercased, so pasted lowercase sequence is safe. A gap,
+> space or digit *inside* a sequence is not repaired: the tokenizer would turn it into `<unk>`, so the run
+> **warns** (and records the warning under `model.compatibility.warnings`). An antigen's `X` chain
+> separator is exempt. A malformed file or an unwritable `--output` stops the run before any weights load;
+> missing output directories are created, and the results are written atomically.
 
 > **This is a showcase, not an evaluation.** `showcase/*.json` holds only a handful of curated
 > frameworks (mostly without natives). For numbers you can report, use **Step 5**, which draws real
@@ -628,14 +637,16 @@ which CDR the checkpoint was trained for (read from `run_config.json`). Samples 
 > heavy/light mix-up still cannot be detected this way.
 
 ```bash
-# design coherent loops for a batch of curated frameworks (default: iterative sampling)
+# design coherent loops for a batch of curated frameworks (default: independent sampling)
 # results/runs/latest is the newest batch — name the config under it (here: h3_OAS_scratch)
 # --model_dir is the checkpoint folder in generate.py, evaluate.py and fit_mlm_length.py; the first two also accept --model_path
-python generate.py --model_dir ./results/runs/latest/h3_OAS_scratch --test_file showcase/h3.json --use_native_length
+# lengths come from each case's target_length, else the checkpoint's length head; showcase cases lack a
+# target_truth to take a length from, so --use_native_length would stop at the first one that has none
+python generate.py --model_dir ./results/runs/latest/h3_OAS_scratch --test_file showcase/h3.json
 
-# more candidates + nucleus sampling
+# more candidates + iterative decoding + nucleus sampling
 python generate.py --model_dir ./results/runs/latest/h3_OAS_scratch --test_file showcase/h3.json \
-    --use_native_length --decoding iterative --num_samples 50 --top_p 0.9
+    --decoding iterative --num_samples 50 --top_p 0.9
 
 # a single framework straight from the CLI (equal bounds mean an exact length)
 python generate.py --model_dir ./results/runs/latest/h3_OAS_scratch --pt1 EVQL...YYCAR --pt2 WGQGT... \
@@ -669,7 +680,13 @@ python fit_mlm_length.py --model_dir results/path/to/old_run
 ```
 
 This discovers the run's saved `run_config.json`, keeping the original processed dataset and split.
-Use `--config path/to/config.json` only when the checkpoint has no saved run configuration.
+The command restores the checkpoint's tokenizer and validates that the run/config are MLM.
+Use `--config path/to/config.json` when the checkpoint has no saved configuration or an explicit
+fitting configuration is needed. `--epochs`, `--learning_rate` and `--batch_size` override its head
+settings; invalid or zero values fail before data/model loading. Refitting replaces the two length
+artifacts while leaving sequence weights unchanged. This is an optional repair/refit utility,
+not a required step after training has already fitted a suitable head. AR/S2S use EOS and do not
+need this command; exact/native-length MLM generation does not need the head either.
 Inspect the resulting `length_config.json` before generation: its held-out `eval_accuracy` and
 `eval_length_mae` should improve on `eval_mode_baseline_accuracy` and
 `eval_mode_baseline_length_mae`; otherwise the head is mostly reproducing the training-set mode.

@@ -4,7 +4,7 @@
 [Method workflow](../cdrseqgen/methods/common/README.md) ·
 [Benchmark adapters](../benchmark/adapters/README.md)
 
-Implementation reference: **5 November 2026**. IgLM demonstrates a dedicated
+Implementation reference: **6 November 2026**. IgLM demonstrates a dedicated
 model-family adapter: reuse the upstream architecture and preserve its native
 tokenizer, infilling format, checkpoint loading and sampling behavior.
 
@@ -66,6 +66,24 @@ This is the convention for dedicated adapters, not a claim that every existing
 MLM/S2S module already has the same organization. Some loaders still live in their
 method's `backbones.py`. The shared requirement is the
 [Backbone descriptor contract](../cdrseqgen/methods/common/backbones.py).
+
+## Inference contracts
+
+- Default token samplers require residue-compatible tokenization and logits shaped
+  `[batch, sequence, vocabulary]`. Dictionaries, `.logits` outputs and `(logits, ...)`
+  tuples are supported when no labels are passed to the model.
+- EOS samplers return one record per attempt, preserving order, duplicates and
+  failures. `loop` is a string; `complete`, and optional `valid`/`terminated`, are
+  coherent booleans. Contradictory records are rejected before counting.
+- Self/judge scorers return one scalar or `None` per candidate in the same order.
+  Wrong counts fail explicitly; NaN/Inf scores become unavailable before means and
+  coverage are computed. This also applies to supplied-case self-scoring.
+- Declare context capacities through the tokenizer/model metadata. MLM checks masks,
+  wrappers and reserved lengths before forwarding. Its length head converts frozen
+  backbone features to its own device/dtype, including FP16/BF16 inputs.
+- Both standalone commands validate numeric sampling options before model loading.
+  Native adapters retain additional family checks, such as IgLM's prompt format,
+  single-chain context and decoding policy.
 
 ## Register the family
 

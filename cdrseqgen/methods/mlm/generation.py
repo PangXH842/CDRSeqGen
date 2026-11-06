@@ -21,6 +21,7 @@ Notes:
 """
 
 from cdrseqgen.eval.metrics import amino_acid_recovery, calculate
+from cdrseqgen.eval.generative import normalize_scores
 from cdrseqgen.methods.mlm.arguments import validate_inference_args
 from cdrseqgen.methods.mlm.evaluation import resolve_decoding
 from cdrseqgen.methods.mlm.length import (
@@ -77,8 +78,10 @@ def generate_case(model, tokenizer, device, args, generator, case, state, print_
       4. Call print_callback() and return the JSON-ready case record.
 
     state is the optional saved length head from generation_state(). Native truth
-    is optional; per-candidate AAR requires a native-length match. skip_perplexity
-    disables generator pseudo-perplexity. No external judge is loaded here.
+    is optional; per-candidate AAR requires a native-length match, and a candidate of
+    another length records recovery=None, as in the AR/S2S case records.
+    decoding.num_samples counts the retained candidates. skip_perplexity disables
+    generator pseudo-perplexity. No external judge is loaded here.
     """
     # ------ 1. Resolve this case's length policy and conditioning inputs. ------
     native, length_policy = resolve_case_length(case, args)
@@ -112,11 +115,10 @@ def generate_case(model, tokenizer, device, args, generator, case, state, print_
     samples = []
     for generated_span in generated:
         seq = tokenizer.decode(generated_span.token_ids).upper().strip()
-        entry = {"seq": seq, "length": len(seq)}
+        sample = {"seq": seq, "length": len(seq)}
         if native:
-            entry["length_match"] = len(seq) == len(native)
-            if entry["length_match"]:
-                entry["recovery"] = amino_acid_recovery(seq, native)
+            sample["length_match"] = len(seq) == len(native)
+            sample["recovery"] = amino_acid_recovery(seq, native) if sample["length_match"] else None
         if not args.skip_perplexity:
             _, perplexity = pseudo_log_likelihood(
                 model,
@@ -127,20 +129,28 @@ def generate_case(model, tokenizer, device, args, generator, case, state, print_
                 tokenizer.mask_id,
                 device,
             )
-            entry["pseudo_perplexity"] = perplexity
-        samples.append(entry)
+            sample["pseudo_perplexity"] = perplexity
+        samples.append(sample)
 
+    if not args.skip_perplexity:
+        scores = normalize_scores([sample["pseudo_perplexity"] for sample in samples],
+                                  len(samples), label="MLM case self scorer")
+        for sample, score in zip(samples, scores):
+            if score is None:
+                sample.pop("pseudo_perplexity")
+            else:
+                sample["pseudo_perplexity"] = score
     seqs = [sample["seq"] for sample in samples]
     metrics = calculate(seqs, native)
-    if not args.skip_perplexity and samples:
-        perplexities = [sample["pseudo_perplexity"] for sample in samples]
+    perplexities = [sample["pseudo_perplexity"] for sample in samples if "pseudo_perplexity" in sample]
+    if perplexities:
         metrics["pseudo_perplexity_mean"] = sum(perplexities) / len(perplexities)
         metrics["pseudo_perplexity_min"] = min(perplexities)
         metrics["pseudo_perplexity_max"] = max(perplexities)
 
     # ------ 4. Display the case and return its candidates and metadata. ------
-    selected_lengths = [sample["length"] for sample in samples]
-    distinct_lengths = sorted(set(selected_lengths))
+    generated_lengths = [sample["length"] for sample in samples]
+    distinct_lengths = sorted(set(generated_lengths))
     gap_display = "/".join(map(str, distinct_lengths)) or "—"
     print_callback(name, pt1, pt2, gap_display, native, args, samples, metrics)
 
@@ -149,7 +159,7 @@ def generate_case(model, tokenizer, device, args, generator, case, state, print_
         "pt1": pt1,
         "pt2": pt2,
         "target_length": distinct_lengths[0] if len(distinct_lengths) == 1 else None,
-        "generated_lengths": selected_lengths,
+        "generated_lengths": generated_lengths,
         "length_policy": length_metadata,
         "native": native,
         "decoding": {

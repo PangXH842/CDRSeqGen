@@ -29,6 +29,9 @@ LENGTH_HEAD_FILENAME = "length_head.safetensors"
 # trial with no generative metrics, not an error).
 GENERATION_EVAL_FILENAME = "generation_eval.json"
 CONTEXT_ABLATION_FILENAME = "generation_eval_without_partner.json"
+# The payload's schema_version, shared by every method's evaluator: MLM and the EOS methods each
+# wrote the literal, and a payload whose version differs by one character reads as a different schema.
+GENERATION_EVAL_SCHEMA = "cdrseqgen.generation_eval.v1"
 EPOCH_METRICS_FILENAME = "epoch_metrics.csv"
 
 # A processed corpus carries its provenance in a sibling file: data.json -> data.metadata.json.

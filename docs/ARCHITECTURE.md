@@ -311,7 +311,7 @@ select frameworks -> strategy.draw -> sequence metrics + self/judge scores
                   -> report / JSON / optional confidence figure
 ```
 
-The strategy owns generation and validity accounting; the method's `run_generative_eval()` assembles and saves the payload. [`metrics.py`](../cdrseqgen/eval/metrics.py) defines the sequence comparisons. Their eligible candidates differ:
+The strategy owns generation and validity accounting; the method's `run_generative_eval()` assembles and saves the payload. All three methods write the same payload keys (`schema_version` from `artifacts.GENERATION_EVAL_SCHEMA`, `method`, `n_selected`, `n_generated`, `summary`, `records`, ...); only AR/S2S add `generation_validity`, because MLM chooses a length before decoding and retains every draw. Each strategy maps an eval-subset index to its corpus record through `dataset_common.unwrap_subsets()`, so nested `Subset` views resolve the same way everywhere. [`metrics.py`](../cdrseqgen/eval/metrics.py) defines the sequence comparisons. Their eligible candidates differ:
 
 | Metric | Candidates included |
 |---|---|

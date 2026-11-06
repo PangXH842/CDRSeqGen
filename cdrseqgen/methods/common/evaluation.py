@@ -44,7 +44,7 @@ from cdrseqgen.artifacts import (
 )
 from cdrseqgen.datasets.dataset_common import evaluation_context_view
 from cdrseqgen.eval.generative import build_judge
-from cdrseqgen.methods.common.arguments import parse_config_dict
+from cdrseqgen.methods.common.arguments import parse_config_dict, validate_sampling_args
 from cdrseqgen.methods.registry import resolve
 
 logger = logging.getLogger(__name__)
@@ -225,6 +225,7 @@ def run_evaluation_pipeline(method, args, supplied_config, run_config, *,
     recorded compatibility mismatches; other errors propagate to the caller.
     """
     # ------ 1.1 Resolve the method, normalize its options and parse the config. ------
+    validate_sampling_args(args)
     method = resolve(method)
     prepare_evaluation(args, run_config or supplied_config)
     argument_module = method.module('arguments')

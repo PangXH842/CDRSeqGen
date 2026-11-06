@@ -17,9 +17,10 @@ Workflow:
        -> common.training.run_training_pipeline()
        -> prepare_training -> train_and_save -> finish_training.
 
-The method CLI and argument setup handle full parsing, validation and run setup.
-Model/data preparation and Trainer execution happen in the training modules.
-A method override still requires config fields accepted by the selected method.
+Notes:
+  * The method CLI and argument setup handle full parsing, validation and run setup.
+  * Model/data preparation and Trainer execution happen in the training modules.
+  * A method override still requires config fields accepted by the selected method.
 """
 import json
 import os

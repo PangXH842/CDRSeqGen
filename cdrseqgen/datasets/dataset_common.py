@@ -11,6 +11,7 @@ Entities:
     * framework_parts         -- return raw framework/target/context strings for inference-side prompt builders
   * select_split_indices      -- the shared eval_split guard; never duplicate it per method
   * evaluation_context_view   -- same records, training context dropout disabled
+  * unwrap_subsets            -- the underlying dataset and index behind a nested Subset position
   * framework_for_dataset     -- raw framework strings through a nested Subset index
   * pad_batch / length_mask / validate_decode_steps
                               -- batch and decode-budget helpers the three method views share
@@ -294,11 +295,22 @@ def validate_decode_steps(max_new_tokens, cap, budget):
     return max_new_tokens
 
 
-def framework_for_dataset(dataset, index):
-    """Resolve a possibly nested ``Subset`` index to its dataset's raw framework strings."""
+def unwrap_subsets(dataset, index):
+    """Return (underlying dataset, its index) for a position in a possibly nested ``Subset``.
+
+    Example: eval=Subset(Subset(full, [4, 1, 5, 2]), [2, 0]), index 0 -> (full, 5).
+    Every wrapping level is resolved, so a caller never has to know how deeply a view is nested;
+    resolving one level by hand and then calling this maps the index twice.
+    """
     while isinstance(dataset, torch.utils.data.Subset):
         index = dataset.indices[index]
         dataset = dataset.dataset
+    return dataset, index
+
+
+def framework_for_dataset(dataset, index):
+    """Resolve a possibly nested ``Subset`` index to its dataset's raw framework strings."""
+    dataset, index = unwrap_subsets(dataset, index)
     if not hasattr(dataset, "framework_parts"):
         raise TypeError("variable-length generation requires a dataset with framework_parts()")
     return dataset.framework_parts(index)

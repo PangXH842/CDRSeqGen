@@ -18,6 +18,7 @@ Workflow:                                      [*] = method-specific strategy ho
 Entities and helpers:
   * Draw                       -- one framework's candidates and scoring inputs
   * bucket_of                  -- reference-length bucket used in selection and reports
+  * normalize_scores           -- require one scalar score per candidate; exclude NaN/Inf
   * build_masked_judge_prompt  -- framework + candidate length -> judge input and mask positions
   * [*] payload_length_policy  -- strategy metadata read by the method wrapper
 
@@ -30,11 +31,12 @@ Notes:
     equal weight. Each metric can have a different eligible population.
 """
 import logging
+import math
 import os
-import random
 import statistics
 from collections import defaultdict
 from dataclasses import dataclass, field
+from numbers import Number
 
 import torch
 
@@ -43,8 +45,8 @@ from cdrseqgen.datasets.dataset_common import inject_context
 from cdrseqgen.datasets.dataset_mlm import assemble_masked_input
 from cdrseqgen.eval.metrics import (LENGTH_BUCKETS, amino_acid_recovery, calculate,
                                     blosum_aligned_ratio, blosum_identity_ratio,
-                                    blosum_provenance, confidence_metrics,
-                                    core_anchor_indices, recovery_at_indices)
+                                    confidence_metrics, core_anchor_indices,
+                                    recovery_at_indices)
 from cdrseqgen.eval import ANCHOR_TRIM
 
 logger = logging.getLogger(__name__)
@@ -253,6 +255,49 @@ def log_report(records, title="", judge_name=None):
     logger.info(format_report(records, title=title, judge_name=judge_name))
 
 
+def normalize_scores(scores, expected_count, *, label):
+    """Return ordered float/None scores, requiring one entry per candidate.
+
+    Example: [2.0, NaN, None] -> [2.0, None, None].
+    Finite numeric scalars retain their values; non-finite values become unavailable.
+    A wrong count or nonnumeric/non-scalar entry raises ValueError with the scorer
+    label. Scalar tensors are accepted; strings and booleans are not scores.
+    """
+    try:
+        values = list(scores)
+    except TypeError as exc:
+        raise ValueError(f"{label} must return one score or None per candidate") from exc
+    if len(values) != expected_count:
+        raise ValueError(
+            f"{label} returned {len(values)} scores for {expected_count} candidates"
+        )
+
+    normalized = []
+    nonfinite = 0
+    for index, score in enumerate(values):
+        if score is None:
+            normalized.append(None)
+            continue
+        numeric = isinstance(score, Number) and not isinstance(score, bool)
+        if isinstance(score, torch.Tensor):
+            numeric = score.ndim == 0 and score.dtype != torch.bool
+        if not numeric:
+            raise ValueError(f"{label} score {index} must be a numeric scalar or None")
+        try:
+            value = float(score)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"{label} score {index} must be a real numeric scalar or None") from exc
+        if math.isfinite(value):
+            normalized.append(value)
+        else:
+            normalized.append(None)
+            nonfinite += 1
+    if nonfinite:
+        logger.warning("%s returned %d non-finite score(s); treating them as unavailable",
+                       label, nonfinite)
+    return normalized
+
+
 def run_eval_loop(strategy, selected, *, model, tokenizer, device, skip_perplexity,
                   judge_model, judge_tokenizer, anchor_trim=ANCHOR_TRIM):
     """Return scored framework records for the selected evaluation indices.
@@ -273,9 +318,8 @@ def run_eval_loop(strategy, selected, *, model, tokenizer, device, skip_perplexi
       * skip_perplexity disables self-scoring only; an enabled judge still scores.
       * Core/anchor recovery, positional BLOSUM and confidence use length-matched
         candidates; aligned BLOSUM accepts non-empty candidates of any length.
-      * Self-score lists must match candidate order and length. The current zip
-        silently truncates unequal lists when building candidate records.
-      * Score means and judge coverage exclude only None; NaN/Inf currently pass through.
+      * Self/judge score lists must match candidate count; mismatches raise ValueError.
+      * Non-finite scores become None before means, coverage and candidate records.
       * Means within a record weight eligible draws equally; aggregate handles frameworks.
       * The strategy owns generator execution; model/tokenizer are unused interface args.
         device is used for judging. Errors propagate; persistence happens in the wrapper.
@@ -298,15 +342,19 @@ def run_eval_loop(strategy, selected, *, model, tokenizer, device, skip_perplexi
         # Let the strategy supply the generator's own scoring factorization.
         self_perplexities = [None] * len(drawn.seqs)
         if not skip_perplexity:
-            self_perplexities = strategy.self_scores(drawn)
+            self_perplexities = normalize_scores(
+                strategy.self_scores(drawn), len(drawn.seqs),
+                label=f"self scorer at eval index {i}",
+            )
             scored_self = [p for p in self_perplexities if p is not None]
             if scored_self:
                 metrics["self_perplexity_mean"] = sum(scored_self) / len(scored_self)
 
         judge_perplexities = [None] * len(drawn.seqs)
         if judge_model is not None:
-            judge_perplexities = score_with_judge(
-                strategy, i, drawn.seqs, judge_model, judge_tokenizer, device
+            judge_perplexities = normalize_scores(
+                score_with_judge(strategy, i, drawn.seqs, judge_model, judge_tokenizer, device),
+                len(drawn.seqs), label=f"judge scorer at eval index {i}",
             )
             scored = [p for p in judge_perplexities if p is not None]
             if scored:
@@ -317,7 +365,7 @@ def run_eval_loop(strategy, selected, *, model, tokenizer, device, skip_perplexi
             if len(scored) < len(drawn.seqs):
                 logger.warning(
                     f"⚠️  judge scored {len(scored)}/{len(drawn.seqs)} candidates on "
-                    f"eval index {i} (tokenizer length disagreement); judge_perplexity_mean "
+                    f"eval index {i} (unavailable scores); judge_perplexity_mean "
                     "covers only those."
                 )
 
@@ -387,7 +435,7 @@ def score_with_judge(strategy, i, seqs, judge_model, judge_tokenizer, device):
       * strategy.judge_inputs(i, seq) supplies (input_ids, mask_positions) or None.
       * Missing prompts and token/mask count mismatches produce None placeholders.
       * Special-token logits are banned; sequence order and list length are preserved.
-      * Other errors propagate; NaN/Inf scorer outputs are currently not filtered.
+      * Other errors propagate; run_eval_loop validates count and filters NaN/Inf.
       * The local import loads the MLM scorer only when judging is requested.
     """
     from cdrseqgen.methods.mlm.sampling import pseudo_log_likelihood

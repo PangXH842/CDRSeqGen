@@ -40,6 +40,7 @@ import torch
 from torch import nn
 
 from cdrseqgen.artifacts import LENGTH_CONFIG_FILENAME, LENGTH_HEAD_FILENAME
+from cdrseqgen.datasets.dataset_common import unwrap_subsets
 from cdrseqgen.datasets.dataset_mlm import (
     assemble_masked_input,
     framework_for_dataset,
@@ -321,6 +322,21 @@ class FixedLengthPrompt:
         }
 
 
+def _check_prompt_capacity(token_count, *, max_len=None, tokenizer=None, model=None):
+    """Reject a prompt or reserved span exceeding a declared token capacity."""
+    limits = [("max_len", max_len)]
+    for owner, names in (
+        (tokenizer, ("max_positions",)),
+        (getattr(tokenizer, "backend_tokenizer", None), ("model_max_length",)),
+        (getattr(model, "config", None), ("max_position_embeddings", "n_positions")),
+    ):
+        for name in names:
+            limits.append((name, getattr(owner, name, None)))
+    for name, limit in limits:
+        if isinstance(limit, int) and not isinstance(limit, bool) and limit > 0 and token_count > limit:
+            raise ValueError(f"MLM prompt requires {token_count} tokens but {name} allows {limit}")
+
+
 def _prepare_masked_prompt(
     tokenizer, pt1, pt2, *, mask_length, reserve_length,
     partner_chain=None, antigen=None, max_len=256,
@@ -330,6 +346,11 @@ def _prepare_masked_prompt(
     Residue prompt: mask_length=N, reserve_length=N.
     Length prompt:  mask_length=1, reserve_length=longest supported class.
     """
+    if isinstance(max_len, bool) or not isinstance(max_len, int) or max_len <= 0:
+        raise ValueError("max_len must be a positive integer")
+    wrappers = 2 if tokenizer.uses_special_tokens else 0
+    _check_prompt_capacity(max(mask_length, reserve_length) + wrappers,
+                           max_len=max_len, tokenizer=tokenizer)
     left, right = tokenizer.encode(pt1), tokenizer.encode(pt2)
     original_left, original_right = len(left), len(right)
     left, right = inject_context(
@@ -337,6 +358,8 @@ def _prepare_masked_prompt(
         partner_seq=partner_chain, antigen_seq=antigen, max_len=max_len,
     )
     input_ids, start = assemble_masked_input(tokenizer, left, right, mask_length)
+    _check_prompt_capacity(len(input_ids) + max(0, reserve_length - mask_length),
+                           max_len=max_len, tokenizer=tokenizer)
     return FixedLengthPrompt(
         input_ids=input_ids, mask_positions=list(range(start, start + mask_length)),
         target_length=mask_length, max_len=max_len,
@@ -411,6 +434,7 @@ def _hidden_states_of(outputs):
 @torch.no_grad()
 def extract_gap_features(model, input_ids, attention_mask, gap_positions):
     """Return final-layer hidden vectors at each batch row's sentinel position."""
+    _check_prompt_capacity(input_ids.size(-1), model=model)
     outputs = model(
         input_ids=input_ids,
         attention_mask=attention_mask,
@@ -423,7 +447,10 @@ def extract_gap_features(model, input_ids, attention_mask, gap_positions):
 
 
 class LengthHead(nn.Module):
-    """Small classifier trained on frozen sequence-model sentinel features."""
+    """Classify frozen sentinel features using the head's own device and dtype.
+
+    Backbone features may be FP16/BF16 while the fitted head remains FP32.
+    """
 
     def __init__(self, feature_dim: int, n_lengths: int):
         super().__init__()
@@ -431,6 +458,9 @@ class LengthHead(nn.Module):
         self.classifier = nn.Linear(feature_dim, n_lengths)
 
     def forward(self, features):
+        # Frozen backbones may emit BF16/FP16; the fitted head owns its compute dtype.
+        features = features.to(device=self.normalization.weight.device,
+                               dtype=self.normalization.weight.dtype)
         return self.classifier(self.normalization(features))
 
 
@@ -505,6 +535,8 @@ class LengthPredictor:
             max_len=max_len,
             reserve_length=self.reserve_length,
         )
+        _check_prompt_capacity(len(prompt.input_ids) + self.reserve_length - 1,
+                               max_len=max_len, tokenizer=tokenizer, model=model)
         ids = torch.tensor([prompt.input_ids], dtype=torch.long, device=device)
         attention = torch.ones_like(ids)
         positions = torch.tensor([prompt.gap_position], dtype=torch.long, device=device)
@@ -603,6 +635,8 @@ def _extract_dataset_features(
             max_len=framework["max_len"],
             reserve_length=reserve_length,
         ))
+        _check_prompt_capacity(len(prompts[-1].input_ids) + reserve_length - 1,
+                               max_len=framework["max_len"], tokenizer=tokenizer, model=model)
         labels.append(int(framework["target_length"]))
 
     if not prompts:
@@ -845,6 +879,8 @@ def sample_length_conditioned_spans(
     results, prompts = [None] * count, {}
     for length, positions in groups.items():
         prompt = prepare_fixed_length_prompt(tokenizer, target_length=length, **context)
+        _check_prompt_capacity(len(prompt.input_ids), max_len=max_len,
+                               tokenizer=tokenizer, model=model)
         prompts[str(length)] = prompt.metadata()
         sampled = sample_masked_span(
             model, tokenizer, device, generator, prompt.input_ids, prompt.mask_positions,
@@ -910,12 +946,15 @@ class _EvaluationStrategy:
         ]
 
     def _full_index(self, i):
-        return self.eval_dataset.indices[i] if hasattr(self.eval_dataset, "indices") else i
+        """Map i to the full judge corpus; identical generator/judge views keep i."""
+        if self.judge_dataset is self.eval_dataset:
+            return i
+        return unwrap_subsets(self.eval_dataset, i)[1]
 
     def _cached_judge(self, i, build):
         """One-entry cache for the judge side of framework i; build(full_index) fills it.
 
-        The judge dataset uses the full corpus order, so the eval Subset index is mapped first.
+        A separate judge dataset uses full-corpus order; an identical view keeps its own index.
         """
         if self._judge_cache[0] != i:
             self._judge_cache = (i, build(self._full_index(i)))
@@ -941,6 +980,7 @@ class FixedNativeStrategy(_EvaluationStrategy):
             return None
         policy = native_mask_length(len(mask_positions))
         native = self.tokenizer.decode(native_ids).upper().strip()
+        _check_prompt_capacity(len(input_ids), tokenizer=self.tokenizer, model=self.model)
         sampled_ids = sample_masked_span(
             self.model, self.tokenizer, self.device, self.generator,
             input_ids, mask_positions,

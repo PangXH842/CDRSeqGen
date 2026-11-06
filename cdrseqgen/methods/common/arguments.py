@@ -18,6 +18,7 @@ Functions:
   * parse_config_and_cli -- read JSON + optional overrides, or bare CLI arguments
   * validate_common_args, validate_anchor_trim, validate_early_stopping, validate_attention_heads,
     validate_no_label_smoothing      -- reject a bad config before initialize_run
+  * validate_sampling_args          -- finite numeric sampling checks for training and inference
   * initialize_run                  -- name the run from RESOLVED arguments, create it, start its log
   * add_sampling_arguments          -- flags shared by evaluate.py and generate.py (gen_* twins)
   In each method:
@@ -38,9 +39,11 @@ from argparse import SUPPRESS
 from copy import deepcopy
 import json
 import logging
+import math
 import os
 import sys
 from dataclasses import dataclass, field, fields as dataclass_fields
+from numbers import Real
 from pathlib import Path
 from typing import Optional
 
@@ -147,6 +150,51 @@ def validate_anchor_trim(value):
         raise ValueError("anchor_trim must be a non-negative integer")
 
 
+def validate_sampling_args(args, *, prefix=""):
+    """Validate shared sampling numbers before inference or run initialization.
+
+    prefix='gen_' reads training generation settings; an empty prefix reads
+    standalone command flags. Absent fields are ignored for partial namespaces.
+    Optional max_len=None means use the checkpoint cap. Method-specific decoder
+    and length-policy checks remain in each method's preparation function.
+    """
+    for name, minimum, description in (
+        ("num_samples", 1, "a positive integer"),
+        ("top_k", 0, "a non-negative integer"),
+        ("num_examples", -1, "-1 (all) or a non-negative integer"),
+    ):
+        key = prefix + name
+        if hasattr(args, key):
+            value = getattr(args, key)
+            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+                raise ValueError(f"{key} must be {description}")
+
+    for name in ("temperature", "length_temperature", "top_p"):
+        key = prefix + name
+        if not hasattr(args, key):
+            continue
+        value = getattr(args, key)
+        try:
+            finite = isinstance(value, Real) and not isinstance(value, bool) and math.isfinite(value)
+        except OverflowError:
+            finite = False
+        if name == "top_p":
+            if not finite or not 0.0 < value <= 1.0:
+                raise ValueError(f"{key} must be finite and in (0, 1]")
+        elif not finite or value < 0:
+            raise ValueError(f"{key} must be finite and non-negative")
+
+    if not prefix:
+        for key, minimum in (("max_len", 1), ("show_samples", 0)):
+            if not hasattr(args, key):
+                continue
+            value = getattr(args, key)
+            if key == "max_len" and value is None:
+                continue
+            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+                raise ValueError(f"{key} must be an integer >= {minimum}")
+
+
 def validate_common_args(model_args, data_args, gen_args, *, expected_method):
     """Validate the method, target loop, context and sampling settings every method shares.
 
@@ -170,16 +218,7 @@ def validate_common_args(model_args, data_args, gen_args, *, expected_method):
         if not data_args.include_partner_chain or not gen_args.run_generative_eval or gen_args.gen_num_examples == 0:
             raise ValueError("gen_eval_context_ablation requires partner context and generative evaluation")
     validate_anchor_trim(model_args.anchor_trim)
-    if gen_args.gen_num_examples < -1:
-        raise ValueError("gen_num_examples must be -1 (all) or non-negative")
-    if gen_args.gen_num_samples <= 0:
-        raise ValueError("gen_num_samples must be positive")
-    if gen_args.gen_temperature < 0:
-        raise ValueError("gen_temperature must be non-negative")
-    if gen_args.gen_top_k < 0:
-        raise ValueError("gen_top_k must be non-negative")
-    if not 0.0 < gen_args.gen_top_p <= 1.0:
-        raise ValueError("gen_top_p must be in (0, 1]")
+    validate_sampling_args(gen_args, prefix="gen_")
 
 
 def validate_early_stopping(model_args, training_args):
