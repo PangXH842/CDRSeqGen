@@ -21,13 +21,10 @@ Workflow:
        -> load data and model -> evaluation_options -> load judge (optional)
        -> run_generative_eval -> candidate records, summary and optional JSON/figure output.
 
-The decoder, sampling and length flags are shared with generate.py and come from
-methods/common/arguments.add_sampling_arguments(); this file adds only the evaluation-specific ones.
-Shared validation, loading, compatibility, provenance and output setup live in
-methods/common/evaluation.py, whose checks run before any model loads; the dataset split named in
---config decides validation versus test use. The method evaluator generates and scores the loops,
-and MLM, AR and S2S write one payload schema. The shared helpers imported from common.evaluation
-stay importable here for callers of the original root module.
+Notes:
+  * Train/test/val dataset split should be provided in --config file
+  * Shared flags come from methods/common/arguments.add_sampling_arguments().
+  * methods/common/evaluation.py also records the run's provenance.
 """
 import argparse
 import json
@@ -42,12 +39,6 @@ from cdrseqgen.methods.common.evaluation import (
 
 
 def build_parser():
-    """Return the evaluation argument parser.
-
-    --config and --model_dir are required. The decoder, sampling and length flags are the ones
-    generate.py shares; the others pick the frameworks (--num_examples, --stratify), the MLM
-    length track, the independent judge, the output path and the context/compatibility overrides.
-    """
     parser = argparse.ArgumentParser(description="Generate and score CDR designs on the configured validation/test split.")
     parser.add_argument("--config", required=True, help="Original config JSON used to train the run.")
     parser.add_argument("--model_dir", "--model_path", dest="model_dir", required=True,
@@ -80,22 +71,12 @@ def build_parser():
 
 
 def parse_args(argv=None):
-    """Parse argv (default: sys.argv[1:]) into evaluation settings; a bad flag exits with usage."""
     return build_parser().parse_args(argv)
 
 
-# ---------- MAIN EVALUATION CALLER ----------
+# ---------- MAIN ----------
 def main(args=None):
-    """Route to the checkpoint's method and return its evaluation payload.
-
-    Selection order:
-      --config's method field          -> MLM when it declares none
-      a saved run_config.json must declare that same method, or ValueError
-
-    args=None parses sys.argv. The config and run_config.json are read here only to route;
-    the method CLI receives both again for parsing, compatibility checks and provenance.
-    """
-    # ------ 1. Parse the flags and read the routing metadata. ------
+    # ------ 1. read configs, parse args ------
     args = parse_args() if args is None else args
     with open(args.config) as handle:
         supplied_config = json.load(handle)
@@ -103,12 +84,12 @@ def main(args=None):
         raise ValueError("--config must contain a JSON object")
     run_config = read_run_config(args.model_dir)
 
-    # ------ 2. Choose the method; a saved run must agree with it. ------
+    # ------ 2. select method ------
     method = resolve(supplied_config.get('method', DEFAULT_METHOD))
     if run_config is not None:
         checkpoint_method(run_config, method.name)
 
-    # ------ 3. Let the method CLI run the shared evaluation pipeline. ------
+    # ------ 3. run pipeline via eval_cli ------
     return method.module('eval_cli').main(args, supplied_config, run_config)
 
 

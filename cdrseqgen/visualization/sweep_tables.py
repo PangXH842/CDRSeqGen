@@ -26,7 +26,7 @@ import os
 import statistics
 from collections import defaultdict
 
-from cdrseqgen.artifacts import load_run_config
+from cdrseqgen.artifacts import read_run_config
 from cdrseqgen import artifacts
 
 # (source, key, higher_is_better). Ranking on a metric the objective optimises would only
@@ -79,8 +79,8 @@ def _finite_value(mapping, key):
 def _selected_epoch(run_dir, metrics):
     """The epoch whose checkpoint Trainer actually selected, plus its metric key."""
     try:
-        config, _ = load_run_config(run_dir)
-    except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError):
+        config = read_run_config(run_dir) or {}
+    except (json.JSONDecodeError, OSError, TypeError):
         config = {}
 
     configured = str(config.get("metric_for_best_model") or "core_accuracy")

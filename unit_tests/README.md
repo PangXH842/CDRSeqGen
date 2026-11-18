@@ -6,11 +6,13 @@ From the repository root:
 
 ```bash
 ./scripts/unit_tests.sh                       # complete suite
-./scripts/unit_tests.sh test_model_roundtrip  # real CPU update/save/reload, both methods
-./scripts/unit_tests.sh test_s2s_plm         # real tiny ESM/BERT encoder + decoder contracts
+./scripts/unit_tests.sh test_models  # model builders, backbone registries, flags, and real CPU update/save/reload
+./scripts/unit_tests.sh test_s2s            # S2S model and sampling, real tiny ESM/BERT encoder + decoder contracts
 ./scripts/unit_tests.sh test_runner           # suite/sweep plans, execution, failures, and resume
 ./scripts/unit_tests.sh 'test_*length*'        # length policies and evaluation
 ```
+
+Each `test_<topic>.py` groups what used to be several files. A banner comment at the head of every section names the original file and keeps its docstring; helper names that two files used differently carry their original file's name as a prefix.
 
 Use the project Python environment (`conda activate cdrprj` if needed). No GPU, downloaded checkpoint, OAS/SAbDab2 corpus, network access, or active Conda installation is required by the test fixtures. The runner sets `PYTHONPATH` and changes to the repository root. Runner tests select a test interpreter and replace training/reporting boundaries, leaving both shell entry points and the common planner/executor intact; their files stay in temporary directories.
 
@@ -18,29 +20,29 @@ Use the project Python environment (`conda activate cdrprj` if needed). No GPU, 
 
 | What must not silently change | Main coverage |
 |---|---|
-| Root commands reach each method through one main(), while compatibility, context, case order and output checks survive delegation | `test_command_dispatch`, `test_inference_entrypoints`, `test_method_integration`, `test_evaluate_contract` |
-| Native residues or native length must not leak into length-free generation | `test_variable_length_eval`, `test_length_policy`, `test_dataset_ar`, `test_span_layout` |
-| Future answer tokens and padding must not change earlier causal predictions | `test_ar_model` (real attention, including the padded branch) |
-| Early-stopping callbacks receive the requested patience/threshold and are attached to the Trainer, AR/S2S prepare/train/save/finish run in process (scratch and IgLM, with layout recorded), run names/provenance/latest-link rules hold, the three methods report the same recovery for the same errors, and a framework whose every draw fails is still counted | `test_training_pipeline_contracts` |
-| Prompt layout, EOS, and answer-only supervision agree between training and generation | `test_dataset_ar`, `test_span_layout`, `test_ar_sampling`, `test_ar_training` |
-| Training/evaluation select explicitly named partitions | `test_eval_split_selection`, `test_ar_training` |
-| Native IgLM loads unchanged and speaks its own format: native ids/EOS/PAD, `[chain][species] left [MASK] right [SEP]` prompts, original-release versus converted-checkpoint recognition, fixed-attempt sampling with the upstream token restrictions, and chain/species conditioning from training through generation records | `test_iglm_backbone` (format, registry and sampler contract), `test_iglm_integration` (release recognition, species names, generation records, recorded sampling protocol) |
-| IgLM rejects incomplete weights and changed source contracts; generation defaults and RNG state cannot silently change its protocol; raw checkpoints route explicitly to AR and every failed attempt remains traceable | `test_iglm_review` (tiny GPT-2 weights, legacy buffers, Transformers tokenizer variants, configuration isolation, source checks, routing, malformed versus unterminated outputs) |
-| The IgLM experiment specs differ from the completed scratch AR control only as declared, the random-init control is seeded and safely replaceable, and the replay harness rejects missing attempts as well as changed draws | `test_iglm_experiments`; `test_arguments_contracts` validates every spec trial whose local IgLM checkpoint exists (missing local sources are skipped, so use the explicit preflight in the adaptation protocol) |
-| A pretrained AR/S2S checkpoint can be a local benchmark arm without changing any scratch plan or prompt, and its chain/species conditioning comes only from the manifest and the checkpoint | `test_benchmark_pretrained_arms` (prompts, pinned files, arm rules, recipe generation) |
-| Backbone registries remain method-local, IDs are unique, fallback order is valid, and tokenizer loading preserves vocabulary provenance and I/O failures | `test_common_backbones` (dispatch, duplicate IDs, fallback rules, source selection and tokenizer errors), `test_ar_backbones`, `test_span_layout` (AR vocabulary/layout), `test_s2s_plm` and `test_model_roundtrip` (real local-model reloads) |
-| A decoder name is never silently replaced by another decoder, and sampling runs without autograd | `test_shared_contracts` (training config, standalone evaluation/generation and the sampler dispatcher) |
-| The public flags of `evaluate.py`/`generate.py` cannot change silently, and flags shared with training keep the same defaults | `test_shared_contracts` (flag sets, one shared definition, mirrored `gen_*` defaults including the 150-example budget, either spelling of the checkpoint flag, bare `main()` parsing `sys.argv`) |
+| Root commands reach each method through one main(), while compatibility, context, case order and output checks survive delegation | `test_commands`, `test_training` |
+| Native residues or native length must not leak into length-free generation | `test_length`, `test_datasets` |
+| Future answer tokens and padding must not change earlier causal predictions | `test_ar` (real attention, including the padded branch) |
+| Early-stopping callbacks receive the requested patience/threshold and are attached to the Trainer, AR/S2S prepare/train/save/finish run in process (scratch and IgLM, with layout recorded), run names/provenance/latest-link rules hold, the three methods report the same recovery for the same errors, and a framework whose every draw fails is still counted | `test_training` |
+| Prompt layout, EOS, and answer-only supervision agree between training and generation | `test_datasets`, `test_ar` |
+| Training/evaluation select explicitly named partitions | `test_evaluation`, `test_ar` |
+| Native IgLM loads unchanged and speaks its own format: native ids/EOS/PAD, `[chain][species] left [MASK] right [SEP]` prompts, original-release versus converted-checkpoint recognition, fixed-attempt sampling with the upstream token restrictions, and chain/species conditioning from training through generation records | `test_iglm` (format, registry and sampler contract; release recognition, species names, generation records, recorded sampling protocol) |
+| IgLM rejects incomplete weights and changed source contracts; generation defaults and RNG state cannot silently change its protocol; raw checkpoints route explicitly to AR and every failed attempt remains traceable | `test_iglm` (tiny GPT-2 weights, legacy buffers, Transformers tokenizer variants, configuration isolation, source checks, routing, malformed versus unterminated outputs) |
+| The IgLM experiment specs differ from the completed scratch AR control only as declared, the random-init control is seeded and safely replaceable, and the replay harness rejects missing attempts as well as changed draws | `test_experiments`; `test_arguments_contracts` validates every spec trial whose local IgLM checkpoint exists (missing local sources are skipped, so use the explicit preflight in the adaptation protocol) |
+| A pretrained AR/S2S checkpoint can be a local benchmark arm without changing any scratch plan or prompt, and its chain/species conditioning comes only from the manifest and the checkpoint | `test_benchmark_adapters` (prompts, pinned files, arm rules, recipe generation) |
+| Backbone registries remain method-local, IDs are unique, fallback order is valid, and tokenizer loading preserves vocabulary provenance and I/O failures | `test_models` (dispatch, duplicate IDs, fallback rules, source selection and tokenizer errors; real local-model reloads), `test_ar`, `test_datasets` (AR vocabulary/layout), `test_s2s` |
+| A decoder name is never silently replaced by another decoder, and sampling runs without autograd | `test_models` (training config, standalone evaluation/generation and the sampler dispatcher) |
+| The public flags of `evaluate.py`/`generate.py` cannot change silently, and flags shared with training keep the same defaults | `test_models` (flag sets, one shared definition, mirrored `gen_*` defaults including the 150-example budget, either spelling of the checkpoint flag, bare `main()` parsing `sys.argv`) |
 | A config the dataset or model would reject cannot leave a run directory behind, a valid one is not rejected, and every shipped config still passes its method's setup | `test_arguments_contracts` (all three methods' `setup_args()` against a mocked `initialize_run`: unknown loop or backbone, heads that cannot split the width, early stopping that cannot engage; pretrained backbones exempt from the scratch rules; JSON nulls/empty lists/dictionaries with explicit CLI overrides, boolean aliases and `.args` precedence; every shipped training config and experiment-spec trial; help text and `Optional` declarations; `docs/ARGUMENTS.md` lists exactly the argument fields) |
-| PLM encoder/decoder token ids, pretrained weights, gradients, frozen dropout, and offline reload agree | `test_s2s_plm` (real local ESM/BERT models and Trainer) |
-| Splitting a batch into gradient-accumulation steps cannot rescale the AR or S2S gradient, and Hugging Face label smoothing cannot silently replace their own loss | `test_loss_normalization` (the Trainer's own `training_step` with real model code, and the `compute_loss_func` seam a selectable loss would use), `test_arguments_contracts` (smoothing rejected for AR/S2S, accepted for MLM) |
-| Model weights actually update, then survive serialization | `test_model_roundtrip` (real dataset/collator/model/optimizer/save/reload for MLM, AR and S2S) |
-| Custom-model builders and direct constructors reject invalid dimensions, and renamed custom backbones retain architecture validation | `test_custom_model_validation`, `test_arguments_contracts` (positive integer dimensions/depths, divisibility, rotary head width and family-owned validation) |
-| Failed, empty, wrong-length, or unscored draws cannot silently improve a metric | `test_ar_evaluation`, `test_metrics`, `test_confidence_metrics`, `test_sweep_tables`, benchmark scorer/track tests |
+| PLM encoder/decoder token ids, pretrained weights, gradients, frozen dropout, and offline reload agree | `test_s2s` (real local ESM/BERT models and Trainer) |
+| Splitting a batch into gradient-accumulation steps cannot rescale the AR or S2S gradient, and Hugging Face label smoothing cannot silently replace their own loss | `test_losses` (the Trainer's own `training_step` with real model code, and the `compute_loss_func` seam a selectable loss would use), `test_arguments_contracts` (smoothing rejected for AR/S2S, accepted for MLM) |
+| Model weights actually update, then survive serialization | `test_models` (real dataset/collator/model/optimizer/save/reload for MLM, AR and S2S) |
+| Custom-model builders and direct constructors reject invalid dimensions, and renamed custom backbones retain architecture validation | `test_models`, `test_arguments_contracts` (positive integer dimensions/depths, divisibility, rotary head width and family-owned validation) |
+| Failed, empty, wrong-length, or unscored draws cannot silently improve a metric | `test_ar`, `test_metrics`, `test_reporting`, benchmark scorer/track tests |
 | A matched batch receives its intended corpus, length policy, sampling settings, and devices | `test_runner` (legacy/named commands, plan equivalence, sequential/sharded execution, explicit grids, dataset gates, frozen-plan resume, artifact verification and active locks) |
-| Results preserve data/checkpoint provenance and resume compatibility | `test_preprocess_provenance`, `test_artifacts`, adapter and manifest tests |
-| Run logs retain Trainer events/exceptions, latest preserves real directories, and epoch CSVs retain the training trajectory | `test_run_recording`, `test_artifacts` (including the provenance checkout root) |
-| Missing values are not plotted as zero; tables state actual length policy and recovery coverage | `test_plotting`, `test_batch_tables`, `test_benchmark_plotter` |
+| Results preserve data/checkpoint provenance and resume compatibility | `test_preprocess_provenance`, `test_run_files`, adapter and manifest tests |
+| Run logs retain Trainer events/exceptions, latest preserves real directories, and epoch CSVs retain the training trajectory | `test_run_files` (including the provenance checkout root) |
+| Missing values are not plotted as zero; tables state actual length policy and recovery coverage | `test_reporting`, `test_benchmark_analysis` |
 
 Tests in other files cover related tokenizers, losses, configuration parsing, statistical calculations, and artifact handling. The table is a reading guide, not a complete test inventory.
 

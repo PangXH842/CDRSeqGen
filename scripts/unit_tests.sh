@@ -2,7 +2,7 @@
 # Run the unit test suite.
 #
 #   ./scripts/unit_tests.sh                       # everything
-#   ./scripts/unit_tests.sh test_length_policy     # one module (pattern is matched against filenames)
+#   ./scripts/unit_tests.sh test_length            # one module (pattern is matched against filenames)
 #
 # Tests combine synthetic fixtures, stubs for external models, real tiny CPU scratch models,
 # and isolated shell-runner checks. No GPU, downloaded weights, or research data is required.

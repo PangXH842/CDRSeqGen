@@ -8,7 +8,8 @@ of a learned generator's advantage over unconditional sampling the flanks alread
 occurs in training falls back to the unconditional pool, and the record says so.
 
 Keys (the first is the primary, fixed before any of these were scored; the others are sensitivity checks):
-  fr3tail12+fr4head6  last 12 residues of FR3 and first 6 of FR4, the V/J proxy the README documents for its length lookup
+  fr3tail12+fr4head6  last 12 residues of FR3 and first 6 of FR4, the V/J proxy the README documents
+                      for its length lookup
   fr4                 the whole of FR4, a J-gene proxy
   fr3tail20+fr4       last 20 residues of FR3 and the whole of FR4, a finer V/J proxy
 

@@ -28,8 +28,7 @@ Functions:
   * validate_args(model, data, gen) -- AR and S2S only; MLM checks inline in setup_args()
 
 Notes:
-  * Explicit CLI flags override JSON values. Omitted fields use dataclass defaults;
-    JSON nulls, lists and dictionaries retain their values. metadata["help"] supplies CLI help.
+  * metadata["help"] supplies CLI help.
   * Comparing judge scores requires the same judge and scoring context. Generator
     self-perplexities are not comparable across models; sequence metrics need no judge.
   * ``method`` lives on the base because train.py reads it from the config to choose the package,

@@ -14,8 +14,7 @@ Functions:
 Notes:
   * Callers assemble prompts, choose lengths and put models in evaluation mode.
     These helpers disable autograd and leave model mode unchanged.
-  * Both decoders exclude banned tokens and return one candidate at temperature=0.
-    Sampling retains duplicates; iterative fills residues back into its prompt.
+  * Sampling retains duplicates; iterative fills residues back into its prompt.
   * methods.common supplies logit extraction, token banning and sampling filters.
     Pseudo-likelihood re-masks completed candidates for self or judge scoring.
 """

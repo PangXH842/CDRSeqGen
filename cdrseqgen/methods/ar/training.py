@@ -14,7 +14,7 @@ Functions:
 
 Notes:
   * train_cli owns logging and argument setup; common.training owns train/eval/save.
-  * Named split selection is shared; evaluation disables training context dropout.
+  * Named split selection is shared.
   * Only the answer and terminator receive labels. Recovery shifts predictions once
     and excludes the final terminator from residue scores.
   * The backbone supplies the model's loss and span layout. compute_loss_func is an

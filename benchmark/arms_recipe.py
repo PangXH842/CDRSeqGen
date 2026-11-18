@@ -6,14 +6,15 @@ directories do not exist until training ends, so this reads each batch's saved p
 and copies every other setting (manifest, sampling, judge, endpoint) from a reference recipe. The new arms are
 therefore generated and scored under exactly the protocol the original six were.
 
-  python benchmark/arms_recipe.py --name oas4_h3_seeds --batch results/runs/BATCH [--batch ...] \
+  python benchmark/arms_recipe.py --name oas4_h3_seeds --batch results/runs/BATCH [--batch ...] \\
       --output benchmark/recipes/generated/oas4_h3_seeds.json
 
-An arm is labelled by its trial name without `_scratch_no_partner` (mlm_s44, ar_L_s42, s2s_s42_r1). Completed scratch
-trials qualify, and so do completed pretrained AR/S2S trials (their adapter path is backbone-generic); a pretrained MLM
-trial does not, and neither does a trial that skipped training (`do_train` false). Anything that does not qualify stops the script unless a flag names the exception it may skip:
---skip-pretrained for every non-scratch trial, --skip-incomplete for trials that did not finish (listed on stderr, so
-an unattended queue can salvage a partly finished batch without hiding the shortfall).
+An arm is labelled by its trial name without `_scratch_no_partner` (mlm_s44, ar_L_s42, s2s_s42_r1). Completed
+scratch trials qualify, and so do completed pretrained AR/S2S trials (their adapter path is backbone-generic);
+a pretrained MLM trial does not, and neither does a trial that skipped training (`do_train` false). Anything
+that does not qualify stops the script unless a flag names the exception it may skip: --skip-pretrained for
+every non-scratch trial, --skip-incomplete for trials that did not finish (listed on stderr, so an unattended
+queue can salvage a partly finished batch without hiding the shortfall).
 """
 from __future__ import annotations
 

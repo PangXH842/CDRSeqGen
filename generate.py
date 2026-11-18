@@ -20,15 +20,11 @@ Workflow:
        -> load tokenizer (warn on unencodable residues) and model -> generation_state
        -> generate_case for each case -> optional JSON; return the case records.
 
-The decoder, sampling and length flags are shared with evaluate.py and come from
-methods/common/arguments.add_sampling_arguments(); this file adds only the generation-specific ones.
-Shared validation, compatibility, loading, display and output handling live in
-methods/common/generation.py; each method's gen_cli.main supplies its setup, state and case
-functions to that lifecycle. A case file holds one case object or a list; flanks, partner chain and
-antigen are stripped and uppercased, and a malformed case or unwritable --output stops the run before
-any weights load. A release without run_config.json (native IgLM) needs --method and --model_type.
-This is a qualitative tool for supplied frameworks: use evaluate.py for benchmark numbers. The shared
-helpers imported from common.generation stay importable here for callers of the original root module.
+Notes:
+  * A release without run_config.json (native IgLM) needs --method and --model_type.
+  * Flanks, partner chain and antigen are stripped and uppercased.
+  * Shared flags come from methods/common/arguments.add_sampling_arguments().
+  * methods/common/generation.py also handles case display.
 """
 import argparse
 
@@ -43,11 +39,6 @@ from cdrseqgen.methods.common.generation import (
 
 
 def build_parser():
-    """Return the generation argument parser.
-
-    --model_dir is required. Cases come from --test_file or from --pt1/--pt2 and the other
-    single-case flags; the decoder, sampling and length flags are the ones evaluate.py shares.
-    """
     parser = argparse.ArgumentParser(
         description="Design CDR loops for frameworks you provide (qualitative tool; use evaluate.py for benchmarks)")
     parser.add_argument("--model_dir", "--model_path", dest="model_dir", type=str, required=True,
@@ -100,40 +91,26 @@ def build_parser():
 
 
 def parse_args(argv=None):
-    """Parse argv (default: sys.argv[1:]) into generation settings; a bad flag exits with usage."""
     return build_parser().parse_args(argv)
 
 
-# ---------- MAIN GENERATION CALLER ----------
+# ---------- MAIN ----------
 def main(args=None):
-    """Route to the checkpoint's method and return its generated case records.
-
-    Selection order:
-      checkpoint with run_config.json  -> its declared method (MLM when it declares none)
-      release without run_config.json  -> --method, else MLM
-      --method must agree with a saved run's method, or ValueError
-
-    args=None parses sys.argv. The saved config is passed on without its 'source' key,
-    which generation assigns itself, so a stored value cannot pose as a CLI fallback.
-    Validation, loading, sampling and output all happen in the method's gen_cli.main().
-    """
-    # ------ 1. Parse the flags and read the checkpoint's saved metadata. ------
+    # ------ 1. read configs, parse args ------
     args = parse_args() if args is None else args
     saved_config = read_run_config(args.model_dir)
     config = dict(saved_config or {})
     # source is assigned during generation setup; a saved field cannot claim CLI fallback.
     config.pop("source", None)
 
-    # ------ 2. Choose the method; a saved run's declared method is authoritative. ------
+    # ------ 2. select method ------
     requested = getattr(args, "method", None)
     if saved_config is None and requested is not None:
-        # Original releases have no CDRSeqGen run metadata. A caller must name
-        # their method explicitly; declared saved methods remain authoritative.
         method = resolve(requested)
     else:
         method = checkpoint_method(config, requested)
 
-    # ------ 3. Let the method CLI run the shared generation pipeline. ------
+    # ------ 3. run pipeline via gen_cli ------
     return method.module('gen_cli').main(args, config)
 
 

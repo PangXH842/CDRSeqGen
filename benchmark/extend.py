@@ -8,7 +8,7 @@ published, and this writes a separate, wider family into a new directory. The ba
 earlier extension, so extensions chain and each inherits the roles the previous ones assigned.
 
   scripts/run.sh benchmark extend plan --base results/benchmark/oas4_h3_followup_20261008 --added BATCH
-  scripts/run.sh benchmark extend run  --base results/benchmark/EARLIER_EXTENSION --added BATCH \
+  scripts/run.sh benchmark extend run  --base results/benchmark/EARLIER_EXTENSION --added BATCH \\
       --reference retrieval --exclude retrieval_j --exclude retrieval_fine
 
 Roles of the added arms. By default each is an external generator, compared with every local arm and with the

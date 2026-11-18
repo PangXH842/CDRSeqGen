@@ -13,12 +13,9 @@ Functions:
   * run_generative_eval -- select frameworks/strategy, score and return a payload
 
 Notes:
-  * common.evaluation loads standalone resources and controls context regimes;
-    this module receives a loaded model, tokenizer, dataset and optional judge.
+  * common.evaluation loads standalone resources and controls context regimes.
   * mlm.length owns policies, the fitted head and both evaluation strategies;
     mlm.sampling supplies residue decoding and generator pseudo-perplexity.
-  * fixed_native exposes the native mask count; bounded/inferred use the length
-    head. Native references also support framework selection and scoring.
   * eval.generative / eval.metrics own shared scoring, aggregation and reports.
     Trainer validation recovery lives separately in mlm.recovery.
 """

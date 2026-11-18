@@ -15,7 +15,6 @@ Entities:
 Notes:
   * Validation checks region presence/types and nonempty CDRs, not amino-acid alphabets,
     numbering structure, or agreement between regions and the full sequence.
-  * Write the processed JSON before its metadata: the sidecar hashes the bytes on disk.
   * REGIONS is the one region key set; a source deriving regions its own way must match it.
 """
 import argparse

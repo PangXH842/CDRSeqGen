@@ -37,10 +37,12 @@ at the highest learning rate random-init matches the pretrained run on core accu
 Both [larger-IgLM trials](../results/reviews/20261106-iglm-large.md) are also complete and audited:
 6,000 valid, judge-scored candidates; validation core selects lr 1e-5, epoch 4 (core 0.409725,
 edit similarity 0.386728). No clear generated-edit improvement over the selected IgLM-S is shown.
-All adaptation training recipes are complete. The two-checkpoint benchmark smoke is prepared
-and its CPU plan passes, but GPU execution remains pending
+All adaptation training recipes are complete. The two-checkpoint benchmark has since run: the smoke
+on 6 November and the full stage on 17 November (150 frameworks × 20 attempts × 2 arms; audited
+18 November, [report](../results/reviews/20261118-iglm-full-igbert-eval.md)). Edit similarity is 0.3917 for IgLM-S lr 3e-5
+and 0.3889 for IgLM lr 1e-5, with the frozen heavy-only judge, seed 42 only and no significance claim
 (see the [adaptation protocol](../configs/experiments/20261102_iglm_adaptation.md)).
-Keep these seed-42, partner-present-judge pilot results separate from the frozen external benchmark.
+Keep the seed-42, partner-present-judge pilot scores above separate from these benchmark rows.
 Earlier CPU parity diagnostics used some test-split records. Document that development exposure
 when freezing the final evaluation; no final comparative held-out run has occurred.
 
@@ -87,6 +89,8 @@ does not complete a manual review. Detailed personal review records are kept loc
 **Reading older notes:** dated recipes, the baseline-scope memo and the results index contain preparation-time statements that precede these completions. Use this handoff, §17 and the linked saved outputs for current run status. No new broad training batch is needed before drafting. Experiment execution remains user-run.
 
 Conference milestones: **abstract submitted 23 October and accepted for an in-person poster**, submission **9941**;
-conference **3–5 December**, poster sessions **4–5 December**. The [poster template](../../iAIM/poster.tex)
-and [preparation guide](../../iAIM/POSTER_GUIDE.md) are ready. Assigned session and poster specifications
-remain pending; the acceptance email requires registration within two weeks of receipt.
+conference **3–5 December**, poster sessions **4–5 December**. The editable
+[two-column](../../iAIM/poster_two_column.tex) and [T-shaped](../../iAIM/poster_tshape.tex)
+posters and [preparation guide](../../iAIM/POSTER_GUIDE.md) are ready. A0 portrait is confirmed;
+the assigned Poster ID and presentation day remain pending. The acceptance email requires
+registration within two weeks of receipt.

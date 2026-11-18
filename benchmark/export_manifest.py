@@ -6,9 +6,9 @@ It contains antibody strings, not model token IDs, so every adapter sees the sam
 remaining responsible for its own tokenization and sampling.
 
 Example:
-    python benchmark/export_manifest.py \
-        --input data/processed/processed_oas_tuning.json \
-        --output benchmark/manifests/oas_h3_test_sample_v1.json \
+    python benchmark/export_manifest.py \\
+        --input data/processed/processed_oas_tuning.json \\
+        --output benchmark/manifests/oas_h3_test_sample_v1.json \\
         --sample-size 25
 """
 

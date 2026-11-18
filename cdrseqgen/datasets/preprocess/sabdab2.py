@@ -9,10 +9,8 @@ Data:
 
 Notes:
   * Current processing funnel: 15,641 raw -> 12,160 paired -> 3,985 protein/peptide
-    antigen -> 3,985 with resolved antigen sequence -> 3,984 kept. 
-  * ab_ag_split.csv comes with a train/test split; only the validation partition is needed. 
-  * Antigen context is added by joining the antigen chains with 'X' in place of '/'. Retains 
-    antigen chain IDs and the source antigen-type string. 
+    antigen -> 3,985 with resolved antigen sequence -> 3,984 kept.
+  * Antigen context is added by joining the antigen chains with 'X' in place of '/'.
   * Source does not specify species for each entry, "species" field left as None.
 """
 import json

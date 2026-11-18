@@ -19,8 +19,8 @@ Entities:
 Notes:
   * The TARGET chain must be present; the PARTNER chain may be null. An unpaired corpus
     serves only the loops of the chain it carries, and says so rather than raising KeyError.
-  * Context dropout is a pure function of (seed, kind, idx) — see `_keep_context` for why
-    a hash rather than an RNG, and for the regime lock-in it exists to prevent.
+  * Context dropout exists to prevent regime lock-in; `_keep_context` holds its
+    per-example rule.
 """
 import copy
 import hashlib
@@ -210,13 +210,13 @@ class AntibodyFrameworkDataset(Dataset):
     def _keep_context(self, idx, kind):
         """Whether THIS example keeps its `kind` ("partner" / "antigen") context, under context_dropout.
 
-        Uses blake2b instead of random(): __getitem__ runs in arbitrary order across shuffled epochs 
+        Uses blake2b instead of random(): __getitem__ runs in arbitrary order across shuffled epochs
         and DataLoader workers, so the decision must be a pure function of (seed, kind, idx) rather
         than of when the example happened to be drawn.
-        
-        Returns True if (a) context_dropout is 0.0, or (b) blake2b hash value >= context_dropout. 
-        Returns False if blake2b hash value < context_dropout, which means the context is dropped 
-        for this example. 
+
+        Returns True if (a) context_dropout is 0.0, or (b) blake2b hash value >= context_dropout.
+        Returns False if blake2b hash value < context_dropout, which means the context is dropped
+        for this example.
         """
         if self.context_dropout <= 0.0:
             return True

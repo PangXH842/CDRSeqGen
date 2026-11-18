@@ -11,7 +11,7 @@ Functions:
 
 Notes:
   * gen_cli owns logging; common.generation loads cases/model/tokenizer, seeds
-    sampling and writes the output. This module supplies the three method hooks.
+    sampling and writes the output.
   * length.py owns policies, prompts, length selection and span sampling;
     sampling.py supplies independent/iterative decoding and self-scoring.
   * Native truth is optional. It supports reference scores; its length affects

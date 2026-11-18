@@ -25,9 +25,9 @@ Workflow:                                    [*] = source hook   (opt) = optiona
   * write_processed_metadata
 
 General policy:
-  * __main__.py : Defines the core pipeline, corpus registry, and CLI entry point. 
+  * __main__.py : Defines the core pipeline, corpus registry, and CLI entry point.
   * common.py   : Stores functions for the main pipeline, compatible across sources.
-  * [corpus].py : Stores functions specific to one source, including its own CLI flags. 
+  * [corpus].py : Stores functions specific to one source, including its own CLI flags.
 """
 import argparse
 import ast

@@ -153,8 +153,8 @@ the method's train/evaluate/generate entry points and every requested attempt,
 including empty, invalid and incomplete draws. Native adapters also need parity
 checks against their original implementation under matched inputs/settings.
 
-Existing examples live in `test_common_backbones`, `test_model_roundtrip`,
-`test_training_pipeline_contracts`, `test_span_layout` and the `test_iglm*` modules;
+Existing examples live in `test_models`, `test_training`, `test_datasets`, `test_iglm` and the
+IgLM sections of `test_benchmark_externals` and `test_experiments`;
 see the [test guide](../unit_tests/README.md). Tiny CPU checks do not establish
 published-checkpoint/GPU correctness; the real-checkpoint smoke/replay stage remains user-run.
 

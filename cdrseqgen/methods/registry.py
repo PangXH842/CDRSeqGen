@@ -1,8 +1,28 @@
-"""Lazy method dispatch shared by training, generation, and held-out evaluation.
+"""Register the three methods and import a method's modules only when a caller asks for one.
 
-Each root command calls main() in the selected train_cli, eval_cli or gen_cli module.
-Its backbones, training, evaluation and sampling modules implement the stages
-those commands use. Importing this registry loads no model library.
+Callers:
+  * train.py, evaluate.py, generate.py -- pick the method, then call its train_cli, eval_cli
+    or gen_cli
+  * fit_mlm_length.py -- require an MLM checkpoint
+  * benchmark/run.py, benchmark/adapters/cdrseqgen.py -- read a checkpoint's method, backbone
+    and sampler
+  * cdrseqgen/experiments.py -- normalize each spec's method name
+  * methods/common/evaluation.py, methods/common/generation.py -- load the method's backbones,
+    training and arguments modules; evaluation also calls Method.evaluate after training
+  * methods/common/arguments.py, benchmark/adapters/cdrseqgen.py -- the --decoding choices
+  * methods/mlm/arguments.py -- the MLM decoder names
+  * visualization/batch_tables.py -- recognise a method prefix in run names
+
+Functions:
+  * Method.module     -- import one component of the method: train_cli, backbones, sampling, ...
+  * Method.evaluate   -- evaluate loaded resources through eval_cli, including after training
+  * METHODS           -- the registered methods: mlm, ar, s2s (DEFAULT_METHOD is mlm)
+  * decoding_choices  -- every decoder name any method accepts, in registration order
+  * resolve           -- return a method by name; an unknown name raises ValueError
+  * checkpoint_method -- return the method a run_config names; refuse a different requested one
+
+Notes:
+  * Importing this module loads no model library; Method.module imports a component on first use.
 """
 from dataclasses import dataclass
 from importlib import import_module
@@ -31,12 +51,6 @@ DEFAULT_METHOD = 'mlm'
 
 
 def decoding_choices():
-    """Every decoder name --decoding accepts, across all methods, in registration order.
-
-    generate.py and evaluate.py each used to hard-code this list, so a method added later was
-    rejected by argparse before its own cli could ever validate the request -- an enumeration that
-    has to be edited in two more places is one a new method silently falls out of.
-    """
     return [decoder for method in METHODS.values() for decoder in method.decoders]
 
 

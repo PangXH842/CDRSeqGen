@@ -1,6 +1,6 @@
 # IgLM adaptation test runs — 2 November 2026
 
-**Replay, zero-shot, both fine-tuning sizes and controls complete; benchmark smoke pending.** The full
+**Replay, zero-shot, both fine-tuning sizes, controls and the selected-checkpoint benchmark (smoke and full stage) complete.** The full
 GPU replay matched 150/150 examples and 3,000/3,000 attempts, with matching weights (210.9 s). Both
 zero-shot trials, the fresh four-trial IgLM-S batch and the four-trial control batch completed with full
 validity and judge coverage. See the [November 3 audit](../../results/reviews/20261103-iglm-adaptation.md),
@@ -13,8 +13,10 @@ edit similarity is 0.3887–0.3903 for the controls and 0.3897 for the selected 
 single-seed pilot with partner-present IgBert judging. Both larger-IgLM trials also completed:
 6,000 valid/judge-scored candidates, with validation core selecting lr 1e-5, epoch 4
 (core 0.409725, edit similarity 0.386728). There is no clear generated-edit improvement over
-the separately selected IgLM-S trial. All training recipes are complete; the prepared
-selected-checkpoint benchmark smoke remains user-run.
+the separately selected IgLM-S trial. All training recipes are complete. The selected-checkpoint
+benchmark ran on 6 November (smoke) and 17 November (full stage: 6,000 valid candidates, frozen heavy-only
+judge, [November 18 audit](../../results/reviews/20261118-iglm-full-igbert-eval.md)): edit similarity 0.3917
+for IgLM-S lr 3e-5 and 0.3889 for IgLM lr 1e-5, seed 42 only, no significance claim.
 
 The fresh batch `20261103_165217_376850_iglm_s_finetune` supersedes the earlier stopped
 batch for completion. No replay, zero-shot or fine-tuning completion rerun is needed.
@@ -50,7 +52,7 @@ or validation examples; these parity outputs are not tuning evidence or new benc
 
 Shared base: [bases/h3_ar_iglm.json](bases/h3_ar_iglm.json). Every trial equals the completed
 [`ar_scratch_no_partner_s42`](20261006_no_partner_controls.json) control except where the table says otherwise;
-`test_iglm_experiments` pins this.
+`test_experiments` (its IgLM sections) pins this.
 
 - Corpus OAS4 `data/processed/processed_oas_multi.json`, validation selection, H3, no partner or antigen, dropout 0, `max_len` 384
   (IgLM needs 101 to 512; H3 flanks are 107 residues, so nothing is truncated).
@@ -75,7 +77,7 @@ source/tokenizer checks below as well (they read metadata, not model weights):
 conda activate cdrprj
 test -d results/controls/iglm_s_random_init || python scripts/make_iglm_randinit.py
 for n in iglm_zeroshot iglm_s_finetune iglm_controls iglm_l_finetune; do ./scripts/run.sh plan $n --gpus 0; done
-python -m unittest unit_tests.test_arguments_contracts.ShippedConfigTests unit_tests.test_iglm_experiments
+python -m unittest unit_tests.test_arguments_contracts.ShippedConfigTests unit_tests.test_experiments.SpecTests unit_tests.test_experiments.RandomInitTests unit_tests.test_experiments.ReplayTests
 python - <<'PY'
 from types import SimpleNamespace
 from cdrseqgen.experiments import spec_trials
@@ -121,19 +123,25 @@ is explicitly supplied and rejects overlapping source/output directories.
 
    Each `run` prints its batch directory and writes the batch tables and plots at the end. Do not edit `cdrseqgen/` or `train.py` between
    `run` and `resume`: the plan pins the source.
-3. **Next: selected-checkpoint benchmark smoke.** The prepared
+3. **Done: selected-checkpoint benchmark (smoke 6 November, full stage 17 November).** The prepared
    [recipe](../../benchmark/recipes/generated/iglm_selected_20261106.json) contains only
    IgLM-S lr 3e-5 / epoch 11 and IgLM lr 1e-5 / epoch 4, selected within each size by validation core accuracy.
-   Its CPU plan passes: two arms × five validation frameworks × five attempts = 50 attempts.
+   The smoke is two arms × five validation frameworks × five attempts = 50 attempts; the full stage is
+   two arms × 150 frameworks × 20 attempts = 6,000.
    It uses the frozen benchmark's **heavy-only judge**, separate from the partner-present
    post-training diagnostics. No completed external baseline is regenerated.
 
    ```bash
    ./scripts/run.sh benchmark plan --recipe benchmark/recipes/generated/iglm_selected_20261106.json --stage smoke
    ./scripts/run.sh benchmark smoke --recipe benchmark/recipes/generated/iglm_selected_20261106.json --gpu 0
+   ./scripts/run.sh benchmark run --recipe benchmark/recipes/generated/iglm_selected_20261106.json --gpu 0
    ```
 
-   The GPU smoke has not been launched. For a different selection, `arms_recipe.py` accepts
+   The smoke ran on 6 November (50 attempts, none invalid) and the full stage on 17 November (batch
+   `results/benchmark/20261117_181112_729547_iglm_selected_20261106_full`: 6,000 attempts, none invalid;
+   [audit](../../results/reviews/20261118-iglm-full-igbert-eval.md)). The smoke pinned the source of commit
+   `1e239bbc`; 22 of those files have changed since (`s2s/diagnostics.py` was removed), so it cannot be
+   resumed, whereas the full stage pins the current code. For a different selection, `arms_recipe.py` accepts
    repeated `--batch` flags and exports every completed trial; retain the chosen arms before
    planning. It refuses the zero-shot batch, which keeps no checkpoint.
 

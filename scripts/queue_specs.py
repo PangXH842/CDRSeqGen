@@ -10,7 +10,8 @@ finished ones. Three kinds of batch, one spec per method so the queue can run th
                               One spec each, because the runner rejects duplicate resolved configs within a spec.
   capacity_<method>.json      medium / large / extra-large at seeds 42 and 43, everything else unchanged
 
-Parameter counts (millions; MLM / AR / S2S): M 4.9 / 4.8 / 5.5, L 10.9 / 10.7 / 12.5 (IgLM has 12.9), XL 25.5 / 25.3 / 29.5.
+Parameter counts (millions; MLM / AR / S2S): M 4.9 / 4.8 / 5.5, L 10.9 / 10.7 / 12.5 (IgLM has 12.9),
+XL 25.5 / 25.3 / 29.5.
 The learning rate is deliberately not retuned, so the scan isolates size; larger models may deserve their own.
 
   python scripts/queue_specs.py            # (re)writes configs/experiments/weekend_20261009/

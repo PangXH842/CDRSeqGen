@@ -10,8 +10,7 @@ Functions:
 Notes:
   * common.arguments.initialize_run() calls the naming/config helpers, creates the
     run directory and attaches file logging.
-  * mlm/ar/s2s.training.prepare_training() calls update_latest_link() after dataset
-    and split validation, before model construction.
+  * The latest link is updated before model construction.
   * The source record identifies config/data/runtime/Git settings; the declared
     corpus hash is copied from metadata, not recomputed here.
   * Importing this module creates no run directories and starts no training.

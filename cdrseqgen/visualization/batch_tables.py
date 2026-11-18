@@ -42,8 +42,6 @@ Notes:
     the selected metric and coverage. Old runs without coverage fall back visibly to whole-span.
   * Standard tables read ``epoch_metrics.csv``, ``generation_eval.json``, the shared run-config
     filename aliases, and processed dataset JSONs.
-  * A batch mixing training objectives is flagged: a core-weighted run optimises the number these
-    tables report, so its column is not like-for-like with a cross-entropy run.
 """
 import os
 import re

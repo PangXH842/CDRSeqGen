@@ -11,10 +11,10 @@ Functions:
 
 Notes:
   * gen_cli owns logging; common.generation loads cases/model/tokenizer, seeds
-    sampling and writes the output. This module supplies the three method hooks.
+    sampling and writes the output.
   * eos_case_record shares case reporting with S2S. AR supplies its span-layout
     prompt, sampler and self-scorer; ar.sampling also supports native IgLM decoding.
-  * EOS selects length. Native truth is optional and used only for measurements.
+  * EOS selects length.
   * Dataset selection, judge scoring and aggregation across evaluation frameworks
     belong to the evaluation workflow.
 """

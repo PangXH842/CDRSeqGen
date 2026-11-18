@@ -1,6 +1,6 @@
 # H3 context-dropout validation screen — 2026-09-15
 
-This is a prospective exploratory screen prepared before these training runs. It is not the final paper test protocol. No GPU experiments were launched during preparation; the user will launch them. The earlier IgBert diagnostic batch is complete, while generation from its three saved checkpoints is pending.
+This is a prospective exploratory screen prepared before these training runs. It is not the final paper test protocol. No GPU experiments were launched during preparation; the user will launch them. The earlier IgBert diagnostic batch is complete, and generation from its three saved checkpoints was evaluated on 18 November (see the relocation note below).
 
 ## Question and controls
 
@@ -36,6 +36,16 @@ Replace `0` with the GPU(s) you intend to use. Record the final reviewed code re
 ## Evaluate the completed IgBert diagnostic checkpoints first
 
 These evaluations use the same 150 × 20 generation protocol, with partner context present for both generator and judge. Their three-epoch, single-seed results are a diagnostic comparison, not a final frozen-versus-fine-tuned claim. This command loads each run's exact resolved input config from its batch; it does not retrain or replace checkpoint weights. Results go into each run's `evaluations/` directory; identical existing output is protected against overwrite.
+
+**Relocation note (18 November 2026).** This batch's saved configs and `runs.tsv` record `/raid/pangxh/...`
+paths from the previous server, so the commands below fail on the current workstation (the recorded data
+path does not exist). The checkpoints were evaluated instead from relocated config copies: only the
+`data_path` line was changed to `data/processed/processed_oas_multi.json` (the local file's sha256,
+`bd854ae3…`, equals each run's recorded `declared_processed_file_sha256`), `--model_dir` was the folder of
+the same name inside the batch, and `--force` was added. `evaluate.py` then reported exactly one mismatch,
+the data path, and recorded it in each output's provenance; the original configs were not modified. Results
+and [audit](../../results/reviews/20261118-iglm-full-igbert-eval.md): edit similarity 0.3941 (original), 0.3910 (frozen), 0.3892 (lower LR); one seed,
+three epochs.
 
 Activate `cdrprj` and set `CUDA_VISIBLE_DEVICES` to the GPU you choose before running:
 

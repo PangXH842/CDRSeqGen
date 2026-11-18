@@ -33,9 +33,9 @@ plans under `results/` retain their original paths; use a fresh plan for new run
 
 The October no-partner controls and context/dropout batches are complete;
 completed recipes are examples, not a launch queue. The IgLM pilot now includes
-the full replay, both zero-shot runs, four IgLM-S fine-tuning trials and all four
-random-init/size-matched control trials. Larger-model fine-tuning and the adapted
-checkpoint GPU benchmark smoke remain unrun. See the
+the full replay, both zero-shot runs, four IgLM-S fine-tuning trials, all four
+random-init/size-matched control trials, both larger-IgLM fine-tuning trials and the
+adapted-checkpoint benchmark (smoke and full stage). See the
 [IgLM protocol](experiments/20261102_iglm_adaptation.md),
 [experiment guide](experiments/README.md) and [results index](../docs/RESULTS.md)
 for commands, saved evidence and current status.

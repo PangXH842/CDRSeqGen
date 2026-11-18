@@ -8,9 +8,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-# New runs write the canonical name. Readers use the ordered tuple so current artifacts win while
-# older checkpoints remain readable. On a future rename, move the previous canonical name into
-# RUN_CONFIG_LEGACY_FILENAMES; consumers do not need to change.
+# New runs write the canonical name; readers try the names in order, so old checkpoints still load.
+# On a rename, move the old name into RUN_CONFIG_LEGACY_FILENAMES.
 RUN_CONFIG_FILENAME = "run_config.json"
 RUN_CONFIG_LEGACY_FILENAMES = ("run_meta.json",)
 RUN_CONFIG_FILENAMES = (
@@ -18,19 +17,14 @@ RUN_CONFIG_FILENAMES = (
     *RUN_CONFIG_LEGACY_FILENAMES,
 )
 
-# The length predictor is a deliberately separate artifact: old sequence checkpoints remain valid
-# for fixed-length generation, while bounded/inferred generation fails clearly when these are absent.
+# Length predictor files: a separate artifact, needed only for bounded/inferred generation.
 LENGTH_CONFIG_FILENAME = "length_config.json"
 LENGTH_HEAD_FILENAME = "length_head.safetensors"
 
-# What a finished run leaves beside its weights. Named here rather than at each reader because both
-# were bare literals in eight and seven files respectively -- a rename would have had to be found by
-# grep, and a reader that missed it degrades silently (a missing generation_eval.json is simply a
-# trial with no generative metrics, not an error).
+# Files a finished run leaves beside its weights, named once so every reader uses one spelling.
 GENERATION_EVAL_FILENAME = "generation_eval.json"
 CONTEXT_ABLATION_FILENAME = "generation_eval_without_partner.json"
-# The payload's schema_version, shared by every method's evaluator: MLM and the EOS methods each
-# wrote the literal, and a payload whose version differs by one character reads as a different schema.
+# The schema_version every method's evaluator writes into its payload.
 GENERATION_EVAL_SCHEMA = "cdrseqgen.generation_eval.v1"
 EPOCH_METRICS_FILENAME = "epoch_metrics.csv"
 
@@ -39,30 +33,50 @@ PROCESSED_METADATA_SUFFIX = ".metadata.json"
 
 
 def processed_metadata_path(data_path: str | Path) -> Path:
-    """The provenance sidecar beside a processed corpus.
+    """The metadata file beside a processed corpus (data.json -> data.metadata.json).
 
-    `with_suffix` rather than string concatenation, so `a.b/data.json` cannot become
-    `a.metadata.json`; four call sites were each spelling this out.
+    Called:
+      * cdrseqgen/datasets/preprocess/common.py
+      * cdrseqgen/methods/common/evaluation.py
+      * cdrseqgen/methods/common/run_setup.py
+      * benchmark/export_manifest.py
     """
     return Path(data_path).with_suffix(PROCESSED_METADATA_SUFFIX)
 
 
 def load_processed_metadata(data_path: str | Path) -> dict[str, Any] | None:
-    """The corpus's provenance sidecar, or None when it has none.
+    """Return the processed corpus's metadata (source, build settings, SHA-256) if present.
 
-    Absent is normal -- a hand-made or pre-2026-07 corpus has no sidecar -- so this returns None
-    rather than raising. A sidecar that exists but is corrupt still raises: unlike a missing run
-    config, silently ignoring it would drop the hash every downstream integrity check compares to.
+    Called:
+      * none yet; get_evaluation_source_info (cdrseqgen/methods/common/evaluation.py) reads the
+        same file itself
     """
     path = processed_metadata_path(data_path)
     if not path.is_file():
-        return None
+        return None         # pre-2026-07 test runs
     with path.open() as handle:
         return json.load(handle)
 
 
 def sha256_file(path: str | Path) -> str:
-    """Hash a file without loading a potentially multi-gigabyte artifact into memory."""
+    """Hash a file without loading a potentially multi-gigabyte artifact into memory.
+
+    Called:
+      * cdrseqgen/experiments.py
+      * benchmark/_common.py
+          -> benchmark/adapters/cdrseqgen.py
+          -> benchmark/adapters/igcraft.py
+          -> benchmark/adapters/iglm.py
+          -> benchmark/adapters/retrieval.py
+          -> benchmark/export_manifest.py
+          -> benchmark/export_regions.py
+          -> benchmark/extend.py
+          -> benchmark/followup.py
+          -> benchmark/leakage.py
+          -> benchmark/run.py
+          -> benchmark/scorer.py
+          -> benchmark/variability.py
+    """
     digest = hashlib.sha256()
     with Path(path).open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
@@ -71,7 +85,12 @@ def sha256_file(path: str | Path) -> str:
 
 
 def file_identity(path: str | Path | None) -> dict[str, Any] | None:
-    """Path, size, and digest for a regular file; None when no file is present."""
+    """Returns (path, size, sha256 digest) for a regular file if present.
+
+    Called:
+      * cdrseqgen/methods/common/evaluation.py
+      * cdrseqgen/methods/common/run_setup.py
+    """
     if path is None:
         return None
     path = Path(path)
@@ -85,19 +104,13 @@ def file_identity(path: str | Path | None) -> dict[str, Any] | None:
 
 
 def json_safe(value: Any) -> Any:
-    """Replace non-finite floats with None so the result is strict, portable JSON.
-
-    ``json.dump`` emits bare ``NaN`` / ``Infinity`` by default. Python reads those back, but they
-    are not JSON: any standards-compliant reader rejects the file, and a metric that was simply
-    never collected rendered as the string "nan" in tables. ``None`` round-trips everywhere and is
-    what every reader here already treats as "absent".
-    """
+    """Replace non-finite floats with None so the result is strict, portable JSON."""
     if isinstance(value, float):
-        return value if math.isfinite(value) else None
+        return value if math.isfinite(value) else None      # NaN, inf -> None
     if isinstance(value, dict):
-        return {k: json_safe(v) for k, v in value.items()}
+        return {k: json_safe(v) for k, v in value.items()}  # recursion for dicts
     if isinstance(value, (list, tuple)):
-        return [json_safe(v) for v in value]
+        return [json_safe(v) for v in value]                # recursion for lists/tuples
     return value
 
 
@@ -107,9 +120,27 @@ def atomic_write_json(
     *,
     allow_nan: bool = False,
 ) -> None:
-    """Write JSON via ``os.replace`` so interruption cannot leave a truncated artifact.
+    """Robust JSON writing function to prevent truncated artifacts when interrupted.
 
-    Non-finite floats become ``null`` unless ``allow_nan`` is set, so artifacts stay strict JSON.
+    Called:
+      * cdrseqgen/eval/generative.py
+      * cdrseqgen/experiments.py
+      * cdrseqgen/methods/ar/backbones.py
+      * cdrseqgen/methods/common/generation.py
+      * cdrseqgen/methods/common/run_setup.py
+      * benchmark/_common.py
+          -> benchmark/adapters/cdrseqgen.py
+          -> benchmark/adapters/igcraft.py
+          -> benchmark/adapters/iglm.py
+          -> benchmark/adapters/retrieval.py
+          -> benchmark/blind_check.py
+          -> benchmark/export_regions.py
+          -> benchmark/extend.py
+          -> benchmark/followup.py
+          -> benchmark/leakage.py
+          -> benchmark/run.py
+          -> benchmark/scorer.py
+          -> benchmark/variability.py
     """
     if not allow_nan:
         payload = json_safe(payload)
@@ -122,7 +153,7 @@ def atomic_write_json(
             handle.write("\n")
         os.replace(temporary, path)
     except BaseException:
-        # A failed serialization should not leave a confusing sibling that looks resumable.
+        # Remove the temporary file so a failed write leaves nothing that looks resumable.
         try:
             temporary.unlink()
         except FileNotFoundError:
@@ -131,7 +162,15 @@ def atomic_write_json(
 
 
 def git_state(repo: str | Path) -> dict[str, Any]:
-    """Commit and dirty flag for the checkout that produced an artifact, when available."""
+    """Commit and dirty flag for the checkout that produced an artifact, when available.
+
+    Called:
+      * cdrseqgen/methods/common/evaluation.py
+      * cdrseqgen/methods/common/run_setup.py
+      * benchmark/_common.py
+          -> benchmark/adapters/cdrseqgen.py
+          -> benchmark/scorer.py
+    """
     try:
         commit = subprocess.check_output(
             ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
@@ -147,7 +186,17 @@ def git_state(repo: str | Path) -> dict[str, Any]:
 
 
 def find_run_config(model_dir) -> Path | None:
-    """Path to the run config a training run wrote in model_dir, or None if it wrote none."""
+    """Path of a run's config file (current name first, then legacy names), or None.
+
+    Called:
+      * fit_mlm_length.py
+      * cdrseqgen/methods/ar/backbones.py
+      * cdrseqgen/methods/common/evaluation.py
+      * cdrseqgen/visualization/batch_plots.py
+      * cdrseqgen/visualization/batch_tables.py
+      * cdrseqgen/visualization/sweep_plots.py
+      * benchmark/adapters/cdrseqgen.py
+    """
     for name in RUN_CONFIG_FILENAMES:
         path = Path(model_dir) / name
         if path.is_file():
@@ -155,30 +204,21 @@ def find_run_config(model_dir) -> Path | None:
     return None
 
 
-def load_run_config(model_dir) -> tuple[dict, Path]:
-    """Load a run's saved configuration, returning it with the path it came from.
-
-    Raises FileNotFoundError when no config exists and json.JSONDecodeError when one exists but is
-    corrupt. Callers must not conflate the two: an absent config means "this checkpoint predates
-    run configs", while an unreadable one means the provenance every downstream compatibility check
-    depends on is gone, and treating that as absent silently disables those checks.
-    """
-    path = find_run_config(model_dir)
-    if path is None:
-        accepted = ", ".join(RUN_CONFIG_FILENAMES)
-        raise FileNotFoundError(f"no run config in {model_dir} (expected one of: {accepted})")
-    with path.open() as handle:
-        return json.load(handle), path
-
-
 def read_run_config(model_dir) -> dict | None:
     """The run's saved configuration, or None when the checkpoint predates run configs.
 
-    The tolerant counterpart to :func:`load_run_config`, for callers that degrade gracefully on an
-    older checkpoint. A corrupt config still raises: only *absence* is a legitimate legacy state.
+    A corrupt config still raises: only *absence* is a legitimate legacy state.
+
+    Called:
+      * evaluate.py
+      * fit_mlm_length.py
+      * generate.py
+      * cdrseqgen/methods/common/generation.py
+      * cdrseqgen/methods/mlm/evaluation.py
+      * cdrseqgen/visualization/sweep_tables.py
     """
-    try:
-        config, _ = load_run_config(model_dir)
-    except FileNotFoundError:
+    path = find_run_config(model_dir)
+    if path is None:
         return None
-    return config
+    with path.open() as handle:
+        return json.load(handle)

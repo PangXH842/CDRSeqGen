@@ -17,10 +17,7 @@ Training workflow:
      through common.evaluation.post_training_generation().
 
 Notes:
-  * Hugging Face Trainer owns optimization, validation during training and checkpoint
-    selection. This module coordinates calls and saves their outputs.
-  * Trainer validation scores predictions against dataset labels. Generated-candidate
-    evaluation is a separate, optional stage in the method's finish_training().
+  * Trainer validation scores predictions against dataset labels.
   * MLM extends ExternalLossTrainer; AR/S2S currently use their models' own losses
     through the ordinary Hugging Face Trainer.
 """

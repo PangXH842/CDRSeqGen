@@ -27,8 +27,7 @@ Notes:
     Wrappers assemble the final payload and choose generator/judge context independently.
   * MLM self-scores are pseudo-perplexities; AR/S2S use their causal factorizations.
     The independent judge is a masked LM for every method.
-  * Means are computed per framework; aggregate gives each contributing framework
-    equal weight. Each metric can have a different eligible population.
+  * Each metric can have a different eligible population.
 """
 import logging
 import math

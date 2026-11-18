@@ -23,15 +23,9 @@ Generation workflow:
 Notes:
   * Cases are supplied inputs, not a selected validation/test cohort. Native truth
     is optional; methods report diversity and any available reference/self scores.
-  * A case file holds one case object or a list of them. Each case needs string pt1 and
-    pt2; flanks, partner chain and antigen are stripped and uppercased, so pasted
-    lowercase residues are not silently encoded as unknown tokens. Characters the
-    tokenizer cannot encode warn once it loads and join the recorded compatibility
-    warnings; an antigen's 'X' is exempt, because preprocessing joins antigen chains with it.
-  * The output path is made writable before any weights load and the results are written
-    atomically, so a bad --output cannot cost a finished generation run.
-  * CLI logging, shared loading/output and method decoding have separate owners.
-    This workflow neither trains weights nor loads an independent judge.
+  * Characters the tokenizer cannot encode warn once it loads and join the recorded
+    compatibility warnings.
+  * This workflow neither trains weights nor loads an independent judge.
   * One model, sampling generator and optional method state are reused across cases.
 """
 import json
@@ -40,7 +34,7 @@ import os
 
 import torch
 
-from cdrseqgen.artifacts import atomic_write_json, load_run_config
+from cdrseqgen.artifacts import atomic_write_json, read_run_config
 from cdrseqgen.methods.common.arguments import validate_sampling_args
 from cdrseqgen.methods.registry import resolve
 
@@ -61,10 +55,7 @@ def resolve_config(args, *, run_config=None):
     Call after CLI logging setup so source and mismatch messages are visible.
     """
     if run_config is None:
-        try:
-            config, _ = load_run_config(args.model_dir)
-        except FileNotFoundError:
-            config = {}
+        config = read_run_config(args.model_dir) or {}
     else:
         config = dict(run_config)
 

@@ -59,18 +59,17 @@ def resolve_method(argv):
     return DEFAULT_METHOD, argv
 
 
-# ---------- MAIN TRAINING CALLER ----------
+# ---------- MAIN ----------
 def main():
-    """Dispatch sys.argv to the selected method's training CLI."""
-    # ------ 1. Resolve and validate the method before importing its CLI. ------
+    # ------ 1. resolve generation method ------
     method, argv = resolve_method(sys.argv)
     if method not in METHODS:
         raise SystemExit(f"Unknown method {method!r}. Choose one of: {', '.join(METHODS)}")
 
-    # ------ 2. Pass the complete argument list to the method's parser. ------
+    # ------ 2. assemble args to parse in pipeline ------
     sys.argv = argv
 
-    # ------ 3. Let the method CLI set up the run and call the shared pipeline. ------
+    # ------ 3. run pipeline via train_cli ------
     resolve(method).module('train_cli').main()
 
 

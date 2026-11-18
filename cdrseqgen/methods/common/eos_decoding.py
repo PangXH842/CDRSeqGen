@@ -12,10 +12,10 @@ Training:
 Evaluation:
   * EosDecodingStrategy     -- base for AR's CausalStrategy and S2S's Seq2SeqStrategy
   * run_eos_generative_eval -- select frameworks, run shared scoring and return a payload
-                             -> called by: ar/s2s.evaluation.run_generative_eval() 
+                             -> called by: ar/s2s.evaluation.run_generative_eval()
 Generation:
   * eos_case_record         -- generate and score one supplied framework case
-                             -> called by: ar/s2s.generation.generate_case() 
+                             -> called by: ar/s2s.generation.generate_case()
 
 Notes:
   * Each method supplies its context builder, sampler and self-scorer. EOS determines

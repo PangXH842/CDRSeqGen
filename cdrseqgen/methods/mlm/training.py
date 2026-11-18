@@ -13,8 +13,7 @@ Functions:
   * build_trainer            -- MLMLossTrainer, collator, metrics and callbacks
 
 Notes:
-  * Training uses its configured masking policy; evaluation masks the full span
-    and disables context dropout. Named splits use the shared selection guard.
+  * Named splits use the shared selection guard.
   * MLMLossTrainer owns the configured external objective. The selected model
     may also train a length head; length fitting requires do_train.
   * train_cli owns setup; common.training owns train/evaluate/save. Recovery

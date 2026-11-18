@@ -4,8 +4,9 @@
 The 9-12 October queue trained further seeds, retrained seed 42, scanned model size and reran IgCraft at temperature
 1.0. This turns those batches into the numbers the manuscript quotes, from saved artifacts alone:
 
-  seeds        mean and spread of each method over seven training seeds, and contrasts whose intervals resample H3 groups
-               and each arm's seeds together (analysis.crossed_interval), so training variability is counted
+  seeds        mean and spread of each method over seven training seeds, and contrasts whose intervals
+               resample H3 groups and each arm's seeds together (analysis.crossed_interval), so training
+               variability is counted
   determinism  seed 42 trained three times with an identical config: scores, candidate identity, weight differences,
                training trajectory
   capacity     the size scan beside the small models of the same seeds
@@ -14,8 +15,8 @@ The 9-12 October queue trained further seeds, retrained seed 42, scanned model s
                after the primary one and computed from the saved candidates
   ladder       optional: how much of the learned gain over unconditional sampling a retrieval reference captures
 
-Every input is hash-checked and frozen, and inputs are only read. Contrasts here are supporting analyses on the validation
-split, chosen after the data were seen; none is confirmatory.
+Every input is hash-checked and frozen, and inputs are only read. Contrasts here are supporting analyses
+on the validation split, chosen after the data were seen; none is confirmatory.
 
   scripts/run.sh benchmark variability plan
   scripts/run.sh benchmark variability run [--references results/benchmark/oas4_h3_retrieval_20261012]

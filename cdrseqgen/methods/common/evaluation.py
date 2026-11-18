@@ -16,15 +16,11 @@ Evaluation workflow:
        reuse trainer.model -> registry's eval_cli.evaluate -> same method evaluator.
 
 Notes:
-  * eval_cli.evaluate aliases the method's evaluation.run_generative_eval. Methods
-    supply candidate strategies; cdrseqgen.eval owns shared measurements/reports.
+  * Methods supply candidate strategies; cdrseqgen.eval owns shared measurements/reports.
   * The configured dataset split determines validation or test use. This is
     generated-candidate assessment, separate from Trainer's label-based validation.
-  * Generator and judge partner context are resolved separately. Post-training
-    context ablations reuse one judge across generator views.
   * finish_training guards its optional stage with run_generative_eval, including
-    evaluation-only training commands. Standalone errors propagate; post-training
-    errors are logged and return None, leaving saved training artifacts available.
+    evaluation-only training commands.
 """
 import hashlib
 import json

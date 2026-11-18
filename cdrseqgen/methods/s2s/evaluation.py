@@ -14,8 +14,7 @@ Classes/Functions:
   * perplexities        -- generator self-scorer, re-exported from s2s.sampling
 
 Notes:
-  * common.evaluation loads standalone resources and controls context regimes;
-    this module receives a loaded model, tokenizer, dataset and optional judge.
+  * common.evaluation loads standalone resources and controls context regimes.
   * common.eos_decoding owns EOS attempt accounting and the strategy lifecycle.
     eval.generative / eval.metrics own shared scoring, aggregation and reports.
   * EOS selects length. Native references support selection and scoring;

@@ -1,6 +1,6 @@
 """Sequence metrics shared by generated-CDR evaluation and benchmark scoring.
 
-Functions: 
+Functions:
   * amino_acid_recovery     -- calculate sequence recovery between `pred` and `native` seqs,
                                 for each individual sample
   * mean_pairwise_diversity -- calculate mean Hamming distance between each pair of samples
@@ -65,7 +65,7 @@ def core_anchor_indices(length, anchor_trim):
       anchors:  [0, 1, 6, 7]
 
     Notes:
-      * Cases where all are anchors (and core list empty) is possible, 
+      * Cases where all are anchors (and core list empty) is possible,
         eg. length <= 2 * anchor_trim
     """
     core_idxs = list(range(anchor_trim, length - anchor_trim)) if length > 2 * anchor_trim else []
@@ -85,7 +85,7 @@ def recovery_at_indices(sample, native, indices):
       recovery: (1 + 0) / 2 = 0.5
 
     Notes:
-      * Indices can be any list of valid positions, they are not necessarily consecutive 
+      * Indices can be any list of valid positions, they are not necessarily consecutive
         or sorted.
     """
     if not indices:
@@ -96,14 +96,14 @@ def recovery_at_indices(sample, native, indices):
 def position_recovery(samples, native):
     """Return one recovery dict per native position, using length-matched draws.
 
-    Example: 
+    Example:
       position:          0   1   2   3   4
       relative_position: 0 0.25 0.5 0.75 1
       native:            A   B   C   D   E
       sample 1:          A   P   C   D   E
       sample 2:          A   Q   D   C   E
       sample 3:          A   C   E          (excluded)
-      recovery:          1   0  0.5 0.5  1      
+      recovery:          1   0  0.5 0.5  1
 
     Notes:
       * Each dict has position, relative_position and recovery.

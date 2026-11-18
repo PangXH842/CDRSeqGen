@@ -8,7 +8,7 @@ an adapter reach the answer. This writes the split once, from the processed corp
 from, keyed by `example_id` and holding flanks only: no CDR3 and nothing derived from it. Every record is
 checked to rebuild the manifest's `pt1` and `pt2`, so an adapter can re-verify them without the corpus.
 
-  python benchmark/export_regions.py --manifest benchmark/manifests/X.json --corpus data/processed/Y.json \
+  python benchmark/export_regions.py --manifest benchmark/manifests/X.json --corpus data/processed/Y.json \\
       --output benchmark/manifests/X_regions.json
 """
 from __future__ import annotations

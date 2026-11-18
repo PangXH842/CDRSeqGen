@@ -23,7 +23,7 @@ from cdrseqgen.artifacts import (
     LENGTH_CONFIG_FILENAME,
     LENGTH_HEAD_FILENAME,
     RUN_CONFIG_FILENAMES,
-    load_run_config as shared_load_run_config,
+    find_run_config,
 )
 from benchmark._common import (
     ADAPTER_SCHEMA_VERSION as SCHEMA_VERSION,
@@ -39,8 +39,13 @@ from benchmark._common import (
 
 
 def load_run_config(checkpoint: Path) -> tuple[dict[str, Any], Path]:
-    """Adapter-side alias so the benchmark reads checkpoints exactly as the entrypoints do."""
-    return shared_load_run_config(checkpoint)
+    """Return (run config, its path), found as the entry points find it; raise when there is none."""
+    path = find_run_config(checkpoint)
+    if path is None:
+        raise FileNotFoundError(
+            f"no run config in {checkpoint} (expected one of: {', '.join(RUN_CONFIG_FILENAMES)})")
+    with path.open() as handle:
+        return json.load(handle), path
 
 
 TOKENIZER_ASSETS = ('tokenizer_config.json', 'tokenizer.json', 'vocab.txt', 'vocab.json', 'merges.txt',

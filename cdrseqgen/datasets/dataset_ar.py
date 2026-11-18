@@ -33,8 +33,7 @@ Utility functions:
 Notes:
   * Training and generation share build_causal_prompt. It never reads the native
     target or target length: both paths reserve the same 96 answer-token positions.
-  * The layout counts its prompt markers plus the answer terminator. The default
-    spends three positions: <mask>, <sep>, <eos>; it does not insert <bos>.
+  * The default spends three positions: <mask>, <sep>, <eos>; it does not insert <bos>.
   * Context may be truncated; the training answer must fit intact. Increasing the
     reserve can remove context, so budget max_len for the desired context as well.
   * Layout builders receive capped flank copies and public options, not the raw
