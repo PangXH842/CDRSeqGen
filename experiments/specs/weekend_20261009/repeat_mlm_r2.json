@@ -1,0 +1,18 @@
+{
+  "name": "mlm_repeat_r2",
+  "base_config": "configs/experiments/bases/h3_mlm_scratch.json",
+  "overrides": {
+    "include_partner_chain": false,
+    "context_dropout": 0.0,
+    "gen_eval_context_ablation": false
+  },
+  "trials": [
+    {
+      "name": "mlm_scratch_no_partner_s42_r2",
+      "overrides": {
+        "seed": 42,
+        "data_seed": 42
+      }
+    }
+  ]
+}
