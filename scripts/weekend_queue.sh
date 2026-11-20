@@ -24,7 +24,7 @@ Q=${QUEUE_DIR:-results/queue/$TAG}
 GPU=${GPU:-0}
 CDR=${CDR:-/home/pang/miniconda3/envs/cdrprj/bin/python}
 IGC=${IGC:-/mnt/hdd/pang/envs/igcraft/bin/python}
-SPECS=configs/experiments/weekend_20261009
+SPECS=experiments/specs/weekend_20261009
 ORIGINAL_PLAN=results/benchmark/oas4_h3_length_free_20261007/plan.json
 BLIND_LABELS=(mlm_s42 mlm_s43 ar_s42 ar_s43 s2s_s42 s2s_s43 iglm)
 METHODS=(mlm ar s2s)
@@ -109,7 +109,7 @@ preflight() {
     local problem=0 used free
     [[ -x $CDR ]] || { echo "missing $CDR"; problem=1; }
     [[ -x $IGC ]] || { echo "missing $IGC"; problem=1; }
-    "$CDR" scripts/queue_specs.py > /dev/null || problem=1
+    "$CDR" experiments/tools/queue_specs.py > /dev/null || problem=1
     used=$(nvidia-smi --id="$GPU" --query-gpu=memory.used --format=csv,noheader,nounits 2> /dev/null | head -1)
     [[ ${used:-0} -lt 4000 ]] || echo "WARNING: GPU $GPU already uses ${used} MiB; IgCraft and the large models may run out of memory"
     free=$(df --output=avail -BG results | tail -1 | tr -dc 0-9)

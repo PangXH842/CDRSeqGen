@@ -9,11 +9,13 @@ code-review records are kept locally; reviewed source remains open to further re
 
 ## 🏗️ Repository Structure
 
-`scripts/` holds command-line interfaces; `cdrseqgen/` holds planning, training and evaluation logic.
-Named commands follow `run.sh → scripts/experiments.py → cdrseqgen.experiments → train.py`;
-legacy GPU-first commands call the same planner/executor directly. `sweep.sh`
-forwards to `run.sh`. Single-run settings live in `configs/{mlm,ar,s2s}/`, multi-run recipes in
-`configs/experiments/`, and resolved plans and outputs in `results/runs/`.
+`experiments/` holds everything for configuring and running experiments (recipes, planning, execution,
+status, resume and helper tools), `cdrseqgen/` holds training and evaluation logic, and `scripts/` holds the
+shell launchers. Every experiment command follows `run.sh → python -m experiments → train.py`: named
+commands and the legacy GPU-first commands share one planner/executor, and `sweep.sh` forwards to
+`run.sh`. Single-run settings live in `configs/{mlm,ar,s2s}/`, multi-run recipes in `experiments/specs/`
+(`configs/experiments` links to it, so older paths still resolve), and resolved plans and outputs in
+`results/runs/`.
 
 Benchmark commands follow `run.sh benchmark → benchmark/run.py → adapters → scorer → plotter`.
 Their recipes live in `benchmark/recipes/`, frozen inputs in `benchmark/manifests/`, and generated
@@ -186,6 +188,16 @@ CDRSeqGen/
 │   ├── bootstrap.py            # Historical two-arm framework bootstrap; not cluster-aware
 │   ├── plot_comparison.py      # Matched recovery, length, position, and diversity dashboard
 │   └── README.md               # End-to-end benchmark commands and protocol
+├── experiments/                # Configure and run experiments: python -m experiments (see its README)
+│   ├── __main__.py             # One CLI: named commands, legacy <gpus> commands, `benchmark` forwarding
+│   ├── core.py                 # Fingerprints, source identity, completion checks, batch status
+│   ├── spec.py                 # Suites, sweep presets and spec files -> trials; the corpus gate
+│   ├── plan.py                 # Trials -> frozen plan; the re-check before a resume
+│   ├── execute.py              # Lock, GPU shards, journal, resume, then the report
+│   ├── report.py               # Tables and plots after a batch
+│   ├── recipes.py              # Named recipes, plan display, refusal of hidden legacy overrides
+│   ├── specs/                  # Recipes (JSON + notes); configs/experiments links here
+│   └── tools/                  # make_iglm_randinit.py, iglm_replay.py, queue_specs.py, organize_results.py
 ├── data/                       # THE DATA — gitignored, ~6.7GB (raw + processed OAS/SAbDab2).
 │                               #   Deliberately outside the package; configs' data_path points here.
 ├── results/                    # Ignored in git. Three tiers, by cost to regenerate:
@@ -211,10 +223,7 @@ CDRSeqGen/
 ├── evaluate.py                 # Entrypoint — held-out generative evaluation (+ --judge)
 ├── fit_mlm_length.py           # Add MLM length artifacts to an older checkpoint
 ├── scripts/
-│   ├── run.sh                  # Training commands + benchmark subcommands; legacy GPU-first route
-│   ├── experiments.py          # Named CLI; discovers recipes and uses the shared planner/executor
-│   ├── make_iglm_randinit.py   # Random-init control with the released IgLM architecture (recipe iglm_controls)
-│   ├── iglm_replay.py          # Replay a stored external IgLM batch draw for draw with the iglm backbone
+│   ├── run.sh                  # Launcher: selects the environment, then python -m experiments
 │   ├── sweep.sh                # Compatibility alias for run.sh <gpus> sweep [preset] [config]
 │   └── unit_tests.sh           # Unit test runner (sets PYTHONPATH; no GPU or data needed)
 ├── env.sh

@@ -2,7 +2,7 @@
 [← back to README](../README.md)
 
 *The operating manual: preprocessing, training, visualization, generation, evaluation and
-benchmarking. Use the [experiment guide](../configs/experiments/README.md) for the current
+benchmarking. Use the [experiment guide](../experiments/specs/README.md) for the current
 named `list`, `plan`, `run`, `status` and `resume` interface.*
 
 **Results and their caveats live in [FINDINGS.md](FINDINGS.md), with completed batches in
@@ -166,10 +166,10 @@ CUDA_VISIBLE_DEVICES=0 python train.py configs/ar/h3_ar_scratch.json    # autore
 existing showcase cases that explicitly request `target_length` need a compatible fixture.
 
 **One experiment interface:** [scripts/run.sh](../scripts/run.sh) selects the project
-environment and routes named commands through [scripts/experiments.py](../scripts/experiments.py).
-The existing [planner/executor](../cdrseqgen/experiments.py) owns dataset validation,
+environment and starts [python -m experiments](../experiments/__main__.py). The
+[planner/executor](../experiments/README.md) owns dataset validation,
 GPU scheduling, artifact checks, frozen plans and reports. Start with the
-[experiment guide](../configs/experiments/README.md) for recipe names and shared settings:
+[experiment guide](../experiments/specs/README.md) for recipe names and shared settings:
 
 ```bash
 ./scripts/run.sh list
@@ -227,7 +227,7 @@ For manual evaluation use the original config with `--partner_context with|witho
 filename identity. The test split remains unused during this screen.
 
 **Run an experiment spec:** for a one-off controlled comparison, keep the recipe in a JSON file
-under `configs/experiments/` instead of adding a permanent suite or another shell script:
+under `experiments/specs/` instead of adding a permanent suite or another shell script:
 
 ```bash
 ./scripts/run.sh plan igbert_diagnostic --gpus 0

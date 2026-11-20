@@ -25,7 +25,7 @@ from transformers import HfArgumentParser, TrainingArguments
 
 import evaluate
 from cdrseqgen.datasets.dataset_common import AntibodyFrameworkDataset
-from cdrseqgen.experiments import spec_trials
+from experiments.spec import spec_trials
 from cdrseqgen.methods.common.arguments import (
     PARTNER_CONTEXTS, BaseDataArguments, BaseGenerationArguments, BaseModelArguments,
     parse_config_and_cli, parse_config_dict, validate_common_args,
@@ -58,7 +58,8 @@ def _shipped_training_configs():
     """(label, config) for each plain config under configs/ and each trial of each experiment spec."""
     cases = []
     with contextlib.chdir(ROOT):  # a spec names its base configs relative to the repository root
-        for path in sorted((ROOT / "configs").rglob("*.json")):
+        # rglob does not follow the configs/experiments link, so the specs are listed where they live.
+        for path in sorted([*(ROOT / "configs").rglob("*.json"), *(ROOT / "experiments/specs").rglob("*.json")]):
             label = str(path.relative_to(ROOT))
             data = json.loads(path.read_text())
             if "trials" in data:

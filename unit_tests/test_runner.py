@@ -1,4 +1,4 @@
-"""Exercise both shell entry points and their shared runner in a temporary repository.
+"""Exercise the shell launchers and the shared runner (python -m experiments) in a temporary repository.
 
 Only training and reporting are replaced. The real planner, dataset gate, subprocess scheduling,
 artifact checks, journal, and resume contract all execute; nothing needs a GPU or research corpus.
@@ -24,7 +24,8 @@ class ExperimentRunnerTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.workspace = Path(temp.name)
-        shutil.copytree(ROOT / 'configs', self.workspace / 'configs')
+        shutil.copytree(ROOT / 'configs', self.workspace / 'configs', symlinks=True)  # configs/experiments stays a link
+        shutil.copytree(ROOT / 'experiments', self.workspace / 'experiments', ignore=shutil.ignore_patterns('__pycache__'))
         shutil.copytree(ROOT / 'scripts', self.workspace / 'scripts')
         self.corpus = self.workspace / 'alternate corpus.json'
         # Entries carry both chains: a corpus with a null chain is a real case (unpaired OAS),
@@ -32,7 +33,8 @@ class ExperimentRunnerTests(unittest.TestCase):
         self.corpus.write_text(json.dumps(
             [{'split': s, 'heavy': {'full_aa': 'H'}, 'light': {'full_aa': 'L'}}
              for s in ('train', 'validation', 'test')]))
-        for p in (self.workspace / 'configs').rglob('*.json'):
+        # rglob does not follow the configs/experiments link, so the specs' base configs are rewritten where they live.
+        for p in [*(self.workspace / 'configs').rglob('*.json'), *(self.workspace / 'experiments/specs').rglob('*.json')]:
             config = json.loads(p.read_text())
             if 'target_region' not in config:
                 continue
@@ -70,31 +72,20 @@ if name != os.environ.get('CDR_TEST_INCOMPLETE'):
 ''')
         (self.workspace / 'driver.py').write_text('''
 import json, sys
-from cdrseqgen import experiments
+import experiments.execute as execute
+from experiments.__main__ import main
 def report(plan, output):
     (output / 'report_called.json').write_text(json.dumps({
         'mode': plan['mode'], 'rank_metric': plan['rank_metric']}))
-experiments.report = report
-raise SystemExit(experiments.main(sys.argv[1:]))
-''')
-        (self.workspace / 'named_driver.py').write_text('''
-import json, sys
-from cdrseqgen import experiments
-from scripts import experiments as commands
-def report(plan, output):
-    (output / 'report_called.json').write_text(json.dumps({
-        'mode': plan['mode'], 'rank_metric': plan['rank_metric']}))
-experiments.report = report
-raise SystemExit(commands.main(sys.argv[1:]))
+execute.report = report
+raise SystemExit(main(sys.argv[1:]))
 ''')
         interpreter = self.workspace / 'python'
         interpreter.write_text('#!' + sys.executable + '\n' + '''
 import os, sys
 args = sys.argv[1:]
-if args[:2] == ['-m', 'cdrseqgen.experiments']:
+if args[:2] == ['-m', 'experiments']:
     args = ['driver.py', *args[2:]]
-elif args[:1] == ['scripts/experiments.py']:
-    args = ['named_driver.py', *args[1:]]
 os.execv(sys.executable, [sys.executable, *args])
 ''')
         interpreter.chmod(0o755)

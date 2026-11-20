@@ -42,7 +42,7 @@ Supporting guides live in [docs/](docs/README.md).
 | [Environment setup](docs/ENVIRONMENT.md) | Dependencies, server restoration, data/cache transfer and verification |
 | [Workflow manual](docs/WORKFLOW.md) | Preprocessing, training, generation, evaluation and historical run recipes |
 | [Argument reference](docs/ARGUMENTS.md) | Shared and method-specific fields, defaults, validation and config/CLI overrides |
-| [Experiment guide](configs/experiments/README.md) | Named batches, planning, execution, status and resume |
+| [Experiment guide](experiments/specs/README.md) | Named batches, planning, execution, status and resume |
 | [Architecture reference](docs/ARCHITECTURE.md) | Full repository map, data layout and extension points |
 | [Model specifications](docs/MODELS.md) | Custom Transformer comparison, native IgLM backbone, builder defaults and saved benchmark architecture/counts |
 | [Model integration](docs/MODEL_INTEGRATION.md) | Future-model hooks, registry wiring, native protocols and backbone/method/benchmark extension choices |
@@ -115,7 +115,7 @@ Discover and inspect batches before selecting a run:
 ```
 
 `list` and `plan` do not launch training. `BATCH` is the saved batch directory to inspect.
-The [experiment guide](configs/experiments/README.md) documents `run`, `resume`, recipes
+The [experiment guide](experiments/specs/README.md) documents `run`, `resume`, recipes
 and the distinction between restarting an unfinished trial and continuing an optimizer checkpoint.
 The [workflow manual](docs/WORKFLOW.md) covers the individual commands and output artifacts.
 

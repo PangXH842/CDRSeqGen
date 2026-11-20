@@ -4,8 +4,8 @@
   <gpus> [suite ...] | <gpus> sweep ... | <gpus> spec FILE    the legacy forms (was python -m cdrseqgen.experiments)
   benchmark [followup|variability|extend|leakage] ...          forwarded to the benchmark tools
 
-The first argument picks the interface, exactly as scripts/run.sh does. run.sh keeps launching the old pair of
-modules until those are retired; afterwards it only has to call this one.
+The first argument picks the interface, as the launcher always did. scripts/run.sh selects the environment and
+calls this module; it is the only entry point for experiments.
 """
 from __future__ import annotations
 

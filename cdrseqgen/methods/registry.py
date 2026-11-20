@@ -6,7 +6,7 @@ Callers:
   * fit_mlm_length.py -- require an MLM checkpoint
   * benchmark/run.py, benchmark/adapters/cdrseqgen.py -- read a checkpoint's method, backbone
     and sampler
-  * cdrseqgen/experiments.py -- normalize each spec's method name
+  * experiments/spec.py -- normalize each spec's method name
   * methods/common/evaluation.py, methods/common/generation.py -- load the method's backbones,
     training and arguments modules; evaluation also calls Method.evaluate after training
   * methods/common/arguments.py, benchmark/adapters/cdrseqgen.py -- the --decoding choices

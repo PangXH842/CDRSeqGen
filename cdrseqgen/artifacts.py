@@ -62,7 +62,8 @@ def sha256_file(path: str | Path) -> str:
     """Hash a file without loading a potentially multi-gigabyte artifact into memory.
 
     Called:
-      * cdrseqgen/experiments.py
+      * experiments/core.py
+      * experiments/spec.py
       * benchmark/_common.py
           -> benchmark/adapters/cdrseqgen.py
           -> benchmark/adapters/igcraft.py
@@ -123,8 +124,8 @@ def atomic_write_json(
     """Robust JSON writing function to prevent truncated artifacts when interrupted.
 
     Called:
+      * experiments/execute.py
       * cdrseqgen/eval/generative.py
-      * cdrseqgen/experiments.py
       * cdrseqgen/methods/ar/backbones.py
       * cdrseqgen/methods/common/generation.py
       * cdrseqgen/methods/common/run_setup.py

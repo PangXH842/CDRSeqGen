@@ -17,7 +17,8 @@ from cdrseqgen.datasets.dataset_common import evaluation_context_view, framework
 from cdrseqgen.methods.registry import resolve
 from cdrseqgen.methods.common.evaluation import post_training_generation
 from cdrseqgen.methods.common.arguments import BaseGenerationArguments, validate_common_args
-from cdrseqgen.experiments import completed_artifacts, spec_trials
+from experiments.core import completed_artifacts
+from experiments.spec import spec_trials
 from cdrseqgen.artifacts import GENERATION_EVAL_FILENAME, CONTEXT_ABLATION_FILENAME
 from evaluate import default_output_path
 from types import SimpleNamespace

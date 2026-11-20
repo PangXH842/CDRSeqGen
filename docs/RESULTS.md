@@ -59,7 +59,7 @@ separately from the current builder defaults.
 
 The category view at `results/by_experiment/` is generated from
 [`results_catalog.json`](../results_catalog.json) with
-`/home/pang/miniconda3/envs/cdrprj/bin/python scripts/organize_results.py` (or any Python 3.11+).
+`/home/pang/miniconda3/envs/cdrprj/bin/python experiments/tools/organize_results.py` (or any Python 3.11+).
 It uses relative symlinks. The original timestamped folders in `results/runs/` remain the
 source records: their saved `run_config.json`, `plan.json`, and internal paths are not rewritten.
 A batch can appear in several categories. Hyperparameter sweeps are excluded from this view;

@@ -10,7 +10,8 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from cdrseqgen.experiments import build_plan, spec_trials, SUITES
+from experiments.plan import build_plan
+from experiments.spec import spec_trials, SUITES
 import copy
 import csv
 import sys
@@ -22,7 +23,7 @@ import torch
 from transformers import GPT2Config, GPT2LMHeadModel
 from benchmark._common import stable_example_seed
 from cdrseqgen.datasets.dataset_ar import span_layout_metadata
-from cdrseqgen.experiments import spec_trials
+from experiments.spec import spec_trials
 from cdrseqgen.methods.ar.backbones import resolve
 from cdrseqgen.methods.ar.models import iglm
 from cdrseqgen.methods.ar.sampling import sample_loops
@@ -82,7 +83,7 @@ class ExperimentSpecTests(unittest.TestCase):
         data=self.root/'data.json'
         data.write_text(json.dumps([dict(split='train'),dict(split='validation')]))
         self.spec['overrides'].update(data_path=str(data),eval_split='validation')
-        with patch('cdrseqgen.experiments.source_identity',return_value={'source_sha256':'fixed'}):
+        with patch('experiments.plan.source_identity',return_value={'source_sha256':'fixed'}):
             plan, devices = build_plan(['0,1','spec',self.write()],{})
             self.assertEqual(plan['mode'],'suite')
             self.assertEqual(devices,['0','1'])
@@ -100,7 +101,7 @@ class ExperimentSpecTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(payload)
         seen, plans = [], []
-        with patch('cdrseqgen.experiments.source_identity', return_value={'source_sha256': 'fixed'}):
+        with patch('experiments.plan.source_identity', return_value={'source_sha256': 'fixed'}):
             for path in (first, second):
                 self.spec['overrides'].update(data_path=str(path), eval_split='validation')
                 plan, _ = build_plan(['0', 'spec', self.write()], {})
@@ -117,7 +118,7 @@ class ExperimentSpecTests(unittest.TestCase):
         third = self.root/'c'/'corpus.json'
         third.write_text(json.dumps([dict(split='train'), dict(split='validation'),
                                      dict(split='validation')]))
-        with patch('cdrseqgen.experiments.source_identity', return_value={'source_sha256': 'fixed'}):
+        with patch('experiments.plan.source_identity', return_value={'source_sha256': 'fixed'}):
             self.spec['overrides'].update(data_path=str(third), eval_split='validation')
             other, _ = build_plan(['0', 'spec', self.write()], {})
         self.assertNotEqual(seen[0], [t['trial_id'] for t in other['trials']])
@@ -236,7 +237,7 @@ class FollowupRecipeTests(unittest.TestCase):
 # The weekend queue's recipe generator and spec writer, on synthetic batches and the committed templates.
 # ====================================================================================================
 
-sys.path.insert(0, str(ROOT / 'scripts'))
+sys.path.insert(0, str(ROOT / 'experiments/tools'))
 import queue_specs
 FIELDS = ['seed', 'status', 'run_dir', 'trial_id']
 
@@ -432,7 +433,7 @@ class QueueFlowTests(unittest.TestCase):
 # ====================================================================================================
 
 IGLM_EXPERIMENTS_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(IGLM_EXPERIMENTS_ROOT / "scripts"))
+sys.path.insert(0, str(IGLM_EXPERIMENTS_ROOT / "experiments/tools"))
 import iglm_replay
 import make_iglm_randinit
 SPECS = IGLM_EXPERIMENTS_ROOT / "configs/experiments"

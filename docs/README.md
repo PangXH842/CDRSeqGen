@@ -25,5 +25,5 @@ notes are kept locally and are not part of the published guides. Passing tests o
 files does not itself complete a manual review.
 
 For implementation-specific guidance, see the [method workflow map](../cdrseqgen/methods/common/README.md),
-[experiment guide](../configs/experiments/README.md), [benchmark guide](../benchmark/README.md)
+[experiment guide](../experiments/specs/README.md), [benchmark guide](../benchmark/README.md)
 and [test guide](../unit_tests/README.md).

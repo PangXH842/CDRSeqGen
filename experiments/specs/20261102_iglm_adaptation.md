@@ -63,7 +63,7 @@ Shared base: [bases/h3_ar_iglm.json](bases/h3_ar_iglm.json). Every trial equals 
   batch 32, no accumulation. Learning rates are a grid, not a tuned optimum. The scratch control keeps its own lr 1e-4.
 - Released checkpoints are read from `~/miniconda3/envs/iglm/lib/python3.11/site-packages/iglm/trained_models/`. If that environment
   moves, change `model_type` in the base and the two spec files; trial identities change with it.
-- The random-init control is `results/controls/iglm_s_random_init`, made by `scripts/make_iglm_randinit.py` (seed 0, weights hash in its
+- The random-init control is `results/controls/iglm_s_random_init`, made by `experiments/tools/make_iglm_randinit.py` (seed 0, weights hash in its
   `RANDOM_INIT.json`). It must exist before `iglm_controls` starts; the runner does not create it.
 - IgLM saw OAS in pretraining. Keep these rows in their own category in any table; they do not isolate architecture.
 
@@ -75,12 +75,12 @@ source/tokenizer checks below as well (they read metadata, not model weights):
 
 ```bash
 conda activate cdrprj
-test -d results/controls/iglm_s_random_init || python scripts/make_iglm_randinit.py
+test -d results/controls/iglm_s_random_init || python experiments/tools/make_iglm_randinit.py
 for n in iglm_zeroshot iglm_s_finetune iglm_controls iglm_l_finetune; do ./scripts/run.sh plan $n --gpus 0; done
 python -m unittest unit_tests.test_arguments_contracts.ShippedConfigTests unit_tests.test_experiments.SpecTests unit_tests.test_experiments.RandomInitTests unit_tests.test_experiments.ReplayTests
 python - <<'PY'
 from types import SimpleNamespace
-from cdrseqgen.experiments import spec_trials
+from experiments.spec import spec_trials
 from cdrseqgen.methods.ar.backbones import resolve
 for name in ('iglm_zeroshot', 'iglm_s_finetune', 'iglm_controls', 'iglm_l_finetune'):
     trials, _ = spec_trials(f'configs/experiments/20261102_{name}.json', {})
@@ -105,7 +105,7 @@ is explicitly supplied and rejects overlapping source/output directories.
    batch was generated on a GPU, and CPU and CUDA random streams differ:
 
    ```bash
-   CUDA_VISIBLE_DEVICES=0 python scripts/iglm_replay.py \
+   CUDA_VISIBLE_DEVICES=0 python experiments/tools/iglm_replay.py \
        --batch results/benchmark/oas4_h3_length_free_20261007 --device cuda \
        --output results/controls/iglm_replay_20261102.json
    ```
@@ -166,7 +166,7 @@ the remaining time on the selected GPU; include generation and judging in the bu
 
 ## CPU dry run
 
-Before this note was written, all four recipes ran end to end through `scripts/experiments.py run` on tiny data, with a GPU id that does
+Before this note was written, all four recipes ran end to end through the named `run` command (then `scripts/experiments.py`, now `python -m experiments`) on tiny data, with a GPU id that does
 not exist and `use_cpu`: plan, trials, artifact verification, batch tables and plots. The replay script was checked against a fresh CPU
 run of the real external adapter (5 frameworks × 20 draws: 100/100 attempts reproduced) and fails, as it should, with the wrong weights.
 Against the real stored batch on the CPU it reproduces 0 of 200 draws because the random streams differ, while its weights, seed and

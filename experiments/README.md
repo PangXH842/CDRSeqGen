@@ -26,11 +26,11 @@ is described in [specs/README.md](specs/README.md).
 | `execute.py` | Lock, GPU shards, journal, resume, then the report |
 | `report.py` | Tables and plots after a batch |
 | `recipes.py` | Named recipes, plan display, refusal of hidden legacy overrides |
-| `specs/` | The experiment definitions (a byte-identical copy of `configs/experiments/`) |
+| `specs/` | The experiment definitions; `configs/experiments` is a link to this folder |
 | `tools/` | `queue_specs.py`, `make_iglm_randinit.py`, `iglm_replay.py`, `organize_results.py` |
 
 The base training configs stay in `configs/{ar,mlm,s2s}`. Specs refer to them, and to `configs/experiments/bases/`,
-by repository-relative path, so `configs/experiments` has to keep resolving (see below).
+by repository-relative path, so the `configs/experiments` link has to stay (see below).
 
 ## Where each piece came from
 
@@ -45,26 +45,32 @@ The functions were moved, not rewritten. Of the 35 moved definitions, 30 are AST
 other five differ only in where the package is found, the spec folder, the `prog` shown in `--help`, and the two
 `main` names.
 
-## Status: copy first
+## Status: the old files are gone
 
-Both sets exist. Nothing under `cdrseqgen/`, `benchmark/`, `scripts/` or `configs/` was changed, so `run.sh`,
-the tests and every earlier batch still use the old files, and the source identities are unchanged
-(`experiments/` is outside both hashes). Retiring the old files is a separate step:
+On 20 November 2026 the originals were deleted: `cdrseqgen/experiments.py`, `scripts/experiments.py`, the four
+scripts now in `tools/`, and the real `configs/experiments/` folder. In their place:
 
-1. Delete the four moved scripts, `scripts/experiments.py`, `cdrseqgen/experiments.py` and `configs/experiments/`.
-2. Make `configs/experiments` a symlink to `../experiments/specs`, so every spec path and doc link keeps working.
-3. Reduce `scripts/run.sh` to `exec python -m experiments "$@"` and point `unit_tests/test_runner.py` and
-   `test_experiments.py` at the new modules.
+- `configs/experiments` is a symlink to `../experiments/specs`. Keep it: every spec names its base config as
+  `configs/experiments/bases/...`, and the older doc and command paths use it too. Python 3.11's `rglob` does not
+  descend into symlinked folders, so code that lists specs has to read `experiments/specs` directly
+  (`test_arguments_contracts` does).
+- `scripts/run.sh` only selects the environment and runs `python -m experiments "$@"`; `sweep.sh` and
+  `weekend_queue.sh` go through it, and the queue's preflight calls `tools/queue_specs.py`.
+- `unit_tests/` import from `experiments.core`, `.spec` and `.plan`; `test_runner.py` builds its temporary
+  repository with this package and the link.
 
-Step 1 changes `source_identity()` (it hashes every `.py` file under `cdrseqgen/`), so plans frozen before it
-cannot be resumed afterwards. Finished batches are unaffected.
+Deleting `cdrseqgen/experiments.py` changed `source_identity()` (it hashes every `.py` file under `cdrseqgen/`),
+so plans frozen before that day cannot be resumed; finished batches are unaffected. `experiments/` itself is
+outside both source hashes.
 
 ## How it was checked
 
-- **Same plans.** 129 old-versus-new cases (every suite, sweep preset and spec file, error paths, status and resume
-  on a frozen batch, the named CLI): 121 byte-identical, including every plan's trial ids and source hash; the other
-  8 differ only in program name, spec path or help wrapping.
-- **Same behaviour.** The 18 runner tests of `test_runner.py` pass unchanged against this package in the
-  post-migration layout (symlinked `configs/experiments`, one-line `run.sh`).
-- **Tools.** Each copy differs from its original only in the root depth and the spec paths; `queue_specs.py`
-  regenerates the 12 weekend specs byte for byte, and the benchmark forwarding prints the same `--help` as before.
+- **Same behaviour.** The old implementation's output for 129 cases (every suite, sweep preset, spec file and named
+  recipe, error paths, `status` and `resume` on a frozen batch, `--help`) was captured before the deletion. After it,
+  the same cases through `scripts/run.sh` and the `configs/experiments` link give 0 differences: 25 byte-identical, and
+  104 equal once hashes and trial ids (which changed with the source hash), the program name, the spec folder and
+  help wrapping are normalised. The 150 shipped configs and spec trials that `test_arguments_contracts` validates are
+  the same set with the same contents, and the same 964 tests pass.
+- **Before the deletion** the package matched the originals on 129 cases (121 byte-identical, 8 differing only in
+  program name, spec path or help wrapping), 30 of 35 moved definitions were AST-identical (the other five differ only
+  as listed above), and `queue_specs.py` regenerated the 12 weekend specs byte for byte.
