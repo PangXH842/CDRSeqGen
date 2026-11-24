@@ -17,12 +17,12 @@ The [completed evidence inventory](RESULTS.md#completed-validation-evidence) lin
 
 **Abstract accepted for an in-person poster; writing and presentation work:**
 
-The abstract was submitted on **23 October**, as confirmed by the user. The [canonical abstract](../../iAIM/sections/0_abstract.tex), [PDF](../../iAIM/abstract.pdf) and [plain-text copy](../../iAIM/abstract_submission.txt) were refreshed for submission; check their contents together before further distribution. The [coauthor review kit](../../iAIM/COAUTHOR_HANDOFF.md), prepared on October 22, provides a [five-slide overview](../../iAIM/coauthor_brief.pdf), [editable slides](../../iAIM/coauthor_brief.tex) and [email introduction](../../iAIM/coauthor_email.md). Its dated notes and archives precede the final abstract edits.
+The abstract was submitted on **23 October**, as confirmed by the user. The [canonical abstract](../../paper/manuscript/sections/0_abstract.tex), [PDF](../../paper/iaim2026/abstract/abstract.pdf) and [plain-text copy](../../paper/iaim2026/abstract/abstract_submission.txt) were refreshed for submission; check their contents together before further distribution. The [coauthor review kit](../../paper/iaim2026/coauthor_kit/COAUTHOR_HANDOFF.md), prepared on October 22, provides a [five-slide overview](../../paper/iaim2026/coauthor_kit/coauthor_brief.pdf), [editable slides](../../paper/iaim2026/coauthor_kit/coauthor_brief.tex) and [email introduction](../../paper/iaim2026/coauthor_kit/coauthor_email.md). Its dated notes and archives precede the final abstract edits.
 
-1. Keep subsequent abstract revisions in the canonical source shared by both LaTeX entry points, and refresh the PDF/plain-text copy together. `abstract_v2.txt` is historical. The [paper outline](../../iAIM/PAPER_OUTLINE.md) maps sections, displays, evidence and remaining work.
+1. Keep subsequent abstract revisions in the canonical source shared by both LaTeX entry points, and refresh the PDF/plain-text copy together. `abstract_v2.txt` is historical. The [paper outline](../../paper/PAPER_OUTLINE.md) maps sections, displays, evidence and remaining work.
 2. Bring the manuscript's methods, results, figures and discussion up to the verified October 9–12 evidence. Centre the unified framework; use retrieval, variability and context dropout as empirical demonstrations.
 3. Explain the shared workflow and extension contract, expand related work, and obtain advisor/coauthor review. Retain exploratory status, scoring populations, provenance and limitations. Prepare the poster from the resulting evidence narrative.
-4. Review the rebuilt [main.pdf](../../iAIM/main.pdf): Table 8 and Figure 5 include MLM ESM-2, while the main external-comparison tables still need the expanded evidence integrated. The [October 22 working archive](../../iAIM/iaim-draft-20261022.zip) and [October 8 archive](../../iAIM/iaim-draft-20261008.zip) are dated snapshots; regenerate a distribution archive after the manuscript updates.
+4. Review the rebuilt [main.pdf](../../paper/manuscript/main.pdf): Table 8 and Figure 5 include MLM ESM-2, while the main external-comparison tables still need the expanded evidence integrated. The [October 22 working archive](../../paper/iaim2026/coauthor_kit/snapshots/iaim-draft-20261022.zip) and [October 8 archive](../../paper/archive/superseded_20261116/iaim-draft-20261008.zip) are dated snapshots; regenerate a distribution archive after the manuscript updates.
 
 **Remaining experiment decision — final held-out evaluation.** Freeze the cohort, participating systems, checkpoint choices, decoding settings, primary comparisons and reporting before final inference. The 14,818 audit-eligible records are a candidate pool, not a frozen final manifest. Decide common length support, including IgCraft's 30-slot H3 support, and disclose unknown external pretraining membership. The current batch runner still selects validation; the final path needs preparation before execution. Further training follows a specific retained claim or necessary split revision, rather than another broad sweep.
 
@@ -90,7 +90,7 @@ does not complete a manual review. Detailed personal review records are kept loc
 
 Conference milestones: **abstract submitted 23 October and accepted for an in-person poster**, submission **9941**;
 conference **3–5 December**, poster sessions **4–5 December**. The editable
-[two-column](../../iAIM/poster_two_column.tex) and [T-shaped](../../iAIM/poster_tshape.tex)
-posters and [preparation guide](../../iAIM/POSTER_GUIDE.md) are ready. A0 portrait is confirmed;
+[two-column](../../paper/iaim2026/poster/latex_templates/poster_two_column.tex) and [T-shaped](../../paper/iaim2026/poster/latex_templates/poster_tshape.tex)
+posters and [preparation guide](../../paper/iaim2026/poster/latex_templates/docs/POSTER_GUIDE.md) are ready. A0 portrait is confirmed;
 the assigned Poster ID and presentation day remain pending. The acceptance email requires
 registration within two weeks of receipt.

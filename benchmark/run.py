@@ -90,7 +90,11 @@ def arm_paths(arm, config, checkpoint, config_path):
         paths.extend(pretrained_input_files(checkpoint))
     if arm['method'] == 'mlm':
         paths.extend([checkpoint / 'length_config.json', checkpoint / 'length_head.safetensors'])
-        assert read(checkpoint / 'length_config.json')['seed'] == arm['training_seed']
+        length_seed = read(checkpoint / 'length_config.json').get('seed')
+        if length_seed != arm['training_seed']:
+            raise ValueError(
+                f"{arm['label']}: length_config seed {length_seed!r} does not match training_seed {arm['training_seed']!r}"
+            )
     return paths
 
 
@@ -115,18 +119,39 @@ def build_plan(recipe_path, stage, cdr_python, external_pythons=None):
     manifest_path = ROOT / recipe['smoke_manifest' if stage == 'smoke' else 'manifest']
     manifest = read(manifest_path)
     digest = sha256_file(manifest_path)
-    assert digest == manifest_path.with_suffix('.json.sha256').read_text().split()[0]
-    assert manifest['task']['track'] == 'length_free'
-    assert manifest['selection']['split'] == 'validation'
+    expected_digest = manifest_path.with_suffix('.json.sha256').read_text().split()[0]
+    if digest != expected_digest:
+        raise ValueError(f'Manifest SHA-256 mismatch for {manifest_path}: {digest} != {expected_digest}')
+    track = manifest['task']['track']
+    if track != 'length_free':
+        raise ValueError(f'Benchmark runner requires length_free track, got {track!r}')
+    split = manifest['selection']['split']
+    if split not in {'validation', 'test'}:
+        raise ValueError(f"Manifest split must be 'validation' or 'test', got {split!r}")
+    if recipe.get('split') and split != recipe['split']:
+        raise ValueError(f"Manifest split {split!r} does not match recipe split {recipe['split']!r}")
     records = manifest['records']
-    assert len(records) == (5 if stage == 'smoke' else 150)
-    assert len({r['example_id'] for r in records}) == len(records)
+    if not records:
+        raise ValueError(f'Manifest {manifest_path} contains no records')
+    expected_counts = recipe.get('expected_frameworks')
+    if isinstance(expected_counts, dict) and stage in expected_counts:
+        if len(records) != expected_counts[stage]:
+            raise ValueError(f"Stage {stage!r} expects {expected_counts[stage]} frameworks, got {len(records)}")
+    elif isinstance(expected_counts, int) and stage == 'full':
+        if len(records) != expected_counts:
+            raise ValueError(f"Full stage expects {expected_counts} frameworks, got {len(records)}")
+    if len({r['example_id'] for r in records}) != len(records):
+        raise ValueError(f'Manifest {manifest_path} contains duplicate example_id values')
     for record in records:
         validate_manifest_record(record)
         for entry in externals:
             EXTERNALS[entry['adapter']].check_record(record, recipe['sampling'], entry['options'])
     source = ROOT / 'data/processed' / manifest['source']['processed_file']
-    assert sha256_file(source) == manifest['source']['processed_file_sha256']
+    source_digest = sha256_file(source)
+    if source_digest != manifest['source']['processed_file_sha256']:
+        raise ValueError(
+            f"Processed corpus hash mismatch for {source}: {source_digest} != {manifest['source']['processed_file_sha256']}"
+        )
     frozen_files = {str(manifest_path.relative_to(ROOT)): digest,
                     str(recipe_path.relative_to(ROOT)): sha256_file(recipe_path)}
     for entry in externals:
@@ -138,7 +163,11 @@ def build_plan(recipe_path, stage, cdr_python, external_pythons=None):
         checkpoint = ROOT / arm['checkpoint']
         config, config_path = load_run_config(checkpoint)
         validate_checkpoint_contract(config, manifest)
-        assert config['method'] == arm['method'] and config['seed'] == arm['training_seed']
+        if config['method'] != arm['method'] or config['seed'] != arm['training_seed']:
+            raise ValueError(
+                f"{arm['label']}: checkpoint config ({config['method']!r}, seed {config['seed']!r}) "
+                f"differs from recipe ({arm['method']!r}, seed {arm['training_seed']!r})"
+            )
         decoding = resolve_decoding(config)
         for path in arm_paths(arm, config, checkpoint, config_path):
             frozen_files[str(path.relative_to(ROOT))] = sha256_file(path)
@@ -321,7 +350,7 @@ def main(argv=None):
         _recipe_main(arguments[1:])
         return
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('command', choices=['plan', 'smoke', 'run', 'resume', 'status', 'recipe'])
+    parser.add_argument('command', choices=['plan', 'smoke', 'run', 'resume', 'status'])
     parser.add_argument('batch', nargs='?', type=Path)
     parser.add_argument('--recipe', type=Path, default=ROOT / 'benchmark/recipes/oas4_h3_length_free.json')
     parser.add_argument('--stage', choices=['smoke', 'full'], default='full', help='Plan stage only')

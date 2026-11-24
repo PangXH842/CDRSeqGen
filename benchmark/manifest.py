@@ -122,6 +122,72 @@ def validate_records(records: list[dict], split: str) -> None:
             raise ValueError(f"{record['example_id']} has an incorrect infill_range")
 
 
+def load_eligible_indices(
+    path: Path,
+    *,
+    split: str,
+    processed_hash: str | None = None,
+) -> tuple[set[int], dict]:
+    """Load allowed corpus source indices from a leakage audit summary.json or JSON index list.
+
+    Accepts either:
+      - a leakage audit summary.json containing `candidate_test.eligible_source_indices` (requires
+        `split == "test"`, and checks corpus hash against a sibling plan.json when present),
+      - a dict with `"eligible_source_indices"` (list of ints), or
+      - a bare JSON list of integer source indices.
+    """
+    path = Path(path)
+    payload = json.loads(path.read_text())
+    rule = None
+    if isinstance(payload, dict) and "candidate_test" in payload:
+        if split != "test":
+            raise ValueError(
+                f"--eligible-indices points to candidate_test audit ({path}), "
+                f"which applies to split 'test', not {split!r}"
+            )
+        block = payload["candidate_test"]
+        raw = block.get("eligible_source_indices")
+        rule = block.get("rule")
+        plan_path = path.with_name("plan.json")
+        if processed_hash and plan_path.is_file():
+            plan = json.loads(plan_path.read_text())
+            corpus_key = plan.get("corpus")
+            frozen_corpus = (plan.get("frozen_files") or {}).get(corpus_key)
+            if frozen_corpus and frozen_corpus != processed_hash:
+                raise ValueError(
+                    f"leakage audit corpus hash ({frozen_corpus}) does not match input corpus ({processed_hash})"
+                )
+    elif isinstance(payload, dict) and "eligible_source_indices" in payload:
+        raw = payload["eligible_source_indices"]
+        rule = payload.get("rule")
+    elif isinstance(payload, list):
+        raw = payload
+    else:
+        raise ValueError(
+            f"unsupported --eligible-indices JSON format in {path}: "
+            "expected leakage summary.json, {'eligible_source_indices': [...]}, or list of ints"
+        )
+
+    if not isinstance(raw, list) or not raw:
+        raise ValueError(f"--eligible-indices in {path} is empty or not a list")
+    indices: set[int] = set()
+    for item in raw:
+        if not isinstance(item, int) or isinstance(item, bool) or item < 0:
+            raise ValueError(f"--eligible-indices contains non-index entry: {item!r}")
+        indices.add(item)
+    if len(indices) != len(raw):
+        raise ValueError(f"--eligible-indices in {path} contains duplicate source indices")
+
+    meta = {
+        "eligibility_file": path.name,
+        "eligibility_sha256": sha256_file(path),
+        "eligibility_indices_count": len(indices),
+    }
+    if rule:
+        meta["eligibility_rule"] = rule
+    return indices, meta
+
+
 def build_manifest(
     input_path: Path,
     *,
@@ -130,19 +196,49 @@ def build_manifest(
     selection_seed: str,
     benchmark_id: str,
     track: str = "fixed_native_length",
+    eligible_indices_path: Path | None = None,
+    skip_invalid_records: bool = False,
 ) -> dict:
     if track not in {"fixed_native_length", "length_free"}:
         raise ValueError(f"unsupported benchmark track {track!r}")
     with input_path.open() as handle:
         entries = json.load(handle)
 
-    eligible = [
-        h3_record(entry, index)
-        for index, entry in enumerate(entries)
-        if entry.get("split") == split
-    ]
-    if not eligible:
+    processed_hash = sha256_file(input_path)
+    split_indices = [index for index, entry in enumerate(entries) if entry.get("split") == split]
+    if not split_indices:
         raise ValueError(f"no records found for split {split!r} in {input_path}")
+
+    eligibility_meta: dict = {}
+    if eligible_indices_path is not None:
+        allowed, eligibility_meta = load_eligible_indices(
+            eligible_indices_path, split=split, processed_hash=processed_hash
+        )
+        split_index_set = set(split_indices)
+        invalid_indices = sorted(allowed - split_index_set)
+        if invalid_indices:
+            raise ValueError(
+                f"--eligible-indices contains {len(invalid_indices)} index(es) not in split {split!r} "
+                f"(first: {invalid_indices[:5]})"
+            )
+        selected_indices = [index for index in split_indices if index in allowed]
+        eligibility_meta["pre_filter_split_records"] = len(split_indices)
+    else:
+        selected_indices = split_indices
+
+    eligible = []
+    skipped_invalid = []
+    for index in selected_indices:
+        try:
+            eligible.append(h3_record(entries[index], index))
+        except ValueError as exc:
+            if not skip_invalid_records:
+                raise
+            skipped_invalid.append({"source_index": index, "reason": str(exc)})
+    if not eligible:
+        raise ValueError(f"no eligible records left for split {split!r} in {input_path}")
+    if skipped_invalid:
+        eligibility_meta["skipped_invalid_records"] = skipped_invalid
 
     eligible.sort(key=lambda record: selection_key(record, selection_seed))
     if sample_size is not None:
@@ -160,7 +256,6 @@ def build_manifest(
     records.sort(key=lambda record: record["example_id"])
     validate_records(records, split)
 
-    processed_hash = sha256_file(input_path)
     metadata_path = processed_metadata_path(input_path)
     if not metadata_path.exists():
         raise ValueError(f"missing preprocessing metadata sidecar: {metadata_path}")
@@ -173,6 +268,15 @@ def build_manifest(
 
     species_values = sorted({record["species"] for record in records})
     species_tokens = sorted({record["species_token"] for record in records})
+
+    selection = {
+        "split": split,
+        "eligible_records": len(eligible),
+        "selected_records": len(records),
+        "strategy": "lowest SHA-256(selection_seed + ':' + example_id)",
+        "selection_seed": selection_seed,
+        **eligibility_meta,
+    }
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -193,13 +297,7 @@ def build_manifest(
             "metadata_file": metadata_path.name,
             "preprocessing_metadata": processed_metadata,
         },
-        "selection": {
-            "split": split,
-            "eligible_records": len(eligible),
-            "selected_records": len(records),
-            "strategy": "lowest SHA-256(selection_seed + ':' + example_id)",
-            "selection_seed": selection_seed,
-        },
+        "selection": selection,
         "conditioning": {
             "chain": "heavy",
             "species_values": species_values,
@@ -256,6 +354,8 @@ def _cmd_export(args: argparse.Namespace) -> None:
         track=args.track,
         selection_seed=args.selection_seed,
         benchmark_id=args.benchmark_id,
+        eligible_indices_path=args.eligible_indices.resolve() if args.eligible_indices else None,
+        skip_invalid_records=args.skip_invalid_records,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w") as handle:
@@ -307,6 +407,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     exp.add_argument("--benchmark-id", default="oas_h3_test_v1")
     exp.add_argument(
         "--track", choices=("fixed_native_length", "length_free"), default="fixed_native_length"
+    )
+    exp.add_argument(
+        "--eligible-indices",
+        type=Path,
+        default=None,
+        help="Optional leakage audit summary.json or JSON list restricting allowed corpus source_index values",
+    )
+    exp.add_argument(
+        "--skip-invalid-records",
+        action="store_true",
+        help="Skip corpus records failing IMGT-region reconstruction instead of aborting, logging them in selection",
     )
     exp.set_defaults(func=_cmd_export)
 

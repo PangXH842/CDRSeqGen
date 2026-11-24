@@ -1,0 +1,230 @@
+{
+  "name": "oas4_h3_test_final",
+  "split": "test",
+  "expected_frameworks": {
+    "smoke": 5,
+    "full": 500
+  },
+  "manifest": "benchmark/manifests/oas4_h3_test_length_free_v1.json",
+  "smoke_manifest": "benchmark/manifests/oas4_h3_test_length_free_smoke_v1.json",
+  "arms": [
+    {
+      "label": "mlm_s42",
+      "method": "mlm",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261007_144639_381443_mlm_no_partner_controls/h3_OAS4_scratch_mlm_scratch_no_partner_s42"
+    },
+    {
+      "label": "mlm_s43",
+      "method": "mlm",
+      "training_seed": 43,
+      "checkpoint": "results/runs/20261007_144639_381443_mlm_no_partner_controls/h3_OAS4_scratch_mlm_scratch_no_partner_s43"
+    },
+    {
+      "label": "mlm_s44",
+      "method": "mlm",
+      "training_seed": 44,
+      "checkpoint": "results/runs/20261009_weekend_seeds_mlm/h3_OAS4_scratch_mlm_scratch_no_partner_s44"
+    },
+    {
+      "label": "mlm_s45",
+      "method": "mlm",
+      "training_seed": 45,
+      "checkpoint": "results/runs/20261009_weekend_seeds_mlm/h3_OAS4_scratch_mlm_scratch_no_partner_s45"
+    },
+    {
+      "label": "mlm_s46",
+      "method": "mlm",
+      "training_seed": 46,
+      "checkpoint": "results/runs/20261009_weekend_seeds_mlm/h3_OAS4_scratch_mlm_scratch_no_partner_s46"
+    },
+    {
+      "label": "mlm_s47",
+      "method": "mlm",
+      "training_seed": 47,
+      "checkpoint": "results/runs/20261009_weekend_seeds_mlm/h3_OAS4_scratch_mlm_scratch_no_partner_s47"
+    },
+    {
+      "label": "mlm_s48",
+      "method": "mlm",
+      "training_seed": 48,
+      "checkpoint": "results/runs/20261009_weekend_seeds_mlm/h3_OAS4_scratch_mlm_scratch_no_partner_s48"
+    },
+    {
+      "label": "ar_s42",
+      "method": "ar",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261006_140502_185951_no_partner_controls/h3_OAS4_ar_scratch_ar_scratch_no_partner_s42_2"
+    },
+    {
+      "label": "ar_s43",
+      "method": "ar",
+      "training_seed": 43,
+      "checkpoint": "results/runs/20261006_140502_185951_no_partner_controls/h3_OAS4_ar_scratch_ar_scratch_no_partner_s43_2"
+    },
+    {
+      "label": "ar_s44",
+      "method": "ar",
+      "training_seed": 44,
+      "checkpoint": "results/runs/20261009_weekend_seeds_ar/h3_OAS4_ar_scratch_ar_scratch_no_partner_s44"
+    },
+    {
+      "label": "ar_s45",
+      "method": "ar",
+      "training_seed": 45,
+      "checkpoint": "results/runs/20261009_weekend_seeds_ar/h3_OAS4_ar_scratch_ar_scratch_no_partner_s45"
+    },
+    {
+      "label": "ar_s46",
+      "method": "ar",
+      "training_seed": 46,
+      "checkpoint": "results/runs/20261009_weekend_seeds_ar/h3_OAS4_ar_scratch_ar_scratch_no_partner_s46"
+    },
+    {
+      "label": "ar_s47",
+      "method": "ar",
+      "training_seed": 47,
+      "checkpoint": "results/runs/20261009_weekend_seeds_ar/h3_OAS4_ar_scratch_ar_scratch_no_partner_s47"
+    },
+    {
+      "label": "ar_s48",
+      "method": "ar",
+      "training_seed": 48,
+      "checkpoint": "results/runs/20261009_weekend_seeds_ar/h3_OAS4_ar_scratch_ar_scratch_no_partner_s48"
+    },
+    {
+      "label": "s2s_s42",
+      "method": "s2s",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261006_140502_185951_no_partner_controls/h3_OAS4_s2s_scratch_s2s_scratch_no_partner_s42"
+    },
+    {
+      "label": "s2s_s43",
+      "method": "s2s",
+      "training_seed": 43,
+      "checkpoint": "results/runs/20261006_140502_185951_no_partner_controls/h3_OAS4_s2s_scratch_s2s_scratch_no_partner_s43"
+    },
+    {
+      "label": "s2s_s44",
+      "method": "s2s",
+      "training_seed": 44,
+      "checkpoint": "results/runs/20261009_weekend_seeds_s2s/h3_OAS4_s2s_scratch_s2s_scratch_no_partner_s44"
+    },
+    {
+      "label": "s2s_s45",
+      "method": "s2s",
+      "training_seed": 45,
+      "checkpoint": "results/runs/20261009_weekend_seeds_s2s/h3_OAS4_s2s_scratch_s2s_scratch_no_partner_s45"
+    },
+    {
+      "label": "s2s_s46",
+      "method": "s2s",
+      "training_seed": 46,
+      "checkpoint": "results/runs/20261009_weekend_seeds_s2s/h3_OAS4_s2s_scratch_s2s_scratch_no_partner_s46"
+    },
+    {
+      "label": "s2s_s47",
+      "method": "s2s",
+      "training_seed": 47,
+      "checkpoint": "results/runs/20261009_weekend_seeds_s2s/h3_OAS4_s2s_scratch_s2s_scratch_no_partner_s47"
+    },
+    {
+      "label": "s2s_s48",
+      "method": "s2s",
+      "training_seed": 48,
+      "checkpoint": "results/runs/20261009_weekend_seeds_s2s/h3_OAS4_s2s_scratch_s2s_scratch_no_partner_s48"
+    },
+    {
+      "label": "iglm_s_lr3e-5",
+      "method": "ar",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261103_165217_376850_iglm_s_finetune/h3_OAS4_ar_IgLM-S_iglm_s_lr3e-5"
+    },
+    {
+      "label": "iglm_lr1e-5",
+      "method": "ar",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261105_191920_847836_iglm_l_finetune/h3_OAS4_ar_IgLM_iglm_lr1e-5"
+    }
+  ],
+  "externals": [
+    {
+      "label": "iglm",
+      "adapter": "iglm",
+      "options": {
+        "model_name": "IgLM",
+        "max_length": 256
+      }
+    },
+    {
+      "label": "igcraft",
+      "adapter": "igcraft",
+      "options": {
+        "checkpoint": "../IgCraft/igcraft-model/checkpoints/final.ckpt",
+        "config": "../IgCraft/igcraft-model/.hydra/config.yaml",
+        "flank_regions": "benchmark/manifests/oas4_h3_test_length_free_v1_regions.json",
+        "hf_revision": "18eba7ff1f14389733be9b7a76c2a3e17f424d67",
+        "sha256": {
+          "checkpoint": "b7c4dcdd31be676d70fd1467f58feab3aab1cc955771e90468edb5b523274311",
+          "config": "c8f70ab82b7c11c3b2af9931e84cb44c872d989767e9f1187fbe6d0190d99b58",
+          "flank_regions": "841bf5b198076be49550164819b3a61c663993c34eed409ed9ded511aa1fda5e"
+        },
+        "num_steps": 20,
+        "num_particles": 32,
+        "temperature": 0.1,
+        "batch_size": 20,
+        "compile": true
+      }
+    },
+    {
+      "label": "retrieval",
+      "adapter": "retrieval",
+      "options": {
+        "corpus": "data/processed/processed_oas_multi.json",
+        "key": "fr3tail12+fr4head6",
+        "sha256": "bd854ae32de886bc9b4466edf5d1aa3ade6c09847b622ceaa60cba395bbd5ad8"
+      }
+    },
+    {
+      "label": "retrieval_j",
+      "adapter": "retrieval",
+      "options": {
+        "corpus": "data/processed/processed_oas_multi.json",
+        "key": "fr4",
+        "sha256": "bd854ae32de886bc9b4466edf5d1aa3ade6c09847b622ceaa60cba395bbd5ad8"
+      }
+    },
+    {
+      "label": "retrieval_fine",
+      "adapter": "retrieval",
+      "options": {
+        "corpus": "data/processed/processed_oas_multi.json",
+        "key": "fr3tail20+fr4",
+        "sha256": "bd854ae32de886bc9b4466edf5d1aa3ade6c09847b622ceaa60cba395bbd5ad8"
+      }
+    }
+  ],
+  "sampling": {
+    "num_samples": 20,
+    "smoke_num_samples": 5,
+    "temperature": 1.0,
+    "top_k": 0,
+    "top_p": 0.9,
+    "length_temperature": 1.0,
+    "seed": 42,
+    "max_new_tokens": 97
+  },
+  "judge": {
+    "name": "Exscientia/IgBert",
+    "max_len": 384
+  },
+  "endpoint": "Framework-averaged native edit similarity; length, diversity, conditional recovery and judge scores are supporting.",
+  "limits": [
+    "Final held-out test comparison on 500 leakage-filtered OAS4 test frameworks drawn deterministically from 14,816 valid eligible records (14,818 leakage-eligible out of 15,273 test records; 2 upstream IMGT-mismatch records 115202 and 146060 skipped and logged).",
+    "Prior test-split exposure disclosure: earlier CPU parity diagnostics inspected 5 test examples; no hyperparameter, checkpoint, or protocol decisions used held-out test metrics.",
+    "Seven-seed scratch checkpoints (mlm/ar/s2s seeds 42-48) form the primary scratch comparison; iglm_s_lr3e-5 and iglm_lr1e-5 are single-seed (seed 42) adapted native-IgLM arms selected by validation core accuracy and analyzed outside the seven-seed scratch contrast family.",
+    "IgLM, IgCraft (~300M parameters, 30-slot CDR3 capacity, documented inpainting defaults temperature=0.1 / 20 steps / 32 particles), and IgBert pretraining overlap with OAS4 donors is unverified; judge sees heavy chain only in every arm.",
+    "Parameter-free training-split retrieval references: retrieval (fr3tail12+fr4head6) is primary; retrieval_j and retrieval_fine are flank-granularity sensitivity checks.",
+    "Saved checkpoints retain their real training source/runtime versions (seeds 42-43 predating the 7 Oct refactor; seeds 44-48 and adapted IgLM trained on the refactored tree); inference and scoring use one frozen source snapshot."
+  ]
+}

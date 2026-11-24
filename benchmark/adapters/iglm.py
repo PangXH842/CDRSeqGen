@@ -276,10 +276,13 @@ def build_payload(args, manifest: dict[str, Any], manifest_hash: str, sampler) -
         import iglm
         import torch
         import transformers
-        from iglm.model.IgLM import CHECKPOINT_DICT
+        from iglm.model.IgLM import CHECKPOINT_DICT, VOCAB_FILE
 
         package_path = Path(iglm.__file__).resolve().parent
-        checkpoint = Path(CHECKPOINT_DICT[args.model_name]) / "pytorch_model.bin"
+        checkpoint_dir = Path(CHECKPOINT_DICT[args.model_name])
+        checkpoint = checkpoint_dir / "pytorch_model.bin"
+        config_file = checkpoint_dir / "config.json"
+        vocab_file = Path(VOCAB_FILE)
         provenance = {
             "package_version": importlib.metadata.version("iglm"),
             "package_path": str(package_path),
@@ -288,6 +291,10 @@ def build_payload(args, manifest: dict[str, Any], manifest_hash: str, sampler) -
             "transformers_version": transformers.__version__,
             "checkpoint_file": str(checkpoint),
             "checkpoint_sha256": sha256_file(checkpoint),
+            "config_file": str(config_file),
+            "config_sha256": sha256_file(config_file),
+            "vocab_file": str(vocab_file),
+            "vocab_sha256": sha256_file(vocab_file),
             "device": sampler.device,
             "execution_source": execution_source_identity(),
         }

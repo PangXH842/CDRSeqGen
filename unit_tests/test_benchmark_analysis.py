@@ -159,6 +159,30 @@ class BenchmarkScorerTests(unittest.TestCase):
         self.assertEqual(aggregate["whole_span_aar_mean"]["macro_mean"], 0.5)
         self.assertEqual(aggregate["micro_accounting"]["retained_samples"], 4)
 
+    def test_length_free_rejects_more_retained_samples_than_valid_attempts(self):
+        record = adapter_record(samples=["AAAAAA"] * 3)
+        record.update(attempts=1, valid_attempts=1, invalid_attempts=0, length_matches=1, length_mismatches=0)
+        manifest = {"native": "AAAAAA", "native_length": 6}
+        with self.assertRaisesRegex(ValueError, "retained more samples than valid attempts"):
+            validate_adapter_record(record, manifest, track="length_free")
+
+    def test_empty_framework_has_none_diversity_and_is_excluded_from_macro_mean(self):
+        empty = adapter_record(samples=[])
+        empty.update(attempts=2, valid_attempts=0, invalid_attempts=2, length_matches=0, length_mismatches=0)
+        filled = adapter_record(samples=["AAAAAA", "TTTTTT"])
+        filled.update(attempts=2, valid_attempts=2, invalid_attempts=0, length_matches=2, length_mismatches=0)
+        m_empty = score_record(empty, anchor_trim=2)
+        m_filled = score_record(filled, anchor_trim=2)
+        self.assertIsNone(m_empty["diversity_hamming"])
+        self.assertEqual(m_filled["diversity_hamming"], 1.0)
+        scored = [
+            {"metrics": m_empty, "accounting": {"attempts": 2, "valid_attempts": 0, "length_matches": 0}},
+            {"metrics": m_filled, "accounting": {"attempts": 2, "valid_attempts": 2, "length_matches": 2}},
+        ]
+        agg = aggregate_records(scored)
+        self.assertEqual(agg["diversity_hamming"]["examples"], 1)
+        self.assertEqual(agg["diversity_hamming"]["macro_mean"], 1.0)
+
 
 # ====================================================================================================
 # from test_scoring_contracts.py

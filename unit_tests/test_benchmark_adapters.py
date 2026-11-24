@@ -535,7 +535,7 @@ class ArmRuleTests(unittest.TestCase):
         self.assertEqual(self.paths("mlm", "scratch"),
                          base + ["length_config.json", "length_head.safetensors"])
         (self.checkpoint / "length_config.json").write_text(json.dumps({"seed": 43}))
-        with self.assertRaises(AssertionError):
+        with self.assertRaisesRegex(ValueError, "length_config seed"):
             self.paths("mlm", "scratch")
 
     def test_pretrained_ar_and_s2s_arms_also_pin_their_saved_vocabulary_and_layout(self):

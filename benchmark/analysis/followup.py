@@ -149,7 +149,7 @@ def merge_scores(original, added, labels=('empirical',), require_full=True):
     membership={r['example_id'] for r in runs[0]['records']}
     natives={r['example_id']:(r['native'],r['native_length']) for r in runs[0]['records']}
     for run in runs:
-        for field in ['track','num_samples','base_seed']:
+        for field in ['track','num_samples','temperature','top_p','base_seed']:
             if run['sampling'].get(field)!=runs[0]['sampling'].get(field):
                 raise ValueError(f'Unmatched sampling: {field}')
         if len(run['records'])!=len(membership) or {r['example_id'] for r in run['records']}!=membership:

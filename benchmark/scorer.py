@@ -106,6 +106,8 @@ def validate_adapter_record(record: dict[str, Any], manifest_record: dict[str, A
         raise ValueError(f"{example_id} attempt accounting is inconsistent")
     if record["valid_attempts"] != record["length_matches"] + record["length_mismatches"]:
         raise ValueError(f"{example_id} valid/length accounting is inconsistent")
+    if len(record["samples"]) > record["valid_attempts"]:
+        raise ValueError(f"{example_id} retained more samples than valid attempts")
     if track == "fixed_native_length" and len(record["samples"]) > record["length_matches"]:
         raise ValueError(f"{example_id} retained more samples than matching attempts")
     for sample in record["samples"]:
@@ -160,7 +162,7 @@ def score_record(
         "core_available": bool(core_indices),
         "core_length": len(core_indices),
         "anchor_length": len(anchor_indices),
-        "diversity_hamming": mean_or_none(pairwise) if pairwise else 0.0,
+        "diversity_hamming": (mean_or_none(pairwise) if pairwise else 0.0) if retained else None,
         "novelty_to_native_mean": (1.0 - whole_mean) if whole_mean is not None else None,
         "unique_fraction": (len(set(samples)) / retained) if retained else None,
         "per_position_entropy_bits": position_entropy(samples),

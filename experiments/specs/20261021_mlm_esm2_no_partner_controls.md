@@ -54,7 +54,7 @@ Fresh runs capture current source/runtime identity. Do not resume the historical
 
 1. Require two successful trials, selected sequence-model weights, exact saved tokenizer, fitted head/config and one generation output per trial.
 2. Verify example membership, length mode, generator/judge context, returned counts, judge coverage and per-framework metrics against Table 8's protocol. Audit actual checkpoint/head compatibility and provenance before quoting results.
-3. Extend `iAIM/scripts/export_evidence.py` to discover these runs and regenerate the no-partner table from saved artifacts. Do not hand-enter numerical rows or mark the trials complete in advance. Rename the current October 6–7 caption/column notes to cover the new source/runtime and candidate counts.
+3. Extend `paper/manuscript/scripts/export_evidence.py` to discover these runs and regenerate the no-partner table from saved artifacts. Do not hand-enter numerical rows or mark the trials complete in advance. Rename the current October 6–7 caption/column notes to cover the new source/runtime and candidate counts.
 4. If we add these checkpoints to the main matched external benchmark later, generate/score through its frozen manifest and heavy-only judge policy separately. That is not completed by Table 8 evaluation.
 
 No extra dropout arms are included. Extending the robustness claim specifically to MLM ESM-2 would additionally require partner-trained dropout-0/0.5 models evaluated in both regimes; decide that only if it becomes a paper claim. A same-architecture randomly initialized ESM-2 control is separate again, needed for attributing an effect to pretraining.

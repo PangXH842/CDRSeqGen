@@ -247,6 +247,57 @@ class RunnerTests(unittest.TestCase):
                 with self.subTest(message), self.assertRaisesRegex(ValueError, message):
                     build_plan(recipe(**content), 'full', Path(sys.executable), interpreters)
 
+    def test_plan_supports_test_split_and_arbitrary_cohort_size_with_value_errors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            processed = tmp / 'data/processed'
+            processed.mkdir(parents=True)
+            corpus = processed / 'processed_test.json'
+            corpus.write_text('[]')
+            from benchmark._common import sha256_file
+            corpus_hash = sha256_file(corpus)
+            records = [
+                dict(example_id=f'oas:1:s{i}', parent_sequence='AAAACCCCCGGGG',
+                     pt1='AAAA', native='CCCCC', pt2='GGGG', native_length=5, infill_range=[4, 9])
+                for i in range(3)
+            ]
+            manifest = dict(
+                task=dict(track='length_free'),
+                selection=dict(split='test'),
+                source=dict(processed_file='processed_test.json', processed_file_sha256=corpus_hash),
+                records=records,
+            )
+            mpath = tmp / 'manifest.json'
+            mpath.write_text(json.dumps(manifest))
+            mpath.with_suffix('.json.sha256').write_text(f'{sha256_file(mpath)}  manifest.json\n')
+            rpath = tmp / 'recipe.json'
+            rpath.write_text(json.dumps(dict(
+                name='test_cohort',
+                split='test',
+                expected_frameworks=dict(full=3),
+                manifest='manifest.json',
+                smoke_manifest='manifest.json',
+                arms=[],
+                externals=[dict(label='fake', adapter='fake', options={})],
+                sampling=dict(num_samples=2, smoke_num_samples=1, temperature=1.0, top_p=0.9, top_k=0,
+                              length_temperature=1.0, max_new_tokens=97, seed=42),
+                judge=dict(name='Exscientia/IgBert', max_len=384),
+                endpoint='edit_similarity_mean',
+                limits=[],
+            )))
+            fake = External(script='benchmark/adapters/fake.py', conda_env='cdrprj',
+                            arguments=lambda *a: [], packages=())
+            with patch('benchmark.run.ROOT', tmp), patch.dict(EXTERNALS, {'fake': fake}):
+                plan = build_plan(rpath, 'full', Path(sys.executable), {'fake': Path(sys.executable)})
+                self.assertEqual(plan['frameworks'], 3)
+                self.assertEqual(plan['requested_attempts'], 6)
+                # Bad split raises ValueError (not AssertionError)
+                manifest['selection']['split'] = 'train'
+                mpath.write_text(json.dumps(manifest))
+                mpath.with_suffix('.json.sha256').write_text(f'{sha256_file(mpath)}  manifest.json\n')
+                with self.assertRaisesRegex(ValueError, "must be 'validation' or 'test'"):
+                    build_plan(rpath, 'full', Path(sys.executable), {'fake': Path(sys.executable)})
+
 
 class PairTests(unittest.TestCase):
     LOCAL = ['mlm_s42', 'mlm_s43', 'ar_s42', 'ar_s43', 's2s_s42', 's2s_s43']

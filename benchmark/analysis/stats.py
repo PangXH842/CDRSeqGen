@@ -185,8 +185,9 @@ def report(analysis):
     for row in analysis['results']:
         if row['metric'] != 'edit_similarity_mean':
             continue
+        diff_str = f"{row['difference']:+.5f}" if row.get('difference') is not None else 'unavailable'
         interval = lambda prefix: f"[{row[prefix + 'low']:+.5f}, {row[prefix + 'high']:+.5f}]" if row.get(prefix + 'low') is not None else 'undefined'
-        lines.append(f"| {row['a']} − {row['b']} | {row['n_examples']} / {row['n_groups']} | {row['difference']:+.5f} | {interval('ci_')} | {interval('family_ci_')} |")
+        lines.append(f"| {row['a']} − {row['b']} | {row['n_examples']} / {row['n_groups']} | {diff_str} | {interval('ci_')} | {interval('family_ci_')} |")
     return '\n'.join(lines + ['', *analysis['limitations'], '',
                               'Intervals spanning zero do not establish equivalence. Supporting endpoints and paired populations are in analysis.json.', ''])
 

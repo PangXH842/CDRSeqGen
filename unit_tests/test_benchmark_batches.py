@@ -438,6 +438,26 @@ class AccountingTests(unittest.TestCase):
             added['runs'][0]['records'][0].update(change)
             with self.assertRaises(ValueError):merge_scores(original,added)
 
+    def test_merge_refuses_temperature_or_top_p_drift(self):
+        record=dict(example_id='a',native='AAA',native_length=3,
+                    metrics=dict(n_samples=2,judge_candidates_scored=2,edit_similarity_mean=.5,judge_perplexity_mean=2.))
+        original=dict(manifest=dict(sha256='same'),judge={},scoring={},runs=[
+            dict(label='iglm',sampling=dict(track='length_free',num_samples=2,temperature=1.0,top_p=0.9,base_seed=42),records=[record])])
+        for field, bad_value in [('temperature', 0.8), ('top_p', 0.95)]:
+            added=copy.deepcopy(original);added['runs'][0]['label']='empirical'
+            added['runs'][0]['sampling'][field]=bad_value
+            with self.assertRaisesRegex(ValueError, f'Unmatched sampling: {field}'):
+                merge_scores(original,added)
+
+    def test_report_handles_empty_paired_contrast_without_keyerror(self):
+        from benchmark.analysis.stats import report
+        rendered = report(dict(
+            results=[dict(a='mlm', b='iglm', metric='edit_similarity_mean', n_examples=0, n_groups=0, reason='No finite paired population')],
+            limitations=['test'],
+        ))
+        self.assertIn('unavailable', rendered)
+        self.assertIn('undefined', rendered)
+
     def test_resume_refuses_changed_completed_output_before_gpu_work(self):
         from benchmark.analysis.followup import execute
         with tempfile.TemporaryDirectory() as directory:
@@ -778,6 +798,88 @@ class ExportManifestTests(unittest.TestCase):
                 benchmark_id="bad",
                 track="unknown",
             )
+
+    def test_eligible_indices_filters_test_split_and_validates_audit_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            e0 = {**_entry(), "sequence_id": "seq0", "split": "train"}
+            e1 = {**_entry(), "sequence_id": "seq1", "split": "test"}
+            e2 = {**_entry(), "sequence_id": "seq2", "split": "test"}
+            path = root / "processed.json"
+            path.write_text(json.dumps([e0, e1, e2]))
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            path.with_suffix(".metadata.json").write_text(json.dumps({
+                "dataset": "OAS",
+                "processed_file_sha256": digest,
+            }))
+            audit = root / "summary.json"
+            audit.write_text(json.dumps({
+                "candidate_test": {
+                    "eligible_source_indices": [2],
+                    "rule": "no same-length neighbour >= 0.85",
+                }
+            }))
+            manifest = build_manifest(
+                path,
+                split="test",
+                sample_size=None,
+                selection_seed="s",
+                benchmark_id="test_filtered",
+                track="length_free",
+                eligible_indices_path=audit,
+            )
+            self.assertEqual([r["source_index"] for r in manifest["records"]], [2])
+            self.assertEqual(manifest["selection"]["pre_filter_split_records"], 2)
+            self.assertEqual(manifest["selection"]["eligible_records"], 1)
+            self.assertEqual(manifest["selection"]["eligibility_file"], "summary.json")
+
+            # candidate_test audit refuses validation split
+            with self.assertRaisesRegex(ValueError, "applies to split 'test'"):
+                build_manifest(
+                    path,
+                    split="train",
+                    sample_size=None,
+                    selection_seed="s",
+                    benchmark_id="bad_split",
+                    track="length_free",
+                    eligible_indices_path=audit,
+                )
+
+            # index from wrong split is refused
+            bad_list = root / "bad.json"
+            bad_list.write_text(json.dumps([0, 2]))
+            with self.assertRaisesRegex(ValueError, "not in split 'test'"):
+                build_manifest(
+                    path,
+                    split="test",
+                    sample_size=None,
+                    selection_seed="s",
+                    benchmark_id="bad_idx",
+                    track="length_free",
+                    eligible_indices_path=bad_list,
+                )
+
+    def test_skip_invalid_records_logs_and_excludes_malformed_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            good = {**_entry(), "sequence_id": "good", "split": "test"}
+            bad = {**_entry(), "sequence_id": "bad", "split": "test"}
+            bad["heavy"] = {**bad["heavy"], "full_aa": bad["heavy"]["full_aa"] + "A"}
+            path = root / "processed.json"
+            path.write_text(json.dumps([good, bad]))
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            path.with_suffix(".metadata.json").write_text(json.dumps({
+                "dataset": "OAS",
+                "processed_file_sha256": digest,
+            }))
+            with self.assertRaisesRegex(ValueError, "does not reconstruct heavy.full_aa"):
+                build_manifest(path, split="test", sample_size=None, selection_seed="s",
+                               benchmark_id="strict", track="length_free")
+            manifest = build_manifest(path, split="test", sample_size=None, selection_seed="s",
+                                      benchmark_id="skip", track="length_free", skip_invalid_records=True)
+            self.assertEqual([r["source_index"] for r in manifest["records"]], [0])
+            self.assertEqual(len(manifest["selection"]["skipped_invalid_records"]), 1)
+            self.assertEqual(manifest["selection"]["skipped_invalid_records"][0]["source_index"], 1)
 
 
 if __name__ == "__main__":

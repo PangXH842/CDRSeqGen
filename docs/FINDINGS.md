@@ -626,7 +626,7 @@ The learning rate was not retuned for size, so this does not establish a capacit
 from 0.3769 to 0.3506. The comparison remains method- and setting-specific; temperatures are
 not interchangeable across generator families.
 
-The [October 20 independent verification](../../iAIM/verification/REPORT.md) covers the newer
+The [October 20 independent verification](../../paper/verification/REPORT.md) covers the newer
 44 arms and 32 seed-aware contrasts, as well as the older paper evidence. An October 21
 read-only review also checked 74 saved variability input/output hashes with no mismatch.
 These are result checks, not completion of manual code review. Newer batches retain their

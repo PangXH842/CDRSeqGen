@@ -63,12 +63,12 @@ Supporting guides live in [docs/](docs/README.md).
    `callbacks`, `losses` and the AR/S2S decoding module), then the AR and S2S evaluation,
    generation and sampling blocks and the remaining shared modules.
 2. **Develop the manuscript and poster** from the completed validation evidence.
-   The [paper outline](../iAIM/PAPER_OUTLINE.md) maps claims to evidence; the
-   [canonical abstract](../iAIM/sections/0_abstract.tex) is shared by both LaTeX entry points.
+   The [paper outline](../paper/PAPER_OUTLINE.md) maps claims to evidence; the
+   [canonical abstract](../paper/manuscript/sections/0_abstract.tex) is shared by both LaTeX entry points.
    The abstract is accepted for an in-person poster; editable
-   [two-column](../iAIM/poster_two_column.tex) and [T-shaped](../iAIM/poster_tshape.tex)
-   templates are ready. A0 portrait is confirmed; the assigned Poster ID and presentation
-   day (4 or 5 December) remain pending.
+   [two-column](../paper/iaim2026/poster/latex_templates/poster_two_column.tex) and [T-shaped](../paper/iaim2026/poster/latex_templates/poster_tshape.tex)
+   templates are archived under `../paper/iaim2026/poster/`. A0 portrait is confirmed; the assigned Poster ID (`DR04`) and presentation
+   day (4 or 5 December) apply.
 3. **Freeze the final held-out protocol** before inference: cohort, systems, checkpoints,
    decoding, length support, primary comparisons and reporting. The audit-eligible
    test pool is not yet a frozen evaluation manifest.
