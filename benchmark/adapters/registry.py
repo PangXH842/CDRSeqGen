@@ -1,4 +1,4 @@
-"""External generators the batch runner can launch beside the trained CDRSeqGen checkpoints.
+"""Registry of external benchmark generators launched beside trained CDRSeqGen checkpoints.
 
 An external generator is a frozen model that lives in its own environment, so the runner starts it as a
 subprocess and its only contact with the rest of the benchmark is the adapter-output JSON it writes
@@ -18,7 +18,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Callable
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 # `empirical` is the training-only reference pool written by the follow-up, not a launched generator.
 RESERVED_LABELS = frozenset({'empirical'})
@@ -66,7 +66,7 @@ def _igcraft_capacities(config):
 def _igcraft_check_record(record, sampling, options):
     # Local import: the adapter module is light, but only IgCraft recipes need it.
     from benchmark.adapters.igcraft import capacity_problems
-    from benchmark.export_regions import flank_regions
+    from benchmark.manifest import flank_regions
     table = _read_json(options['flank_regions'])['records']
     if record['example_id'] not in table:
         raise ValueError(f"{record['example_id']} is absent from the flank-region table")

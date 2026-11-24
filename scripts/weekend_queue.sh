@@ -69,7 +69,7 @@ train_batch() {  # a training batch: resume if it started, else run; then requir
     [[ -d $out && ! -f $out/plan.json ]] && rm -rf "$out"
     if [[ -f $out/plan.json ]]; then real ./scripts/run.sh resume "$out" --gpus "$GPU"
     else real ./scripts/run.sh run "$SPECS/$1.json" --gpus "$GPU" --output "$out"; fi
-    real "$CDR" -c "import sys; sys.path.insert(0, '.'); from benchmark.arms_recipe import batch_arms; print(len(batch_arms(sys.argv[1])), 'trials completed')" "$out"
+    real "$CDR" -c "import sys; sys.path.insert(0, '.'); from benchmark.run import batch_arms; print(len(batch_arms(sys.argv[1])), 'trials completed')" "$out"
 }
 
 bench() {  # bench NAME STEM...: benchmark every finished checkpoint of those training batches
@@ -78,7 +78,7 @@ bench() {  # bench NAME STEM...: benchmark every finished checkpoint of those tr
     local recipe=benchmark/recipes/generated/$name.json out=results/benchmark/${TAG}_$name
     for stem in "$@"; do [[ -f results/runs/${TAG}_$stem/plan.json ]] && args+=(--batch "results/runs/${TAG}_$stem"); done
     [[ ${#args[@]} -gt 0 ]] || { echo "no training batch exists for $name"; return 1; }
-    real "$CDR" benchmark/arms_recipe.py --name "$name" --output "$recipe" --skip-incomplete "${args[@]}" || return 1
+    real "$CDR" benchmark/run.py recipe --name "$name" --output "$recipe" --skip-incomplete "${args[@]}" || return 1
     if [[ -f $out/plan.json ]]; then real ./scripts/run.sh benchmark resume "$out" --gpu "$GPU"
     else [[ -d $out ]] && rm -rf "$out"; real ./scripts/run.sh benchmark run --recipe "$recipe" --gpu "$GPU" --output "$out"; fi
 }

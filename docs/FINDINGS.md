@@ -280,7 +280,7 @@ CDRSeqGen loses worst — judged plausibility — which is the same signal §7 a
 Reproduce with:
 
 ```bash
-python benchmark/bootstrap.py \
+python benchmark/analysis/stats.py \
     --scores results/benchmark/oas_h3_validation_length_free_v1/scores/length_free.json --markdown
 ```
 
@@ -344,7 +344,7 @@ individually and only **14 paired** ones, which is why the recovery intervals ab
 they are. The bootstrap resamples frameworks while holding each framework's finite candidate pool
 fixed, so it does not include generation-seed uncertainty; the eight per-metric 95% intervals are
 also unadjusted for multiple endpoints. ~~No confidence intervals yet~~ **done 2026-08-31**
-([`bootstrap.py`](../benchmark/bootstrap.py));
+([`stats.py`](../benchmark/analysis/stats.py));
 the remaining blockers are that the scores were produced from a **dirty working tree at the previous
 commit** (`repository_commit: 0e7e499`, `repository_dirty: true`), so a clean-tree rescore is still
 required, and that IgLM was pretrained on OAS, so this holdout is not a leakage-free estimate for it

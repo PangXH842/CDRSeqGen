@@ -53,7 +53,7 @@ exposure still limits generalization claims on that primary endpoint, and an OAS
 judge score cannot establish independent biological quality. An independent cohort
 or matched retraining is needed for a stronger external generalization claim.
 
-The [local split audit](recipes/oas4_h3_leakage.md) completed and passed its review:
+The [local split audit](../recipes/oas4_h3_leakage.md) completed and passed its review:
 3/150 existing benchmark frameworks have close training H3s; the stated test rule
 retains 14,818/15,273 records. It closes only the stated local overlap check. The final
 protocol should record this external status separately rather than waiting for or

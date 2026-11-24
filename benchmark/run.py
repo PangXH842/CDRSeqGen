@@ -5,14 +5,17 @@
   run    -- 150 frameworks, twenty draws, both training seeds plus every external generator
   status -- inspect saved outputs
   resume -- reuse a frozen batch plan and compatible adapter outputs
+  recipe -- write a benchmark recipe whose arms are checkpoints of finished training batches
 
 Scientific choices live in benchmark/recipes; trained checkpoints are read only. External generators
-(benchmark/externals.py) run in their own environments and meet the scorer only through adapter-output
-JSON, so a recipe may also name externals without any local arms to add a generator to a finished batch.
+(benchmark/adapters/registry.py) run in their own environments and meet the scorer only through
+adapter-output JSON, so a recipe may also name externals without any local arms to add a generator
+to a finished batch.
 """
 from __future__ import annotations
 
 import argparse
+import csv
 from datetime import datetime
 import fcntl
 import json
@@ -29,7 +32,7 @@ from benchmark.adapters.cdrseqgen import (
     TOKENIZER_ASSETS, load_run_config, pretrained_input_files, resolve_decoding,
     validate_checkpoint_contract,
 )
-from benchmark.externals import (
+from benchmark.adapters.registry import (
     DEFAULT_PACKAGES, EXTERNALS, RESERVED_LABELS, default_python, plan_externals, recipe_externals)
 
 
@@ -38,6 +41,10 @@ from benchmark.externals import (
 EOS_METHODS = ('ar', 's2s')
 # A pretrained model's vocabulary and span layout are saved beside its weights (a scratch model's are code).
 SAVED_VOCAB_FILES = TOKENIZER_ASSETS
+
+REFERENCE_RECIPE = ROOT / 'benchmark/recipes/oas4_h3_length_free.json'
+RECIPE_KEPT_KEYS = ('manifest', 'smoke_manifest', 'sampling', 'judge', 'endpoint')
+TRIAL_LABEL_STRIP = '_scratch_no_partner'
 
 
 def read(path):
@@ -227,9 +234,60 @@ def execute(plan, output, gpu, resume=False):
         # The figure compares runs, so a batch that only adds one generator to a finished comparison has none yet.
         if len(commands) > 1:
             figure = output / 'comparison.png'
-            subprocess.run([plan['cdr_python'], str(ROOT / 'benchmark/plot_comparison.py'),
+            subprocess.run([plan['cdr_python'], str(ROOT / 'benchmark/analysis/plot_comparison.py'),
                             '--scores', str(score_path), '--output', str(figure)], cwd=ROOT, env=env, check=True)
         status(output)
+
+
+# ---------------------------------------------------------------------------
+# Recipe builder from finished training batches (formerly benchmark/arms_recipe.py)
+# ---------------------------------------------------------------------------
+
+def batch_arms(batch, skip_pretrained=False, skip_incomplete=False):
+    """One arm per completed eligible trial of a training batch, in plan order.
+
+    Completed scratch trials and completed pretrained AR/S2S trials qualify; pretrained MLM and
+    untrained (`do_train` false) trials do not.
+    """
+    batch = Path(batch).resolve()
+    plan = read(batch / 'plan.json')
+    with (batch / 'runs.tsv').open() as handle:
+        rows = {row['trial_id']: row for row in csv.DictReader(handle, delimiter='\t')}  # a retry replaces its first row
+    arms = []
+    for trial in plan['trials']:
+        config, row = trial['config'], rows.get(trial['trial_id'])
+        pretrained = config.get('model_type') != 'scratch'
+        if pretrained and skip_pretrained:
+            continue
+        if pretrained and config['method'] not in EOS_METHODS:
+            raise ValueError(f"{trial['suffix']} is a pretrained {config['method']} model; the benchmark adapter serves "
+                             'scratch checkpoints of every method and pretrained AR/S2S')
+        if not config.get('do_train', True):
+            raise ValueError(f"{trial['suffix']} was not trained (do_train false) and keeps no checkpoint to benchmark; "
+                             'pass only the batches that trained')
+        if row is None or row['status'] != 'completed':
+            message = f"{trial['suffix']} has not completed ({row['status'] if row else 'no row'}) in {batch.name}"
+            if not skip_incomplete:
+                raise ValueError(message)
+            print(f'SKIPPED: {message}', file=sys.stderr)
+            continue
+        arms.append(dict(label=trial['suffix'].replace(TRIAL_LABEL_STRIP, ''), method=config['method'],
+                         training_seed=config['seed'], checkpoint=str(Path(row['run_dir']).resolve().relative_to(ROOT))))
+    return arms
+
+
+def build_arms_recipe(name, batches, reference=REFERENCE_RECIPE, skip_pretrained=False, skip_incomplete=False):
+    """Build a benchmark recipe from completed training batches using `reference`'s protocol settings."""
+    ref = read(reference)
+    recipe = {'name': name, **{key: ref[key] for key in RECIPE_KEPT_KEYS}}
+    recipe['arms'] = [arm for batch in batches for arm in batch_arms(batch, skip_pretrained, skip_incomplete)]
+    labels = [arm['label'] for arm in recipe['arms']]
+    if not labels or len(labels) != len(set(labels)):
+        raise ValueError(f'Arms need unique labels; got {labels}')
+    recipe['limits'] = ref['limits'] + [
+        f'Arms are checkpoints of {len(batches)} later training batch(es), trained on the current source tree; '
+        'the original six were trained before the 7 October command-interface refactor.']
+    return recipe
 
 
 def label_path(value):
@@ -239,9 +297,31 @@ def label_path(value):
     return label, Path(path)
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['plan', 'smoke', 'run', 'resume', 'status'])
+def _recipe_main(argv):
+    parser = argparse.ArgumentParser(
+        prog='benchmark/run.py recipe',
+        description='Write a benchmark recipe whose arms are the checkpoints of finished training batches.',
+    )
+    parser.add_argument('--name', required=True)
+    parser.add_argument('--batch', type=Path, action='append', required=True)
+    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--reference', type=Path, default=REFERENCE_RECIPE)
+    parser.add_argument('--skip-pretrained', action='store_true')
+    parser.add_argument('--skip-incomplete', action='store_true')
+    args = parser.parse_args(argv)
+    recipe = build_arms_recipe(args.name, args.batch, args.reference, args.skip_pretrained, args.skip_incomplete)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(recipe, indent=2) + '\n')
+    print(f"Wrote {len(recipe['arms'])} arms to {args.output}: {', '.join(a['label'] for a in recipe['arms'])}")
+
+
+def main(argv=None):
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments[:1] == ['recipe']:
+        _recipe_main(arguments[1:])
+        return
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('command', choices=['plan', 'smoke', 'run', 'resume', 'status', 'recipe'])
     parser.add_argument('batch', nargs='?', type=Path)
     parser.add_argument('--recipe', type=Path, default=ROOT / 'benchmark/recipes/oas4_h3_length_free.json')
     parser.add_argument('--stage', choices=['smoke', 'full'], default='full', help='Plan stage only')
@@ -252,7 +332,7 @@ def main():
                         help="Interpreter for one external generator; default is its adapter's conda environment")
     parser.add_argument('--iglm-python', type=Path, help="Shorthand for --external-python iglm=PATH")
     parser.add_argument('--json', action='store_true')
-    args = parser.parse_args()
+    args = parser.parse_args(arguments)
     if not args.gpu.isdigit():
         parser.error('--gpu must be one GPU index, such as 0')
     if args.command in ['resume', 'status']:

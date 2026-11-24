@@ -33,7 +33,7 @@ from cdrseqgen.datasets.dataset_ar import build_causal_prompt, causal_adapter
 from cdrseqgen.datasets.dataset_s2s import build_encoder_input, s2s_adapter
 import csv
 from transformers import GPT2Config, GPT2LMHeadModel
-from benchmark import arms_recipe, run
+from benchmark import run
 from benchmark.adapters.cdrseqgen import EOSSampler, pretrained_input_files, run_example
 from cdrseqgen.methods.ar.models import iglm
 
@@ -598,18 +598,18 @@ class ArmRuleTests(unittest.TestCase):
         accepted = [("a", "ar_s42_scratch_no_partner", "ar", "scratch"),
                     ("b", "ar_iglm_s42", "ar", "iglm:/somewhere/IgLM-S"),
                     ("c", "s2s_esm_s42", "s2s", "facebook/esm2_t6_8M_UR50D")]
-        arms = arms_recipe.batch_arms(self.batch(accepted))
+        arms = run.batch_arms(self.batch(accepted))
         self.assertEqual([arm["label"] for arm in arms], ["ar_s42", "ar_iglm_s42", "s2s_esm_s42"])
         self.assertEqual([arm["method"] for arm in arms], ["ar", "ar", "s2s"])
         mlm = accepted + [("d", "mlm_esm_s42", "mlm", "facebook/esm2_t6_8M_UR50D")]
         with self.assertRaisesRegex(ValueError, "pretrained mlm model"):
-            arms_recipe.batch_arms(self.batch(mlm, "with_mlm"))
+            run.batch_arms(self.batch(mlm, "with_mlm"))
 
     def test_skip_pretrained_still_skips_every_non_scratch_trial(self):
         trials = [("a", "ar_s42_scratch_no_partner", "ar", "scratch"),
                   ("b", "ar_iglm_s42", "ar", "iglm:/somewhere/IgLM-S"),
                   ("d", "mlm_esm_s42", "mlm", "facebook/esm2_t6_8M_UR50D")]
-        arms = arms_recipe.batch_arms(self.batch(trials), skip_pretrained=True)
+        arms = run.batch_arms(self.batch(trials), skip_pretrained=True)
         self.assertEqual([arm["label"] for arm in arms], ["ar_s42"])
 
     def test_an_untrained_zero_shot_trial_is_refused_with_a_clear_message(self):
@@ -618,11 +618,11 @@ class ArmRuleTests(unittest.TestCase):
         plan["trials"][0]["config"]["do_train"] = False
         (directory / "plan.json").write_text(json.dumps(plan))
         with self.assertRaisesRegex(ValueError, "not trained .do_train false."):
-            arms_recipe.batch_arms(directory)
-        self.assertEqual(arms_recipe.batch_arms(directory, skip_pretrained=True), [])
+            run.batch_arms(directory)
+        self.assertEqual(run.batch_arms(directory, skip_pretrained=True), [])
 
     def test_the_two_modules_agree_on_which_methods_serve_pretrained_backbones(self):
-        self.assertEqual(run.EOS_METHODS, arms_recipe.EOS_METHODS)
+        self.assertEqual(run.EOS_METHODS, ('ar', 's2s'))
 
 
 if __name__ == "__main__":

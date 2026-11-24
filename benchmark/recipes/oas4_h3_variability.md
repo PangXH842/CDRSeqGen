@@ -5,7 +5,7 @@
 reference arms exist. It reads sealed inputs, writes a new directory and modifies nothing.
 
 The queue trained seeds 44-48 for each method, retrained seed 42 twice with an identical config, scanned model size, and
-reran IgCraft at temperature 1.0. [`benchmark/variability.py`](../variability.py) turns those batches into the numbers the
+reran IgCraft at temperature 1.0. [`benchmark/analysis/variability.py`](../analysis/variability.py) turns those batches into the numbers the
 manuscript quotes, each recomputed from saved candidates and scores, with every input hash-checked and frozen.
 
 | Block | Question | Definition |

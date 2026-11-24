@@ -17,11 +17,11 @@ commands and the legacy GPU-first commands share one planner/executor, and `swee
 (`configs/experiments` links to it, so older paths still resolve), and resolved plans and outputs in
 `results/runs/`.
 
-Benchmark commands follow `run.sh benchmark → benchmark/run.py → adapters → scorer → plotter`.
+Benchmark commands follow `run.sh benchmark → benchmark/run.py → adapters → scorer → analysis/plot_comparison.py`.
 Their recipes live in `benchmark/recipes/`, frozen inputs in `benchmark/manifests/`, and generated
 candidates, scores and plots in `results/benchmark/`. See the [current recipe](../benchmark/recipes/oas4_h3_length_free.md).
 The [follow-up](../benchmark/recipes/oas4_h3_followup.md) uses `run.sh benchmark followup →
-benchmark/followup.py → empirical → scorer → analysis/capacity` and reuses the completed score rows.
+benchmark/analysis/followup.py → empirical → scorer → stats` and reuses the completed score rows.
 
 For the methods reclamation review, the [shared workflow map](../cdrseqgen/methods/common/README.md)
 shows the run sequence, stage ownership and method extension points, with a reference
@@ -174,20 +174,18 @@ CDRSeqGen/
 │       ├── batch_tables.py         # Generates validated Markdown comparison tables from a batch
 │       └── sweep_tables.py         # Ranks a sweep's settings across seeds -> summary.tsv
 ├── benchmark/                  # Frozen-manifest comparisons against external baselines
-│   ├── run.py                  # plan / smoke / run / status / resume; freezes inputs and source
-│   ├── followup.py             # Reuse completed scores; plan/run/status/resume the follow-up
-│   ├── empirical.py            # Training-only H3 sampling; original cluster/split verification
-│   ├── analysis.py             # Paired group intervals and population reporting across arms
-│   ├── capacity.py             # Learned tensor counts, actual epochs/steps and recorded runtime
-│   ├── recipes/                # Matched protocols, checkpoint selections and user-run commands
-│   ├── adapters/               # CDRSeqGen and IgLM generation under one output contract
-│   ├── manifests/              # Versioned validation/test inputs plus SHA-256 sidecars
 │   ├── _common.py              # Hashing, seeding, atomic writes, git state, resume checks
-│   ├── export_manifest.py      # Processed OAS split -> model-independent manifest
+│   ├── manifest.py             # Frozen CDR-H3 manifest export + IMGT flank-region sidecars
+│   ├── run.py                  # plan / smoke / run / resume / status / recipe; freezes inputs and source
 │   ├── scorer.py               # Shared validation, metrics, accounting, and judge scoring
-│   ├── bootstrap.py            # Historical two-arm framework bootstrap; not cluster-aware
-│   ├── plot_comparison.py      # Matched recovery, length, position, and diversity dashboard
-│   └── README.md               # End-to-end benchmark commands and protocol
+│   ├── blind_check.py          # Information-budget check: hidden native fields must not affect outputs
+│   ├── adapters/               # Model/reference samplers (cdrseqgen, iglm, igcraft, retrieval) + registry.py
+│   ├── analysis/               # Post-hoc stats/bootstrap/capacity, empirical/clusters, followup, extend,
+│   │                           #   variability, leakage audit, and matched comparison plotting
+│   ├── manifests/              # Frozen validation inputs + SHA-256 sidecars (active OAS4; one-donor pilot oas_h3_*_v1)
+│   ├── recipes/                # Matched protocols, checkpoint selections and generated arm recipes
+│   ├── notes/                  # External baseline coverage and pretraining-overlap claim boundaries
+│   └── README.md               # Benchmark architecture, commands and protocol summary
 ├── experiments/                # Configure and run experiments: python -m experiments (see its README)
 │   ├── __main__.py             # One CLI: named commands, legacy <gpus> commands, `benchmark` forwarding
 │   ├── core.py                 # Fingerprints, source identity, completion checks, batch status

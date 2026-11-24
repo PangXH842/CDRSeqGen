@@ -14,8 +14,8 @@ import unittest
 from unittest.mock import patch
 from benchmark import blind_check
 from benchmark._common import execution_source_identity, validate_manifest_record
-from benchmark.analysis import planned_pairs
-from benchmark.externals import EXTERNALS, External, plan_externals, recipe_externals
+from benchmark.analysis.stats import planned_pairs
+from benchmark.adapters.registry import EXTERNALS, External, plan_externals, recipe_externals
 from benchmark.run import (
     ROOT,
     build_plan,
@@ -38,7 +38,7 @@ from benchmark.adapters.igcraft import (
     load_flank_table,
     run_example,
 )
-from benchmark.export_regions import FLANK_REGIONS, build, flank_regions
+from benchmark.manifest import FLANK_REGIONS, build_regions as build, flank_regions
 from benchmark.adapters.iglm import (
     InvalidGeneration as IglmAdapterInvalidGeneration,
     assert_resume_compatible,
@@ -55,7 +55,7 @@ from benchmark.adapters.retrieval import (
     run_example as retrieval_adapter_run_example,
     training_groups,
 )
-from benchmark.externals import EXTERNALS
+from benchmark.adapters.registry import EXTERNALS
 from benchmark.scorer import score_payload, validate_adapter_record
 
 
@@ -144,7 +144,7 @@ class IgCraftRegistryTests(unittest.TestCase):
                                                 ({'e': dict(good, fwr4='XX')}, 'do not rebuild', record),
                                                 ({'e': dict(good, fwr4='C' * 13)}, 'does not fit IgCraft', long_tail)]:
                 table.write_text(json.dumps(dict(records=entries)))
-                import benchmark.externals as module
+                import benchmark.adapters.registry as module
                 module._read_json.cache_clear()
                 module._igcraft_capacities.cache_clear()
                 with self.subTest(message):

@@ -28,12 +28,12 @@ import statistics
 import zlib
 import numpy as np
 from safetensors.numpy import save_file
-from benchmark import variability as V
+from benchmark.analysis import variability as V
 from benchmark._common import sha256_file
-from benchmark.analysis import crossed_interval
-from benchmark.extend import EXTENSION
+from benchmark.analysis.stats import crossed_interval
+from benchmark.analysis.extend import EXTENSION
 from benchmark.scorer import score_payload
-from benchmark.plot_comparison import (
+from benchmark.analysis.plot_comparison import (
     SCORE_SCHEMA_VERSION,
     benchmark_track,
     build_figure,
@@ -284,7 +284,7 @@ class CaseScoreContractTests(unittest.TestCase):
 
 # ====================================================================================================
 # from test_bootstrap.py
-# Tests for the paired bootstrap in benchmark/bootstrap.py.
+# Tests for the paired bootstrap in benchmark/analysis/stats.py (formerly benchmark/bootstrap.py).
 #
 # The three properties worth pinning are the ones that decide whether an interval means anything:
 #
@@ -299,9 +299,7 @@ class CaseScoreContractTests(unittest.TestCase):
 #     every number on the row stays correct.
 # ====================================================================================================
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                "benchmark"))
-from bootstrap import compare, load_runs, paired_bootstrap, paired_values
+from benchmark.analysis.stats import compare, load_runs, paired_bootstrap, paired_values
 
 def _scores(records_a, records_b):
     """A minimal two-run scores payload; each record list is (example_id, {metric: value})."""

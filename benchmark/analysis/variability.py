@@ -35,12 +35,11 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from benchmark._common import atomic_write_json, execution_source_identity, sha256_file, stable_example_seed
-from benchmark.analysis import cluster_interval, crossed_interval
-from benchmark.capacity import tensor_parameters
-from benchmark.extend import base_context, verify_complete
+from benchmark.analysis.stats import cluster_interval, crossed_interval, tensor_parameters
+from benchmark.analysis.extend import base_context, verify_complete
 from cdrseqgen.eval.metrics import edit_similarity
 
 SCHEMA_VERSION = 'cdrseqgen.variability.v1'

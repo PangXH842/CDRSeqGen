@@ -18,15 +18,15 @@ import time
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from benchmark._common import AMINO_ACIDS, atomic_write_json, sha256_file
-from benchmark.empirical import verify_splits
+from benchmark.analysis.empirical import verify_splits
 
 COMPARISONS = [('validation', 'train'), ('test', 'train'), ('test', 'validation')]
 REGIONS = ('fwr1', 'cdr1', 'fwr2', 'cdr2', 'fwr3', 'cdr3', 'fwr4')
 EXACT_FIELDS = ('h1', 'h2', 'h3', 'l1', 'l2', 'l3', 'heavy', 'pair', 'heavy_flanks')
-SOURCE_FILES = ('benchmark/leakage.py', 'benchmark/empirical.py', 'benchmark/_common.py',
+SOURCE_FILES = ('benchmark/analysis/leakage.py', 'benchmark/analysis/empirical.py', 'benchmark/_common.py',
                 'cdrseqgen/artifacts.py')
 
 
@@ -298,7 +298,9 @@ def build_plan(recipe_path, stage):
         raise ValueError('Groups/manifest belong to another corpus')
     if clusters['settings'] != metadata['preprocessing'] or identity != metadata['preprocessing']['cluster_identity']:
         raise ValueError('Audit cutoff or saved groups differ from preprocessing settings')
-    if clusters['source']['files']['benchmark/empirical.py'] != source_identity()['benchmark/empirical.py']:
+    emp_key = 'benchmark/analysis/empirical.py'
+    cluster_emp = clusters['source']['files'].get(emp_key) or clusters['source']['files'].get('benchmark/empirical.py')
+    if cluster_emp != source_identity()[emp_key]:
         raise ValueError('Saved group reconstruction source changed')
     counts = recipe['expected_splits']
     if set(counts) != {'train', 'validation', 'test'} or sum(counts.values()) != metadata['records']:

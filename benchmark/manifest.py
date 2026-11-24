@@ -1,23 +1,30 @@
 #!/usr/bin/env python3
-"""Export a frozen, model-independent CDR-H3 benchmark manifest.
+"""Export frozen CDR-H3 benchmark manifests and their IMGT flank-region sidecars.
 
-The manifest is the common input contract for CDRSeqGen and external baselines such as IgLM.
-It contains antibody strings, not model token IDs, so every adapter sees the same examples while
-remaining responsible for its own tokenization and sampling.
+A manifest is the common, model-independent input contract shared by CDRSeqGen and external
+baselines: antibody strings rather than token IDs, so every adapter sees the same examples while
+owning its own tokenization and sampling. Generators that consume IMGT regions directly (such as
+IgCraft) also read a flank-only region sidecar built from the same processed corpus and verified
+to reconstruct `pt1` and `pt2` without exposing CDR3.
 
-Example:
-    python benchmark/export_manifest.py \\
+Examples:
+    python benchmark/manifest.py export \\
         --input data/processed/processed_oas_tuning.json \\
         --output benchmark/manifests/oas_h3_test_sample_v1.json \\
         --sample-size 25
+
+    python benchmark/manifest.py regions \\
+        --manifest benchmark/manifests/X.json \\
+        --corpus data/processed/Y.json \\
+        --output benchmark/manifests/X_regions.json
 """
+from __future__ import annotations
 
 import argparse
 import hashlib
 import json
 import sys
 from pathlib import Path
-
 
 # Direct execution puts benchmark/ rather than the repository root on sys.path, where the shared
 # helper package would be invisible. Normalize before importing it.
@@ -26,11 +33,14 @@ if sys.path and Path(sys.path[0]).resolve() == BENCHMARK_DIR:
     sys.path.pop(0)
     sys.path.insert(0, str(BENCHMARK_DIR.parent))
 
-from benchmark._common import sha256_file
+from benchmark._common import atomic_write_json, sha256_file
 from cdrseqgen.artifacts import processed_metadata_path
 
 SCHEMA_VERSION = "cdrseqgen.benchmark_manifest.v1"
+REGIONS_SCHEMA_VERSION = "cdrseqgen.flank_regions.v1"
 REGION_ORDER = ("fwr1", "cdr1", "fwr2", "cdr2", "fwr3", "cdr3", "fwr4")
+PT1_REGIONS = ("fwr1", "cdr1", "fwr2", "cdr2", "fwr3")
+FLANK_REGIONS = PT1_REGIONS + ("fwr4",)
 IGLM_SPECIES_TOKENS = {
     "human": "[HUMAN]",
     "mouse": "[MOUSE]",
@@ -40,6 +50,10 @@ IGLM_SPECIES_TOKENS = {
     "camel": "[CAMEL]",
 }
 
+
+# ---------------------------------------------------------------------------
+# Manifest construction
+# ---------------------------------------------------------------------------
 
 def h3_record(entry: dict, source_index: int) -> dict:
     """Convert one processed OAS entry to the shared H3 benchmark schema."""
@@ -196,27 +210,44 @@ def build_manifest(
     }
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, required=True, help="Processed OAS JSON")
-    parser.add_argument("--output", type=Path, required=True, help="Manifest JSON to create")
-    parser.add_argument("--split", default="test", help="Named source split (default: test)")
-    parser.add_argument(
-        "--sample-size",
-        type=int,
-        default=None,
-        help="Deterministic subset size; omit to export the complete split",
-    )
-    parser.add_argument("--selection-seed", default="oas-h3-test-v1")
-    parser.add_argument("--benchmark-id", default="oas_h3_test_v1")
-    parser.add_argument(
-        "--track", choices=("fixed_native_length", "length_free"), default="fixed_native_length"
-    )
-    return parser.parse_args()
+# ---------------------------------------------------------------------------
+# Flank-region sidecar (for IMGT-region generators such as IgCraft)
+# ---------------------------------------------------------------------------
+
+def flank_regions(record: dict, regions: dict) -> dict[str, str]:
+    """The flank regions as a dict, after proving they rebuild the record's pt1 and pt2."""
+    if "".join(regions[name] for name in PT1_REGIONS) != record["pt1"] or regions["fwr4"] != record["pt2"]:
+        raise ValueError(f"{record['example_id']} flank regions do not rebuild pt1/pt2")
+    return {name: regions[name] for name in FLANK_REGIONS}
 
 
-def main() -> None:
-    args = parse_args()
+def build_regions(manifest: dict, corpus: list[dict], corpus_sha256: str) -> dict:
+    """The flank-region sidecar payload for `manifest`, built from its source corpus."""
+    if corpus_sha256 != manifest["source"]["processed_file_sha256"]:
+        raise ValueError("Corpus differs from the one the manifest was built from")
+    records = {}
+    for record in manifest["records"]:
+        entry = corpus[record["source_index"]]
+        if entry["sequence_id"] != record["sequence_id"]:
+            raise ValueError(f"{record['example_id']} points at a different corpus entry")
+        records[record["example_id"]] = flank_regions(record, entry["heavy"])
+    return dict(
+        schema_version=REGIONS_SCHEMA_VERSION,
+        benchmark_id=manifest["benchmark_id"],
+        source=dict(
+            processed_file=manifest["source"]["processed_file"],
+            processed_file_sha256=corpus_sha256,
+        ),
+        regions=list(FLANK_REGIONS),
+        records=records,
+    )
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def _cmd_export(args: argparse.Namespace) -> None:
     input_path = args.input.resolve()
     manifest = build_manifest(
         input_path,
@@ -226,7 +257,6 @@ def main() -> None:
         selection_seed=args.selection_seed,
         benchmark_id=args.benchmark_id,
     )
-
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w") as handle:
         json.dump(manifest, handle, indent=2)
@@ -243,6 +273,55 @@ def main() -> None:
     )
     print(f"Validated {len(manifest['records'])}/{len(manifest['records'])} records")
     print(f"Manifest SHA-256: {manifest_hash}")
+
+
+def _cmd_regions(args: argparse.Namespace) -> None:
+    if args.output.exists():
+        raise FileExistsError(f"output already exists: {args.output}")
+    manifest = json.loads(args.manifest.read_text())
+    payload = build_regions(manifest, json.loads(args.corpus.read_text()), sha256_file(args.corpus))
+    atomic_write_json(args.output, payload)
+    args.output.with_name(args.output.name + ".sha256").write_text(
+        f"{sha256_file(args.output)}  {args.output.name}\n"
+    )
+    print(f'Wrote {len(payload["records"])} frameworks to {args.output}')
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    exp = sub.add_parser("export", help="Export a frozen CDR-H3 manifest from a processed OAS JSON")
+    exp.add_argument("--input", type=Path, required=True, help="Processed OAS JSON")
+    exp.add_argument("--output", type=Path, required=True, help="Manifest JSON to create")
+    exp.add_argument("--split", default="test", help="Named source split (default: test)")
+    exp.add_argument(
+        "--sample-size",
+        type=int,
+        default=None,
+        help="Deterministic subset size; omit to export the complete split",
+    )
+    exp.add_argument("--selection-seed", default="oas-h3-test-v1")
+    exp.add_argument("--benchmark-id", default="oas_h3_test_v1")
+    exp.add_argument(
+        "--track", choices=("fixed_native_length", "length_free"), default="fixed_native_length"
+    )
+    exp.set_defaults(func=_cmd_export)
+
+    reg = sub.add_parser("regions", help="Export IMGT flank regions for an existing manifest")
+    reg.add_argument("--manifest", type=Path, required=True)
+    reg.add_argument("--corpus", type=Path, required=True)
+    reg.add_argument("--output", type=Path, required=True)
+    reg.set_defaults(func=_cmd_regions)
+
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
+    args.func(args)
 
 
 if __name__ == "__main__":

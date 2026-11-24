@@ -39,7 +39,7 @@ def processed_metadata_path(data_path: str | Path) -> Path:
       * cdrseqgen/datasets/preprocess/common.py
       * cdrseqgen/methods/common/evaluation.py
       * cdrseqgen/methods/common/run_setup.py
-      * benchmark/export_manifest.py
+      * benchmark/manifest.py
     """
     return Path(data_path).with_suffix(PROCESSED_METADATA_SUFFIX)
 
@@ -69,14 +69,13 @@ def sha256_file(path: str | Path) -> str:
           -> benchmark/adapters/igcraft.py
           -> benchmark/adapters/iglm.py
           -> benchmark/adapters/retrieval.py
-          -> benchmark/export_manifest.py
-          -> benchmark/export_regions.py
-          -> benchmark/extend.py
-          -> benchmark/followup.py
-          -> benchmark/leakage.py
+          -> benchmark/analysis/extend.py
+          -> benchmark/analysis/followup.py
+          -> benchmark/analysis/leakage.py
+          -> benchmark/analysis/variability.py
+          -> benchmark/manifest.py
           -> benchmark/run.py
           -> benchmark/scorer.py
-          -> benchmark/variability.py
     """
     digest = hashlib.sha256()
     with Path(path).open("rb") as handle:
@@ -134,14 +133,14 @@ def atomic_write_json(
           -> benchmark/adapters/igcraft.py
           -> benchmark/adapters/iglm.py
           -> benchmark/adapters/retrieval.py
+          -> benchmark/analysis/extend.py
+          -> benchmark/analysis/followup.py
+          -> benchmark/analysis/leakage.py
+          -> benchmark/analysis/variability.py
           -> benchmark/blind_check.py
-          -> benchmark/export_regions.py
-          -> benchmark/extend.py
-          -> benchmark/followup.py
-          -> benchmark/leakage.py
+          -> benchmark/manifest.py
           -> benchmark/run.py
           -> benchmark/scorer.py
-          -> benchmark/variability.py
     """
     if not allow_nan:
         payload = json_safe(payload)

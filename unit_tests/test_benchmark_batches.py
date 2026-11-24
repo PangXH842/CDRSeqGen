@@ -11,29 +11,34 @@ from pathlib import Path
 import tempfile
 import unittest
 from benchmark._common import sha256_file
-from benchmark.extend import build_plan, execute, summary, verify_complete
+from benchmark.analysis.extend import build_plan, execute, summary, verify_complete
 import random
 import struct
 from unittest.mock import patch
 import numpy as np
-from benchmark.analysis import analyze, cluster_interval, crossed_interval, planned_pairs
-from benchmark.capacity import gpt2_parameters, tensor_parameters
-from benchmark.empirical import (
+from benchmark.analysis.stats import (
+    analyze,
+    cluster_interval,
+    crossed_interval,
+    gpt2_parameters,
+    planned_pairs,
+    tensor_parameters,
+)
+from benchmark.analysis.empirical import (
     draw_training_loops,
     generate,
     representative_clusters,
     training_pool,
     verify_splits,
 )
-from benchmark.followup import merge_scores, validate_plan
+from benchmark.analysis.followup import merge_scores, validate_plan
 from benchmark._common import execution_source_identity
 from benchmark.scorer import score_payload, validate_payload
 from contextlib import redirect_stdout
 import io
-from benchmark.empirical import representative_clusters, verify_splits
-from benchmark import leakage
+from benchmark.analysis import leakage
 import hashlib
-from benchmark.export_manifest import build_manifest
+from benchmark.manifest import build_manifest
 
 
 # ====================================================================================================
@@ -406,7 +411,7 @@ class AccountingTests(unittest.TestCase):
             self.assertEqual(tensor_parameters(p),48)
 
     def test_resume_rejects_modified_frozen_input(self):
-        from benchmark.followup import environment
+        from benchmark.analysis.followup import environment
         with tempfile.TemporaryDirectory() as directory:
             p=Path(directory)/'data';p.write_text('changed')
             plan=dict(source=execution_source_identity(),environment=environment(),frozen_files={str(p):'wrong'})
@@ -434,18 +439,18 @@ class AccountingTests(unittest.TestCase):
             with self.assertRaises(ValueError):merge_scores(original,added)
 
     def test_resume_refuses_changed_completed_output_before_gpu_work(self):
-        from benchmark.followup import execute
+        from benchmark.analysis.followup import execute
         with tempfile.TemporaryDirectory() as directory:
             output=Path(directory);(output/'clusters.json').write_text('modified')
             (output/'progress.json').write_text(json.dumps({'clusters.json':'original-hash'}))
-            with patch('benchmark.followup.validate_plan'),patch('benchmark.followup.subprocess.run') as child:
+            with patch('benchmark.analysis.followup.validate_plan'),patch('benchmark.analysis.followup.subprocess.run') as child:
                 with self.assertRaisesRegex(ValueError,'artifact changed'):
                     execute({},output,'0',resume=True)
                 child.assert_not_called()
 
     def test_complete_fixture_followup_resumes_without_rejudging(self):
         """Exercise orchestration on four synthetic sequences and a mocked judge process."""
-        from benchmark.followup import execute, summary
+        from benchmark.analysis.followup import execute, summary
         corpus=[record(loop) for loop in ['AAAAAA','CCCCCC','DDDDDD','EEEEEE']]
         order=list(range(4));random.Random(42).shuffle(order)
         for index in order[:2]:corpus[index]['split']='validation'
@@ -482,9 +487,9 @@ class AccountingTests(unittest.TestCase):
                 added={**original,'runs':[scored]}
                 destination=Path(command[command.index('--output')+1]);destination.parent.mkdir()
                 destination.write_text(json.dumps(added))
-            with patch('benchmark.followup.validate_plan'),patch('benchmark.followup.extract',return_value=dict(rows=[])),\
-                 patch('benchmark.followup.plot',side_effect=lambda data,path:path.write_bytes(b'fixture-plot')),\
-                 patch('benchmark.followup.subprocess.run',side_effect=fake_judge_process) as child:
+            with patch('benchmark.analysis.followup.validate_plan'),patch('benchmark.analysis.followup.extract_capacity',return_value=dict(rows=[])),\
+                 patch('benchmark.analysis.followup.plot',side_effect=lambda data,path:path.write_bytes(b'fixture-plot')),\
+                 patch('benchmark.analysis.followup.subprocess.run',side_effect=fake_judge_process) as child:
                 execute(plan,output,'0')
                 completion=json.loads((output/'complete.json').read_text())
                 for filename,digest in completion['artifacts'].items():
@@ -528,7 +533,7 @@ def fixture(directory):
     metadata_path = directory / 'metadata.json'; metadata_path.write_text(json.dumps(metadata))
     groups = dict(dataset_sha256=digest, settings=settings, cluster_ids=labels,
         verification=verify_splits(raw, labels, .2, .2, 42),
-        source=dict(files={'benchmark/empirical.py': leakage.source_identity()['benchmark/empirical.py']}))
+        source=dict(files={'benchmark/analysis/empirical.py': leakage.source_identity()['benchmark/analysis/empirical.py']}))
     clusters_path = directory / 'clusters.json'; clusters_path.write_text(json.dumps(groups))
     rows = []
     for r in normalized(raw):
@@ -703,7 +708,7 @@ class RunnerTests(unittest.TestCase):
     def test_changed_input_or_source_prevents_partial_resume(self):
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name); plan = leakage.build_plan(fixture(directory), 'full')
-            changed = copy.deepcopy(plan); changed['source']['benchmark/leakage.py'] = 'changed'
+            changed = copy.deepcopy(plan); changed['source']['benchmark/analysis/leakage.py'] = 'changed'
             with self.assertRaisesRegex(ValueError, 'source/environment changed'): leakage.validate_plan(changed)
             Path(plan['corpus']).write_text('[]')
             with self.assertRaisesRegex(ValueError, 'Frozen input changed'): leakage.validate_plan(plan)

@@ -2,7 +2,7 @@
 """Generate attempt-bounded IgCraft outputs for a length-free CDRSeqGen benchmark manifest.
 
 IgCraft inpaints IMGT regions of a paired antibody, so each framework is given as its heavy-chain flank regions
-(benchmark/export_regions.py) with CDR3 and the whole light chain hidden. Hidden regions are masked, pad
+(benchmark/manifest.py regions) with CDR3 and the whole light chain hidden. Hidden regions are masked, pad
 positions included (`reveal_pads=False`, `fix_length=False`), so neither the native loop nor its length reaches
 the model: the loop length is however many of its 30 slots the model fills with residues rather than pads.
 Hidden content is a fixed placeholder that the masks ignore; benchmark/blind_check.py tests that claim.
@@ -41,7 +41,7 @@ from benchmark._common import (
     stable_example_seed,
     validate_manifest_record,
 )
-from benchmark.export_regions import FLANK_REGIONS, flank_regions
+from benchmark.manifest import FLANK_REGIONS, flank_regions
 
 REGIONS = ('fwr1', 'cdr1', 'fwr2', 'cdr2', 'fwr3', 'cdr3', 'fwr4')
 # Masked, so the model never reads them. Any residues that fit the slots would do; a fixed kappa-like chain
@@ -299,7 +299,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--checkpoint', type=Path, required=True)
     parser.add_argument('--config', type=Path, required=True)
-    parser.add_argument('--flank-regions', type=Path, required=True, help='Table from benchmark/export_regions.py')
+    parser.add_argument('--flank-regions', type=Path, required=True, help='Table from benchmark/manifest.py regions')
     parser.add_argument('--checkpoint-sha256', help='Refuse to run unless the checkpoint has this digest')
     parser.add_argument('--hf-revision', help='Hugging Face revision the weights came from; provenance only')
     parser.add_argument('--num-samples', type=int, default=20, help='Attempts per framework; failures are not replaced')

@@ -141,7 +141,7 @@ is explicitly supplied and rejects overlapping source/output directories.
    `results/benchmark/20261117_181112_729547_iglm_selected_20261106_full`: 6,000 attempts, none invalid;
    [audit](../../results/reviews/20261118-iglm-full-igbert-eval.md)). The smoke pinned the source of commit
    `1e239bbc`; 22 of those files have changed since (`s2s/diagnostics.py` was removed), so it cannot be
-   resumed, whereas the full stage pins the current code. For a different selection, `arms_recipe.py` accepts
+   resumed, whereas the full stage pins the current code. For a different selection, `benchmark/run.py recipe` accepts
    repeated `--batch` flags and exports every completed trial; retain the chosen arms before
    planning. It refuses the zero-shot batch, which keeps no checkpoint.
 

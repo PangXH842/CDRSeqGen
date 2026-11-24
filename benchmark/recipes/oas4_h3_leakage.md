@@ -114,7 +114,7 @@ not a final manifest, and smoke eligibility is incomplete. Before final inferenc
 3. If that cohort is inadequate, revise the split and retrain the affected local
    models. Existing checkpoints cannot be relabelled as trained on a new split.
 4. Resolve the external-corpus claim using the separate
-   [pretraining provenance note](../pretraining_overlap.md). Local H3 separation
+   [pretraining provenance note](../notes/pretraining_overlap.md). Local H3 separation
    cannot certify IgLM/IgBert pretraining independence.
 
 Different lengths, gapped alignments, full-variable-domain homology and biological

@@ -163,4 +163,4 @@ serves scratch checkpoints for all three methods and pretrained AR/S2S; it rejec
 pretrained MLM arms at planning time. Verify that path separately before treating a new backbone as
 a comparable benchmark arm. Benchmark-only externals follow the
 [adapter guide](../benchmark/adapters/README.md) and
-[external registry](../benchmark/externals.py), potentially in their own environment.
+[external registry](../benchmark/adapters/registry.py), potentially in their own environment.

@@ -29,12 +29,12 @@ from pathlib import Path
 import sys
 from zoneinfo import ZoneInfo
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from benchmark._common import atomic_write_json, execution_source_identity, sha256_file
-from benchmark.analysis import analyze, planned_pairs, plot, report
-from benchmark.externals import plan_externals
-from benchmark.followup import merge_scores
+from benchmark.analysis.stats import analyze, planned_pairs, plot, report
+from benchmark.adapters.registry import plan_externals
+from benchmark.analysis.followup import merge_scores
 
 ARTIFACTS = ['scores/comparison.json', 'capacity.json', 'analysis.json', 'analysis.md', 'analysis.png']
 EXTENSION = 'cdrseqgen.benchmark_extension.v1'

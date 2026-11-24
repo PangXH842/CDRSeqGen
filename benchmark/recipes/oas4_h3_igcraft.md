@@ -105,7 +105,7 @@ I will audit the saved artifacts and update the manuscript tables from the exten
 - IgCraft has about 300M parameters (of which 17.3M is a frozen structure encoder that sequence-only inpainting does
   not use) against 0.8-0.9M for the scratch arms and 12.9M for IgLM. Scale and tuning differ, so this is a framework
   demonstration, not an architecture ranking.
-- Its pretraining exposure to these OAS donors is unverified (see `benchmark/pretraining_overlap.md`).
+- Its pretraining exposure to these OAS donors is unverified (see `benchmark/notes/pretraining_overlap.md`).
 - Its default temperature (0.1) is far sharper than the matched 1.0, so expect lower diversity; judge it on the
   supporting columns, not as a like-for-like sampling comparison.
 - `fix_length=false` is the length-free setting but is not IgCraft's default, so its length behaviour here is untested

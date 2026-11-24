@@ -16,12 +16,11 @@ from pathlib import Path
 import subprocess
 import sys
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from benchmark._common import atomic_write_json, execution_source_identity, sha256_file, validate_manifest_record
-from benchmark.analysis import analyze, planned_pairs, plot, report
-from benchmark.capacity import extract
-from benchmark.empirical import generate, representative_clusters, verify_splits
+from benchmark.analysis.stats import analyze, extract_capacity, planned_pairs, plot, report
+from benchmark.analysis.empirical import generate, representative_clusters, verify_splits
 
 
 def read(path):
@@ -214,7 +213,9 @@ def execute(plan, output, gpu, resume=False):
                 clusters=read(plan['clusters_input'])
                 if clusters['dataset_sha256']!=plan['frozen_files'][plan['corpus']] or clusters['settings']!=settings:
                     raise ValueError('Supplied groups have different corpus/settings')
-                if clusters['source']['files']['benchmark/empirical.py']!=plan['source']['files']['benchmark/empirical.py']:
+                emp_key = 'benchmark/analysis/empirical.py'
+                cluster_emp = clusters['source']['files'].get(emp_key) or clusters['source']['files'].get('benchmark/empirical.py')
+                if cluster_emp != plan['source']['files'][emp_key]:
                     raise ValueError('Supplied groups use a different clustering source')
                 labels=clusters['cluster_ids']
             else:
@@ -260,7 +261,7 @@ def execute(plan, output, gpu, resume=False):
             combined=saved
         seal('scores/comparison.json')
         if not (output/'capacity.json').exists():
-            capacity=extract(ROOT,read(Path(plan['source_batch'])/'plan.json'),read(plan['iglm_config']))
+            capacity=extract_capacity(ROOT,read(Path(plan['source_batch'])/'plan.json'),read(plan['iglm_config']))
             atomic_write_json(output/'capacity.json',capacity)
         seal('capacity.json')
         group_by_id={r['example_id']:clusters['cluster_ids'][r['source_index']] for r in manifest['records']}

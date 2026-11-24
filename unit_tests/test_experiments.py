@@ -15,7 +15,7 @@ from experiments.spec import spec_trials, SUITES
 import copy
 import csv
 import sys
-from benchmark.arms_recipe import ROOT, batch_arms, build
+from benchmark.run import ROOT, batch_arms, build_arms_recipe as build
 import os
 import subprocess
 import contextlib

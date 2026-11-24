@@ -3,10 +3,10 @@
 An adapter turns a frozen manifest into candidate loops for one generator and writes them as JSON. The
 scorer, plots and paired analysis read only that JSON, so a generator may live in any environment and
 share no code with the rest of the repository. Five producers already meet this contract:
-`cdrseqgen.py` (trained checkpoints: scratch, or a pretrained AR/S2S backbone such as a fine-tuned IgLM), `iglm.py` and `igcraft.py` (frozen external models), `../empirical.py`
+`cdrseqgen.py` (trained checkpoints: scratch, or a pretrained AR/S2S backbone such as a fine-tuned IgLM), `iglm.py` and `igcraft.py` (frozen external models), `../analysis/empirical.py`
 (training-only reference, no model) and `retrieval.py` (flank-keyed training reference: no parameters, so the
 registry runs it in the main environment and the merge treats it as a reference pool rather than a generator). `igcraft.py` is the worked example for a generator that needs inputs the
-manifest does not carry: it takes IMGT flank regions from a table built once by `../export_regions.py` (flanks
+manifest does not carry: it takes IMGT flank regions from a table built once by `../manifest.py regions` (flanks
 only, re-verified against `pt1`/`pt2`), rather than numbering strings or reading the corpus at run time.
 
 ## 1. What the runner passes
@@ -82,7 +82,7 @@ unfinished run. Then run `blind_check.py` on a length-free manifest (it executes
 
 ## 5. Register it
 
-1. Add an `External` to `EXTERNALS` in `../externals.py`: the script, the conda environment, a function that
+1. Add an `External` to `EXTERNALS` in `registry.py`: the script, the conda environment, a function that
    builds the adapter's own arguments, the packages to fingerprint, and a `check_record` for any input it cannot serve.
 2. List it in a recipe: `"externals": [{"label": "name", "adapter": "name", "options": {...}}]`. A recipe with
    no `arms` runs only the externals, which adds a generator without regenerating finished arms.

@@ -24,7 +24,12 @@ from .spec import PRESETS, SUITES
 
 ROOT = Path(__file__).resolve().parents[1]
 NAMED_COMMANDS = {'list', 'plan', 'run', 'status', 'resume'}
-BENCHMARK_TOOLS = ('followup', 'variability', 'extend', 'leakage')
+BENCHMARK_TOOLS = {
+    'followup': 'benchmark/analysis/followup.py',
+    'variability': 'benchmark/analysis/variability.py',
+    'extend': 'benchmark/analysis/extend.py',
+    'leakage': 'benchmark/analysis/leakage.py',
+}
 PROG = 'python -m experiments'
 LEGACY_DESCRIPTION = """Plan and execute experiments: suites and sweeps share everything after trial expansion.
 
@@ -153,7 +158,7 @@ def legacy_main(argv=None):
 def benchmark_main(arguments):
     """Forward to the benchmark tool run.sh would have started (same names, same arguments)."""
     tool = arguments[0] if arguments and arguments[0] in BENCHMARK_TOOLS else None
-    script = f"benchmark/{tool or 'run'}.py"
+    script = BENCHMARK_TOOLS[tool] if tool else 'benchmark/run.py'
     rest = arguments[1:] if tool else arguments
     os.execv(sys.executable, [sys.executable, script, *rest])
 
