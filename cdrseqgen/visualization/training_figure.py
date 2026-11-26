@@ -14,7 +14,7 @@ import logging
 
 import pandas as pd
 
-from cdrseqgen.visualization.linegraph_plotter import plot_epoch_curves
+from cdrseqgen.visualization.plot_line import plot_epoch_curves
 from cdrseqgen import artifacts
 
 logger = logging.getLogger(__name__)

@@ -1,12 +1,12 @@
-"""The visual counterpart of `batch_tables`: a training batch -> one dashboard PNG per dataset.
+"""The visual counterpart of `batch_table`: a training batch -> one dashboard PNG per dataset.
 
-`batch_tables` renders the (loop x dataset x context x model) matrix as Markdown for the README.
+`batch_table` renders the (loop x dataset x context x model) matrix as Markdown for the README.
 This renders the same runs, read through the same coverage-aware policy, as charts — the shape of
 the matrix is easier to see than to read, particularly the H3 gap and the anchor inflation.
 
 Usage:
-    python -m cdrseqgen.visualization.batch_plots --batch results/runs/20260818_192606
-    python -m cdrseqgen.visualization.batch_plots --batch <dir> --dataset OAS
+    python -m cdrseqgen.visualization.batch_figure --batch results/runs/20260818_192606
+    python -m cdrseqgen.visualization.batch_figure --batch <dir> --dataset OAS
 
 Panels (per dataset):
   * A. best-epoch recovery per loop, scratch against ESM-2 -- Findings §1/§2
@@ -21,7 +21,7 @@ sets, so their accuracies are not comparable; putting them on one axis is the mi
 `_SD2` run tags exist to prevent. This module enforces that by splitting on the dataset tag rather
 than by asking the caller to remember.
 
-Reads only what a finished run writes, through `batch_tables.discover_runs` / `recovery_summary`,
+Reads only what a finished run writes, through `batch_table.discover_runs` / `recovery_summary`,
 so the tables and the charts cannot disagree about which epoch or which metric a run reports.
 """
 from __future__ import annotations
@@ -34,17 +34,17 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 
 from cdrseqgen.visualization import plot_style
-from cdrseqgen.visualization.bargraph_plotter import BarSeries, draw_grouped_bars
-from cdrseqgen.visualization.batch_tables import (
+from cdrseqgen.visualization.plot_bar import BarSeries, draw_grouped_bars
+from cdrseqgen.visualization.batch_table import (
     FAMILY_LABELS, _epoch_metrics, discover_runs, has_repeated_families, method_of_family,
     recovery_summary)
-from cdrseqgen.visualization.scatterplot_plotter import ScatterSeries, draw_scatter
+from cdrseqgen.visualization.plot_scatter import ScatterSeries, draw_scatter
 from cdrseqgen import artifacts
 
 GENERATION_EVAL_FILENAME = artifacts.GENERATION_EVAL_FILENAME
 
 LOOP_ORDER = ("h1", "h2", "h3", "l1", "l2", "l3")
-# Families a dashboard can show side by side, shared with `batch_tables` so a family added there
+# Families a dashboard can show side by side, shared with `batch_table` so a family added there
 # appears in both. `ar_scratch`/`s2s_scratch` are how a causal or encoder-decoder run's name parses
 # (h3_OAS_ar_scratch -> model "ar_scratch"), which is what lets one batch hold every method and
 # compare them in a single figure — the point of run.sh's `compare` suite.

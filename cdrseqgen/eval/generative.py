@@ -496,7 +496,7 @@ def write_confidence_figure(payload, output_path, title=""):
     if not output_path:
         return None
     try:
-        from cdrseqgen.visualization.confidence_plot import save_run_figure
+        from cdrseqgen.visualization.confidence_figure import save_run_figure
 
         figure_path = os.path.splitext(output_path)[0] + "_confidence.png"
         saved = save_run_figure(payload.get("records", []), figure_path,

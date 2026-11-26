@@ -13,7 +13,7 @@ import sys
 import threading
 
 from cdrseqgen.artifacts import atomic_write_json
-from cdrseqgen.visualization.sweep_tables import KEY
+from cdrseqgen.visualization.sweep_table import KEY
 
 from .core import completed_artifacts
 from .report import report

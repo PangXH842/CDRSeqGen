@@ -551,14 +551,14 @@ Records sit at the batch root and charts under `figures/`, the same split `resul
 
 | written by | at the end of | into |
 |---|---|---|
-| `batch_tables.py` | `run.sh` | `<batch>/batch_tables.md` — every README comparison table |
-| `batch_plots.py` | `run.sh` | `<batch>/figures/batch_<ds>.png` — one dashboard per dataset |
-| `sweep_tables.py` | `sweep.sh` | `<sweep>/summary.tsv` — settings ranked across seeds |
-| `sweep_plots.py` | `sweep.sh` | `<sweep>/figures/objective_comparison.png` — settings × seeds |
+| `batch_table.py` | `run.sh` | `<batch>/batch_tables.md` — every README comparison table |
+| `batch_figure.py` | `run.sh` | `<batch>/figures/batch_<ds>.png` — one dashboard per dataset |
+| `sweep_table.py` | `sweep.sh` | `<sweep>/summary.tsv` — settings ranked across seeds |
+| `sweep_figure.py` | `sweep.sh` | `<sweep>/figures/objective_comparison.png` — settings × seeds |
 
 Both steps are guarded in the shell: a batch that already trained cannot be spoiled by a reporting
 failure, and any of the four can be re-run against a finished directory at any time. That matters for
-`sweep_tables` in particular — it used to be a heredoc at the end of `sweep.sh`, so an interrupted
+`sweep_table` in particular — it used to be a heredoc at the end of `sweep.sh`, so an interrupted
 sweep produced no summary at all, even though every finished trial was already on disk.
 
 `results/figures/` stays for what does **not** belong to one batch: hand-picked charts for this
@@ -570,14 +570,14 @@ Each `--run` takes `LABEL FOLDER [METRIC]`; omit `METRIC` and it falls back to t
 
 ```bash
 # same metric across runs — metric named once
-python -m cdrseqgen.visualization.linegraph_plotter \
+python -m cdrseqgen.visualization.plot_line \
   --metric eval_core_accuracy \
   --run "H3 Scratch" "results/20260729_202635/h3_OAS_scratch" \
   --run "H3 ESM-2"   "results/20260729_202635/h3_OAS_esm2_t12_35M_UR50D" \
   --title "H3 Core Recovery: Scratch vs ESM-2"
 
 # breakdown of ONE run — per-run metric, several columns on one chart
-python -m cdrseqgen.visualization.linegraph_plotter \
+python -m cdrseqgen.visualization.plot_line \
   --run whole  "results/runs/latest/h3_OAS_scratch" eval_accuracy \
   --run core   "results/runs/latest/h3_OAS_scratch" eval_core_accuracy \
   --run anchor "results/runs/latest/h3_OAS_scratch" eval_anchor_accuracy \

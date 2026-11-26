@@ -40,8 +40,8 @@ IgBert judge.*
 
 > **Every table here is generated, not hand-written** — regenerate them all after any new batch with:
 > ```bash
-> python -m cdrseqgen.visualization.batch_tables --batch results/runs/20260818_192606
-> python -m cdrseqgen.visualization.batch_tables --only regimes,loops   # or a subset
+> python -m cdrseqgen.visualization.batch_table --batch results/runs/20260818_192606
+> python -m cdrseqgen.visualization.batch_table --only regimes,loops   # or a subset
 > ```
 > It reads only what a finished run already writes (`epoch_metrics.csv`, `generation_eval.json`,
 > `run_config.json`) plus the processed dataset JSONs, and prints markdown ready to paste. The one
@@ -392,8 +392,8 @@ every `train.py` run and every `evaluate.py` call gets one without a second comm
 silently when there is nothing to plot (`--skip_perplexity` with no judge) and is exception-guarded,
 so a plotting problem cannot cost a finished evaluation. To redraw, or to overlay two runs:
 ```bash
-python -m cdrseqgen.visualization.confidence_plot --eval <run>/generation_eval.json
-python -m cdrseqgen.visualization.confidence_plot --eval a.json --label scratch --eval b.json --label ESM-2
+python -m cdrseqgen.visualization.confidence_figure --eval <run>/generation_eval.json
+python -m cdrseqgen.visualization.confidence_figure --eval a.json --label scratch --eval b.json --label ESM-2
 ```
 
 This sits directly alongside the decoder finding: iterative decoding buys nothing because the

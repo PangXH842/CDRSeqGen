@@ -9,8 +9,8 @@ trial loop ran to completion. An interrupted sweep therefore produced no summary
 every finished trial's numbers were already on disk — which is exactly when you most want to see
 where the sweep had got to. As a module it runs on demand:
 
-    python -m cdrseqgen.visualization.sweep_tables --sweep results/runs/20260825_165553_sweep_loss
-    python -m cdrseqgen.visualization.sweep_tables --sweep <dir> --rank_metric judge_ppl
+    python -m cdrseqgen.visualization.sweep_table --sweep results/runs/20260825_165553_sweep_loss
+    python -m cdrseqgen.visualization.sweep_table --sweep <dir> --rank_metric judge_ppl
 
 Seeds are the replicate dimension; every other column identifies the setting. A setting's score is
 the mean across its seeds, and `sd_score` is the spread that mean sits on — read the gap between

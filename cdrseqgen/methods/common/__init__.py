@@ -17,7 +17,7 @@
 
 The membership test: **things a method needs to PRODUCE output**. Turning records into model inputs
 belongs in ``datasets/dataset_common.py``; measuring outputs belongs in ``cdrseqgen/eval/``.
-Training-result CSVs and curves belong in ``cdrseqgen/visualization/training_results.py``;
+Training-result CSVs and curves belong in ``cdrseqgen/visualization/training_figure.py``;
 the shared training workflow decides when to export them.
 
 Everything here started life duplicated and was consolidated after a second method existed to check

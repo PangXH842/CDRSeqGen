@@ -163,16 +163,16 @@ CDRSeqGen/
 │   │                           #   Strategies: draw, self_scores, judge_inputs, payload_length_policy
 │   │                           #   Judge helpers load MLM implementations when needed
 │   └── visualization/          # Run artifacts -> charts and tables. No GPU, no model loading.
-│       ├── training_results.py # Trainer history -> epoch_metrics.csv and training-curve PNGs
+│       ├── training_figure.py # Trainer history -> epoch_metrics.csv and training-curve PNGs
 │       ├── plot_style.py           # Shared palette, axes furniture, empty panels, saving
-│       ├── linegraph_plotter.py    # Chart type: lines with optional spread bands (+ CLI)
-│       ├── bargraph_plotter.py     # Chart type: grouped bars with error bars
-│       ├── scatterplot_plotter.py  # Chart type: operating-point scatter
-│       ├── sweep_plots.py          # Figure: sweep settings x seeds, four panels
-│       ├── batch_plots.py          # Figure: the run matrix, one dashboard per dataset
-│       ├── confidence_plot.py      # Figure: does per-candidate confidence rank by recovery?
-│       ├── batch_tables.py         # Generates validated Markdown comparison tables from a batch
-│       └── sweep_tables.py         # Ranks a sweep's settings across seeds -> summary.tsv
+│       ├── plot_line.py    # Chart type: lines with optional spread bands (+ CLI)
+│       ├── plot_bar.py     # Chart type: grouped bars with error bars
+│       ├── plot_scatter.py  # Chart type: operating-point scatter
+│       ├── sweep_figure.py          # Figure: sweep settings x seeds, four panels
+│       ├── batch_figure.py          # Figure: the run matrix, one dashboard per dataset
+│       ├── confidence_figure.py      # Figure: does per-candidate confidence rank by recovery?
+│       ├── batch_table.py         # Generates validated Markdown comparison tables from a batch
+│       └── sweep_table.py         # Ranks a sweep's settings across seeds -> summary.tsv
 ├── benchmark/                  # Frozen-manifest comparisons against external baselines
 │   ├── _common.py              # Hashing, seeding, atomic writes, git state, resume checks
 │   ├── manifest.py             # Frozen CDR-H3 manifest export + IMGT flank-region sidecars
@@ -308,7 +308,7 @@ metrics, MLM length fitting and S2S diagnostics stay in their method modules.
 See the [workflow map](../cdrseqgen/methods/common/README.md).
 
 *   **TensorBoard:** Live tracking via `"report_to": "tensorboard"`.
-*   **Metric Extraction:** `common.training.train_and_save()` calls [`visualization/training_results.py`](../cdrseqgen/visualization/training_results.py) to export Trainer history as `epoch_metrics.csv` (loss + recovery, whole-span **and** the anchor-excluded `core`/`anchor` accuracies) and standalone `.png` curves.
+*   **Metric Extraction:** `common.training.train_and_save()` calls [`visualization/training_figure.py`](../cdrseqgen/visualization/training_figure.py) to export Trainer history as `epoch_metrics.csv` (loss + recovery, whole-span **and** the anchor-excluded `core`/`anchor` accuracies) and standalone `.png` curves.
 
 Generated-loop evaluation follows the shared workflow in [`generative.py`](../cdrseqgen/eval/generative.py):
 

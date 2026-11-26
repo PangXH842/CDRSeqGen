@@ -11,7 +11,7 @@ Callers:
     training and arguments modules; evaluation also calls Method.evaluate after training
   * methods/common/arguments.py, benchmark/adapters/cdrseqgen.py -- the --decoding choices
   * methods/mlm/arguments.py -- the MLM decoder names
-  * visualization/batch_tables.py -- recognise a method prefix in run names
+  * visualization/batch_table.py -- recognise a method prefix in run names
 
 Functions:
   * Method.module     -- import one component of the method: train_cli, backbones, sampling, ...

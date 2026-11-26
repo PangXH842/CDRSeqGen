@@ -6,10 +6,10 @@ import sys
 
 
 def report(plan, output):
-    jobs = ([('batch_tables', '--batch', str(output), '--output'),
-             ('batch_plots', '--batch', str(output))] if plan["mode"] == "suite" else
-            [('sweep_tables', '--sweep', str(output), '--rank_metric', plan["rank_metric"]),
-             ('sweep_plots', '--sweep', str(output))])
+    jobs = ([('batch_table', '--batch', str(output), '--output'),
+             ('batch_figure', '--batch', str(output))] if plan["mode"] == "suite" else
+            [('sweep_table', '--sweep', str(output), '--rank_metric', plan["rank_metric"]),
+             ('sweep_figure', '--sweep', str(output))])
     for module, *args in jobs:
         code = subprocess.call([sys.executable, '-m', f'cdrseqgen.visualization.{module}', *args])
         if code:

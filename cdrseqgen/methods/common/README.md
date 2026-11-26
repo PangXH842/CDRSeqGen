@@ -64,7 +64,7 @@ are an optional training extension.
 For each chunk, record its callers, inputs, outputs and method-specific
 extensions. Shared run setup and logging live here in `run_setup.py`, `logging.py`
 and `callbacks.py`. Result export and plots live in
-[visualization/training_results.py](../../visualization/training_results.py), called
+[visualization/training_figure.py](../../visualization/training_figure.py), called
 by `training.train_and_save()`. Review these implementations as a separate chunk;
 moving them does not mark them manually reviewed.
 
@@ -341,7 +341,7 @@ or use a benchmark-only adapter. IgLM supplies the worked native-protocol exampl
 | `logging.py` | Configure stdout, attach `train.log`, log uncaught exceptions | All method CLI entrypoints; shared argument setup attaches the training file handler |
 | `run_setup.py` | Select/name output directories, update latest, save resolved configuration/provenance, supply dataset tags | Shared argument setup, method training workflows, visualization tables |
 | `callbacks.py` | `LogMetricsCallback` records Trainer log events; `build_callbacks()` adds requested early stopping | Method Trainer construction |
-| [visualization/training_results.py](../../visualization/training_results.py) | Export the epoch trajectory CSV and training-curve PNGs | `training.train_and_save()` |
+| [visualization/training_figure.py](../../visualization/training_figure.py) | Export the epoch trajectory CSV and training-curve PNGs | `training.train_and_save()` |
 | `eos_decoding.py` | AR/S2S only: EOS command setup, pooled recovery metrics, infilling dataset split, evaluation strategy and payload, generation record | AR and S2S `training.py`, `evaluation.py`, `generation.py` |
 
 Run configuration remains flat, with the same artifact names and dataset tags.

@@ -12,8 +12,8 @@
                                       "core"), ...]  <- the whole/core/anchor breakdown
 
 Called three ways: train.py auto-plots every run's curves at the end of training; this file is a CLI
-for ad-hoc cross-run charts (python -m cdrseqgen.visualization.linegraph_plotter --help); and `draw_lines`
-is a panel inside the multi-panel analysis figures (sweep_plots).
+for ad-hoc cross-run charts (python -m cdrseqgen.visualization.plot_line --help); and `draw_lines`
+is a panel inside the multi-panel analysis figures (sweep_figure).
 
 Note:
   * A missing CSV or column is reported and skipped rather than aborting the chart, so one bad

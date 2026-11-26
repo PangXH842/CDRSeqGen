@@ -24,7 +24,7 @@ import sys
 from cdrseqgen.methods.common import logging as run_logging
 from cdrseqgen.methods.common import run_setup
 from cdrseqgen.methods.common.callbacks import LogMetricsCallback, build_callbacks
-from cdrseqgen.visualization.training_results import save_training_csv
+from cdrseqgen.visualization.training_figure import save_training_csv
 
 
 # ====================================================================================================

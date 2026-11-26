@@ -192,9 +192,9 @@ def find_run_config(model_dir) -> Path | None:
       * fit_mlm_length.py
       * cdrseqgen/methods/ar/backbones.py
       * cdrseqgen/methods/common/evaluation.py
-      * cdrseqgen/visualization/batch_plots.py
-      * cdrseqgen/visualization/batch_tables.py
-      * cdrseqgen/visualization/sweep_plots.py
+      * cdrseqgen/visualization/batch_figure.py
+      * cdrseqgen/visualization/batch_table.py
+      * cdrseqgen/visualization/sweep_figure.py
       * benchmark/adapters/cdrseqgen.py
     """
     for name in RUN_CONFIG_FILENAMES:
@@ -215,7 +215,7 @@ def read_run_config(model_dir) -> dict | None:
       * generate.py
       * cdrseqgen/methods/common/generation.py
       * cdrseqgen/methods/mlm/evaluation.py
-      * cdrseqgen/visualization/sweep_tables.py
+      * cdrseqgen/visualization/sweep_table.py
     """
     path = find_run_config(model_dir)
     if path is None:

@@ -11,7 +11,7 @@ import re
 
 from cdrseqgen.artifacts import sha256_file
 from cdrseqgen.methods.registry import resolve
-from cdrseqgen.visualization.sweep_tables import RANKERS
+from cdrseqgen.visualization.sweep_table import RANKERS
 
 from .core import fingerprint, flag
 

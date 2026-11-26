@@ -70,7 +70,7 @@ def main():
     if args.environment == "cdrprj":
         for module in ("accelerate", "pandas", "sklearn", "sentencepiece", "safetensors",
                        "cdrseqgen.methods.mlm.training", "cdrseqgen.methods.ar.training",
-                       "cdrseqgen.methods.s2s.training", "cdrseqgen.visualization.sweep_plots",
+                       "cdrseqgen.methods.s2s.training", "cdrseqgen.visualization.sweep_figure",
                        "benchmark.analysis.plot_comparison"):
             importlib.import_module(module)
         import matplotlib

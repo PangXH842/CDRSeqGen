@@ -6,7 +6,7 @@ with the file name as a prefix.
 """
 
 import unittest
-from cdrseqgen.visualization.confidence_plot import (
+from cdrseqgen.visualization.confidence_figure import (
     baseline_recovery,
     rho_distribution,
     selection_curve,
@@ -17,15 +17,15 @@ import json
 from pathlib import Path
 import tempfile
 import matplotlib
-from cdrseqgen.visualization.batch_tables import write_batch_tables
-from cdrseqgen.visualization.sweep_tables import (
+from cdrseqgen.visualization.batch_table import write_batch_tables
+from cdrseqgen.visualization.sweep_table import (
     RANKERS,
     _selected_epoch,
     load_trials,
     rank_settings,
     summarize_sweep,
 )
-from cdrseqgen.visualization.batch_tables import (
+from cdrseqgen.visualization.batch_table import (
     RUN_RE,
     _fmt,
     _common_recovery_policy,
@@ -147,11 +147,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.container import BarContainer
 from cdrseqgen.visualization import plot_style
-from cdrseqgen.visualization.bargraph_plotter import BarSeries, draw_grouped_bars
-from cdrseqgen.visualization.batch_plots import _context_pair
-from cdrseqgen.visualization.linegraph_plotter import LineSeries, draw_lines
-from cdrseqgen.visualization.scatterplot_plotter import ScatterSeries, draw_scatter
-from cdrseqgen.visualization.sweep_plots import SWEEP_SUBDIRS, load_trials as load_sweep_trials
+from cdrseqgen.visualization.plot_bar import BarSeries, draw_grouped_bars
+from cdrseqgen.visualization.batch_figure import _context_pair
+from cdrseqgen.visualization.plot_line import LineSeries, draw_lines
+from cdrseqgen.visualization.plot_scatter import ScatterSeries, draw_scatter
+from cdrseqgen.visualization.sweep_figure import SWEEP_SUBDIRS, load_trials as load_sweep_trials
 
 class PlotStyleTests(unittest.TestCase):
     def test_colors_and_markers_wrap_instead_of_raising(self):
@@ -741,13 +741,13 @@ class MixedLossDetectionTests(unittest.TestCase):
 
     def test_single_objective_is_not_flagged(self):
         import tempfile
-        from cdrseqgen.visualization.batch_tables import loss_warning
+        from cdrseqgen.visualization.batch_table import loss_warning
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIsNone(loss_warning(self._batch(tmp, ["cross_entropy", "cross_entropy"])))
 
     def test_mixed_objectives_are_flagged(self):
         import tempfile
-        from cdrseqgen.visualization.batch_tables import loss_warning
+        from cdrseqgen.visualization.batch_table import loss_warning
         with tempfile.TemporaryDirectory() as tmp:
             warning = loss_warning(self._batch(tmp, ["cross_entropy", "weighted_cross_entropy"]))
             self.assertIsNotNone(warning)
@@ -757,14 +757,14 @@ class MixedLossDetectionTests(unittest.TestCase):
         """Old runs have no loss_type; they trained with plain cross-entropy, so a batch of them
         plus a new cross-entropy run is still one comparison."""
         import tempfile
-        from cdrseqgen.visualization.batch_tables import loss_warning
+        from cdrseqgen.visualization.batch_table import loss_warning
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIsNone(loss_warning(self._batch(tmp, [None, "cross_entropy"])))
 
 
 class MethodComparisonTableTests(unittest.TestCase):
     def test_plm_encoder_families_retain_the_s2s_method(self):
-        from cdrseqgen.visualization.batch_tables import model_family, discover_runs, FAMILY_LABELS
+        from cdrseqgen.visualization.batch_table import model_family, discover_runs, FAMILY_LABELS
         self.assertEqual(model_family('s2s_esm2_t12_35M_UR50D'), 's2s_esm2')
         self.assertEqual(model_family('s2s_IgBert'), 's2s_igbert')
         self.assertEqual(model_family('s2s_prot_bert'), 's2s_protbert')
@@ -783,7 +783,7 @@ class MethodComparisonTableTests(unittest.TestCase):
         dropped from every table and dashboard — the run completes, the artifacts are written, and
         the results simply never appear. Adding a method must add its family."""
         from cdrseqgen.methods.registry import METHODS
-        from cdrseqgen.visualization.batch_tables import FAMILY_LABELS
+        from cdrseqgen.visualization.batch_table import FAMILY_LABELS
         for name in METHODS:
             # `mlm` is the historical default and its runs carry no method marker in the name.
             family = "scratch" if name == "mlm" else f"{name}_scratch"
@@ -796,7 +796,7 @@ class MethodComparisonTableTests(unittest.TestCase):
         which inverts the warning: `s2s` predicts position i from the true prefix exactly as `ar`
         does, so it is the MASKED arm that is the odd one out."""
         from cdrseqgen.methods.registry import METHODS
-        from cdrseqgen.visualization.batch_tables import FAMILY_LABELS, method_of_family
+        from cdrseqgen.visualization.batch_table import FAMILY_LABELS, method_of_family
         self.assertEqual(method_of_family("scratch"), "mlm")
         self.assertEqual(method_of_family("esm2"), "mlm")
         self.assertEqual(method_of_family("ar_scratch"), "ar")
@@ -905,7 +905,7 @@ class TrialIdentityReportingTests(unittest.TestCase):
         return runs
 
     def test_repeated_esm2_trials_are_all_discovered_and_reported(self):
-        from cdrseqgen.visualization.batch_tables import discover_runs, has_repeated_families, render_tables
+        from cdrseqgen.visualization.batch_table import discover_runs, has_repeated_families, render_tables
         with tempfile.TemporaryDirectory() as directory:
             expected = self.make_batch(directory)
             runs = discover_runs(directory)
@@ -921,7 +921,7 @@ class TrialIdentityReportingTests(unittest.TestCase):
             self.assertNotIn('nan', table)
 
     def test_control_report_distinguishes_training_generator_and_judge_context(self):
-        from cdrseqgen.visualization.batch_tables import context_ablation_table
+        from cdrseqgen.visualization.batch_table import context_ablation_table
         with tempfile.TemporaryDirectory() as directory:
             run = self.make_batch(directory)[0]
             (run/'generation_eval_without_partner.json').unlink()
@@ -937,11 +937,11 @@ class TrialIdentityReportingTests(unittest.TestCase):
 
     def test_trial_dashboard_keeps_all_seed_and_dropout_categories(self):
         from unittest.mock import patch
-        from cdrseqgen.visualization.batch_plots import plot_batch
-        from cdrseqgen.visualization.bargraph_plotter import draw_grouped_bars
+        from cdrseqgen.visualization.batch_figure import plot_batch
+        from cdrseqgen.visualization.plot_bar import draw_grouped_bars
         with tempfile.TemporaryDirectory() as directory:
             self.make_batch(directory)
-            with patch('cdrseqgen.visualization.batch_plots.draw_grouped_bars', wraps=draw_grouped_bars) as draw:
+            with patch('cdrseqgen.visualization.batch_figure.draw_grouped_bars', wraps=draw_grouped_bars) as draw:
                 paths = plot_batch(directory, save_dir=str(Path(directory)/'figures'))
             self.assertEqual(len(paths), 1)
             self.assertTrue(Path(paths[0]).is_file())

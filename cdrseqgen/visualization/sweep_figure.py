@@ -1,17 +1,17 @@
 """Compare a sweep's settings across seeds: sweep directory -> one four-panel PNG.
 
-`batch_tables` expects the (loop x model x context) matrix, so it does not fit a sweep, whose shape
+`batch_table` expects the (loop x model x context) matrix, so it does not fit a sweep, whose shape
 is "a few settings, each repeated over seeds". This module takes seeds as the replicate dimension:
 every panel shows one series per setting, aggregated across its seeds, so a difference between
 settings is read against the seed spread rather than against a single run.
 
 It owns the figure and the aggregation; the drawing is delegated to the chart-type modules
-(`linegraph_plotter`, `bargraph_plotter`, `scatterplot_plotter`) over the shared conventions in
+(`plot_line`, `plot_bar`, `plot_scatter`) over the shared conventions in
 `plot_style`, so a panel here and the same panel in another figure look like the same chart.
 
 Usage:
-    python -m cdrseqgen.visualization.sweep_plots --sweep results/runs/20260825_165553_sweep_loss
-    python -m cdrseqgen.visualization.sweep_plots --sweep <dir> --bins 9 --title "H3 objectives"
+    python -m cdrseqgen.visualization.sweep_figure --sweep results/runs/20260825_165553_sweep_loss
+    python -m cdrseqgen.visualization.sweep_figure --sweep <dir> --bins 9 --title "H3 objectives"
 
 Panels:
   * A. validation core recovery per epoch -- mean across seeds, band spanning them. The teacher-
@@ -42,9 +42,9 @@ import pandas as pd
 from cdrseqgen.artifacts import find_run_config
 from cdrseqgen.eval.metrics import position_recovery
 from cdrseqgen.visualization import plot_style
-from cdrseqgen.visualization.bargraph_plotter import BarSeries, draw_grouped_bars
-from cdrseqgen.visualization.linegraph_plotter import LineSeries, draw_lines
-from cdrseqgen.visualization.scatterplot_plotter import ScatterSeries, draw_scatter
+from cdrseqgen.visualization.plot_bar import BarSeries, draw_grouped_bars
+from cdrseqgen.visualization.plot_line import LineSeries, draw_lines
+from cdrseqgen.visualization.plot_scatter import ScatterSeries, draw_scatter
 from cdrseqgen import artifacts
 
 # A sweep's own output directories, which sit beside its trial folders and are not trials.

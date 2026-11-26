@@ -3,9 +3,9 @@
 The plotting layer has three levels, and this is the bottom one:
 
   * plot_style          -- what all charts must agree on (this file). Draws no data.
-  * chart types         -- linegraph_plotter, bargraph_plotter, scatterplot_plotter. Each exposes a
+  * chart types         -- plot_line, plot_bar, plot_scatter. Each exposes a
                            ``draw_*(ax, ...)`` that renders onto an axes somebody else owns.
-  * analysis figures    -- sweep_plots, confidence_plot, training_results, benchmark/analysis/plot_comparison.
+  * analysis figures    -- sweep_figure, confidence_figure, training_figure, benchmark/analysis/plot_comparison.
                            These choose panels and compose chart types; they own the figure.
 
 The split exists so a panel can be reused. Before it, the four plotting sites had grown four
@@ -102,7 +102,7 @@ def empty_panel(ax, message):
     """Say why a panel is blank, in the panel, instead of leaving empty axes or aborting the figure.
 
     A multi-panel figure is usually assembled from several runs, and one missing input should cost
-    that panel rather than the whole chart — the same rule `linegraph_plotter` follows for a missing
+    that panel rather than the whole chart — the same rule `plot_line` follows for a missing
     CSV column.
     """
     ax.text(0.5, 0.5, message, ha="center", va="center", transform=ax.transAxes,

@@ -26,7 +26,7 @@ from pathlib import Path
 
 from transformers import Trainer, TrainerCallback
 
-from cdrseqgen.visualization.training_results import plot_training_curves, save_training_csv
+from cdrseqgen.visualization.training_figure import plot_training_curves, save_training_csv
 
 logger = logging.getLogger(__name__)
 
