@@ -1,9 +1,40 @@
 #!/usr/bin/env python3
-"""Render a matched CDRSeqGen-versus-baseline dashboard from shared scorer output.
+"""Render a matched 2x2 benchmark comparison dashboard from shared scorer output.
 
-The score JSON, rather than adapter output, is the plotting contract. This keeps validation and
-metric definitions in benchmark/scorer.py and makes the figure a pure, reproducible view of an
-already-scored comparison.
+Reads a ``benchmark/scorer.py`` JSON artifact (``cdrseqgen.benchmark_scores.v1``) offline and plots
+a four-panel dashboard matched to the benchmark track. Keeping the score JSON as the plotting
+contract leaves metric definitions and validation in ``benchmark/scorer.py``.
+
+Usage:
+    python benchmark/analysis/plot_comparison.py --scores scores.json --output comparison.png
+    python benchmark/analysis/plot_comparison.py --scores scores.json --output fig.pdf --position-bins 9
+
+Layouts (selected automatically from the shared benchmark track):
+  * Fixed-native-length track (``fixed_native_length``):
+      - Panel A: Whole / Core / Anchor recovery decomposition grouped bars.
+      - Panel B: Core recovery stratified by H3 length bucket (short / medium / long).
+      - Panel C: Macro-averaged recovery across normalized H3 position (N → C terminus).
+      - Panel D: Recovery–diversity operating point (pairwise Hamming diversity vs. core recovery).
+  * Length-free track (``length_free``):
+      - Panel A: Length-free generation quality (length match, edit similarity, valid rate).
+      - Panel B: Mean absolute length error (overall and by H3 length bucket).
+      - Panel C: Conditional Whole / Core / Anchor recovery among exact-length candidates only.
+      - Panel D: Diversity–edit-similarity operating point.
+
+Functions:
+  * load_scores               -- read and validate a benchmark score JSON file.
+  * benchmark_track           -- verify every scored run shares one supported track.
+  * validate_scores           -- check schema version, required aggregate metrics, and records.
+  * display_label             -- format a run's legend/annotation label.
+  * normalized_position_curve -- macro-average recovery in normalized-position bins per example.
+  * is_development_artifact   -- detect validation/smoke benchmark IDs for warning banner stamping.
+  * build_figure              -- compose the 2x2 matplotlib figure for either track.
+  * save_comparison_figure    -- build and save the dashboard at 300 DPI.
+  * parse_args / main         -- CLI entry point.
+
+Notes:
+  * Runs headless with matplotlib's ``Agg`` backend; stamps a red banner on validation or smoke
+    artifacts so development runs cannot be mistaken for final benchmark claims.
 """
 
 from __future__ import annotations
@@ -22,6 +53,8 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import PercentFormatter
 
 
+# --- Schema Constants & Visual Defaults ----------------------------------------------------------
+
 SCORE_SCHEMA_VERSION = "cdrseqgen.benchmark_scores.v1"
 RECOVERY_METRICS = (
     ("whole_span_aar_mean", "Whole"),
@@ -32,6 +65,8 @@ LENGTH_BUCKETS = ("short", "medium", "long")
 COLORS = ("#2878B5", "#E07A24", "#3A923A", "#8A60A8", "#C44E52")
 SUPPORTED_TRACKS = {"fixed_native_length", "length_free"}
 
+
+# --- Score Loading, Validation & Aggregation Helpers ---------------------------------------------
 
 def load_scores(path: str | Path) -> dict[str, Any]:
     with Path(path).open() as handle:
@@ -136,6 +171,8 @@ def normalized_position_curve(
     return x_values, y_values, counts
 
 
+# --- Shared Bar Primitive ------------------------------------------------------------------------
+
 def _grouped_bars(
     ax: plt.Axes,
     runs: list[dict[str, Any]],
@@ -165,6 +202,9 @@ def _grouped_bars(
     ax.grid(axis="y", linestyle="--", alpha=0.35)
 
 
+# --- Fixed-Length Track Panels (Panels A–D) ------------------------------------------------------
+
+# Panel A: Whole / Core / Anchor recovery decomposition
 def _recovery_panel(ax: plt.Axes, runs: list[dict[str, Any]]) -> None:
     values = [
         [_macro_mean(run["aggregate"], metric) for metric, _ in RECOVERY_METRICS]
@@ -176,6 +216,7 @@ def _recovery_panel(ax: plt.Axes, runs: list[dict[str, Any]]) -> None:
     ax.legend(frameon=False, loc="upper center", ncols=len(runs))
 
 
+# Panel B: Core recovery stratified by H3 length bucket
 def _length_panel(ax: plt.Axes, runs: list[dict[str, Any]]) -> None:
     available = [
         bucket
@@ -202,6 +243,7 @@ def _length_panel(ax: plt.Axes, runs: list[dict[str, Any]]) -> None:
     ax.set_ylabel("Core amino-acid recovery")
 
 
+# Panel C: Macro-averaged recovery across normalized H3 position (N -> C terminus)
 def _position_panel(ax: plt.Axes, runs: list[dict[str, Any]], bins: int) -> None:
     plotted = False
     for run_index, run in enumerate(runs):
@@ -233,6 +275,7 @@ def _position_panel(ax: plt.Axes, runs: list[dict[str, Any]], bins: int) -> None
     ax.grid(linestyle="--", alpha=0.35)
 
 
+# Panel D: Pairwise Hamming diversity vs. core recovery operating point
 def _tradeoff_panel(ax: plt.Axes, runs: list[dict[str, Any]]) -> None:
     for run_index, run in enumerate(runs):
         diversity = _macro_mean(run["aggregate"], "diversity_hamming")
@@ -263,6 +306,9 @@ def _tradeoff_panel(ax: plt.Axes, runs: list[dict[str, Any]]) -> None:
     ax.grid(linestyle="--", alpha=0.35)
 
 
+# --- Length-Free Track Panels (Panels A–D) -------------------------------------------------------
+
+# Panel A: Length-free generation quality (length match, edit similarity, valid rate)
 def _length_free_summary_panel(ax: plt.Axes, runs: list[dict[str, Any]]) -> None:
     metrics = (
         ("length_match_rate", "Length match"),
@@ -276,6 +322,7 @@ def _length_free_summary_panel(ax: plt.Axes, runs: list[dict[str, Any]]) -> None
     ax.legend(frameon=False, loc="upper center", ncols=len(runs))
 
 
+# Panel B: Mean absolute length error (overall and by H3 length bucket)
 def _length_error_panel(ax: plt.Axes, runs: list[dict[str, Any]]) -> None:
     categories = [("Overall", None)]
     for bucket in LENGTH_BUCKETS:
@@ -310,6 +357,7 @@ def _length_error_panel(ax: plt.Axes, runs: list[dict[str, Any]]) -> None:
     ax.grid(axis="y", linestyle="--", alpha=0.35)
 
 
+# Panel C: Conditional Whole / Core / Anchor recovery among exact-length candidates
 def _conditional_recovery_panel(ax: plt.Axes, runs: list[dict[str, Any]]) -> None:
     values = [
         [
@@ -329,6 +377,7 @@ def _conditional_recovery_panel(ax: plt.Axes, runs: list[dict[str, Any]]) -> Non
     ax.set_ylabel("Conditional amino-acid recovery")
 
 
+# Panel D: Pairwise sequence diversity vs. edit similarity operating point
 def _length_free_tradeoff_panel(ax: plt.Axes, runs: list[dict[str, Any]]) -> None:
     for run_index, run in enumerate(runs):
         diversity = _macro_mean(run["aggregate"], "diversity_hamming")
@@ -358,6 +407,8 @@ def _length_free_tradeoff_panel(ax: plt.Axes, runs: list[dict[str, Any]]) -> Non
     ax.yaxis.set_major_formatter(PercentFormatter(1.0))
     ax.grid(linestyle="--", alpha=0.35)
 
+
+# --- Dashboard Composer, Saving & CLI ------------------------------------------------------------
 
 def is_development_artifact(payload: dict[str, Any]) -> bool:
     benchmark_id = str(payload.get("manifest", {}).get("benchmark_id", "")).lower()
