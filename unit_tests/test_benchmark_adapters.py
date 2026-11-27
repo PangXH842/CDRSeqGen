@@ -575,11 +575,22 @@ class ArmRuleTests(unittest.TestCase):
         self.assertEqual(result['invalid_attempts'], 2)
         self.assertEqual(result['raw_generations'][0]['raw_token_ids'], [31, 26, 4, 3, 3, 2])
 
-    def test_pretrained_mlm_and_unknown_backbones_are_refused_at_plan_time(self):
-        with self.assertRaisesRegex(ValueError, "pretrained mlm checkpoints are not served"):
+    def test_pretrained_mlm_pins_saved_vocabulary_and_length_head_while_unknown_backbones_fail(self):
+        (self.checkpoint / "length_config.json").write_text(json.dumps({"seed": 42}))
+        (self.checkpoint / "length_head.safetensors").write_text("{}")
+        self.assertEqual(
+            self.paths("mlm", "facebook/esm2_t6_8M_UR50D"),
+            ["model.safetensors", "config.json", "run_config.json",
+             "tokenizer_config.json", "tokenizer.json", "span_layout.json",
+             "length_config.json", "length_head.safetensors"],
+        )
+        (self.checkpoint / "length_config.json").write_text(json.dumps({"seed": 99}))
+        with self.assertRaisesRegex(ValueError, "length_config seed"):
             self.paths("mlm", "facebook/esm2_t6_8M_UR50D")
         with self.assertRaisesRegex(ValueError, "No ar backbone registered"):
             self.paths("ar", "not-a-backbone")
+        with self.assertRaisesRegex(ValueError, "No mlm backbone registered"):
+            self.paths("mlm", "not-a-backbone")
 
     def batch(self, trials, name="batch"):
         directory = Path(self.temp.name) / name
@@ -594,16 +605,15 @@ class ArmRuleTests(unittest.TestCase):
                 writer.writerow([name, "completed", str(run.ROOT / "results/runs/_unit_test" / name)])
         return directory
 
-    def test_recipe_arms_accept_pretrained_ar_and_s2s_but_not_mlm(self):
+    def test_recipe_arms_accept_pretrained_mlm_ar_and_s2s(self):
         accepted = [("a", "ar_s42_scratch_no_partner", "ar", "scratch"),
                     ("b", "ar_iglm_s42", "ar", "iglm:/somewhere/IgLM-S"),
-                    ("c", "s2s_esm_s42", "s2s", "facebook/esm2_t6_8M_UR50D")]
+                    ("c", "s2s_esm_s42", "s2s", "facebook/esm2_t6_8M_UR50D"),
+                    ("d", "mlm_esm_s42", "mlm", "facebook/esm2_t6_8M_UR50D")]
         arms = run.batch_arms(self.batch(accepted))
-        self.assertEqual([arm["label"] for arm in arms], ["ar_s42", "ar_iglm_s42", "s2s_esm_s42"])
-        self.assertEqual([arm["method"] for arm in arms], ["ar", "ar", "s2s"])
-        mlm = accepted + [("d", "mlm_esm_s42", "mlm", "facebook/esm2_t6_8M_UR50D")]
-        with self.assertRaisesRegex(ValueError, "pretrained mlm model"):
-            run.batch_arms(self.batch(mlm, "with_mlm"))
+        self.assertEqual([arm["label"] for arm in arms],
+                         ["ar_s42", "ar_iglm_s42", "s2s_esm_s42", "mlm_esm_s42"])
+        self.assertEqual([arm["method"] for arm in arms], ["ar", "ar", "s2s", "mlm"])
 
     def test_skip_pretrained_still_skips_every_non_scratch_trial(self):
         trials = [("a", "ar_s42_scratch_no_partner", "ar", "scratch"),
@@ -623,6 +633,7 @@ class ArmRuleTests(unittest.TestCase):
 
     def test_the_two_modules_agree_on_which_methods_serve_pretrained_backbones(self):
         self.assertEqual(run.EOS_METHODS, ('ar', 's2s'))
+        self.assertEqual(run.PRETRAINED_METHODS, ('mlm', 'ar', 's2s'))
 
 
 if __name__ == "__main__":

@@ -82,12 +82,30 @@ def sample_loops(model, tokenizer, prompt_ids, *, device, num_samples=1, tempera
     terminator = layout.terminator_id(tokenizer)
     banned = {i for i in tokenizer.special_ids if i != terminator}
 
-    generated = [[] for _ in range(draws)]
+    # --- [REVISED 2026-11-27] Pre-allocated GPU token buffer + optional HF KV-cache ---
+    # Accumulate tokens on device (one GPU->CPU sync at the end instead of 2 per token step)
+    # and reuse past_key_values when the model supports HuggingFace incremental caching.
+    tokens_buf = torch.full((draws, max_new_tokens), tokenizer.pad_id, dtype=torch.long, device=device)
+    lengths = torch.zeros(draws, dtype=torch.long, device=device)
     finished = torch.zeros(draws, dtype=torch.bool, device=device)
+    past_key_values = None
+    supports_cache = bool(getattr(getattr(model, "config", None), "use_cache", False))
 
     # ------ 3. Advance all attempts; completed rows remain padded. ------
-    for _ in range(max_new_tokens):
-        logits = logits_of(model(input_ids=ids, attention_mask=mask))[:, -1, :].float()
+    for step in range(max_new_tokens):
+        if supports_cache and past_key_values is not None:
+            out = model(input_ids=ids[:, -1:], attention_mask=mask,
+                        past_key_values=past_key_values, use_cache=True)
+        elif supports_cache:
+            out = model(input_ids=ids, attention_mask=mask, use_cache=True)
+        else:
+            out = model(input_ids=ids, attention_mask=mask)
+        if supports_cache:
+            past_key_values = (out.get("past_key_values") if isinstance(out, dict)
+                               else getattr(out, "past_key_values", None))
+            if past_key_values is None:
+                supports_cache = False
+        logits = logits_of(out)[:, -1, :].float()
         logits = ban_tokens(logits, banned)
         if greedy:
             nxt = logits.argmax(-1)
@@ -96,10 +114,9 @@ def sample_loops(model, tokenizer, prompt_ids, *, device, num_samples=1, tempera
             nxt = torch.multinomial(probs, 1, generator=generator).squeeze(-1)
 
         nxt = torch.where(finished, torch.full_like(nxt, tokenizer.pad_id), nxt)
-        # Transfer step bookkeeping in batches instead of synchronizing each GPU scalar.
-        for tokens, token, was_finished in zip(generated, nxt.tolist(), finished.tolist()):
-            if not was_finished and token != terminator:
-                tokens.append(token)
+        active_content = (~finished) & nxt.ne(terminator)
+        tokens_buf[:, step] = torch.where(active_content, nxt, tokenizer.pad_id)
+        lengths += active_content.long()
         finished |= nxt.eq(terminator)
         if bool(finished.all()):
             break
@@ -108,33 +125,67 @@ def sample_loops(model, tokenizer, prompt_ids, *, device, num_samples=1, tempera
         mask = torch.cat([mask, torch.ones_like(nxt)[:, None]], dim=1)
 
     # ------ 4. Keep every attempt, including complete-empty and incomplete ones. ------
-    return [{"loop": tokenizer.decode(tokens), "length": len(tokens), "complete": complete}
-            for tokens, complete in zip(generated, finished.tolist())]
+    buf_cpu = tokens_buf.tolist()
+    lengths_cpu = lengths.tolist()
+    finished_cpu = finished.tolist()
+    return [
+        {"loop": tokenizer.decode(row[:length]), "length": length, "complete": complete}
+        for row, length, complete in zip(buf_cpu, lengths_cpu, finished_cpu)
+    ]
+    # --- [/REVISED 2026-11-27] ---
 
 
-@torch.no_grad()
-def perplexities(model, tokenizer, device, spans):
+# --- [REVISED 2026-11-27] Batched AR self-perplexity scoring (right-padded, attention_mask) ---
+@torch.inference_mode()
+def perplexities(model, tokenizer, device, spans, *, batch_size=64):
     """Return one generator perplexity per ordered (prompt, loop-token IDs) pair.
 
     Steps:
-      layout.build_answer -> prompt + answer -> one forward pass per candidate
-                          -> shifted answer-token loss -> exp(mean NLL)
+      layout.build_answer -> prompt + answer -> right-padded batched forward passes
+                          -> shifted answer-token loss per row -> exp(mean NLL)
 
     Prompt labels are ignored; the answer includes its terminator. Logits/labels
     are shifted once for next-token prediction. Non-finite or overflowing
     perplexity yields None. An empty spans list returns []. Generation and
     evaluation share this scorer.
     """
-    scores = []
+    if not spans:
+        return []
+    layout = layout_for(tokenizer)
+    prepared = []
     for prompt, answer_ids in spans:
-        answer = layout_for(tokenizer).build_answer(tokenizer, answer_ids)
+        answer = layout.build_answer(tokenizer, answer_ids)
         ids = list(prompt) + answer
         labels = [-100] * len(prompt) + answer
-        tensor = torch.tensor([ids], dtype=torch.long, device=device)
-        logits = logits_of(model(input_ids=tensor)).float()
-        gold = torch.tensor([labels], dtype=torch.long, device=device)
-        nll = torch.nn.functional.cross_entropy(
-            logits[:, :-1].reshape(-1, logits.size(-1)), gold[:, 1:].reshape(-1),
-            ignore_index=-100, reduction="mean")
-        scores.append(perplexity_from_nll(nll))
+        prepared.append((ids, labels))
+
+    scores = []
+    for offset in range(0, len(prepared), batch_size):
+        chunk = prepared[offset : offset + batch_size]
+        width = max(len(ids) for ids, _ in chunk)
+        bsz = len(chunk)
+        input_ids = torch.full((bsz, width), tokenizer.pad_id, dtype=torch.long, device=device)
+        attn_mask = torch.zeros((bsz, width), dtype=torch.long, device=device)
+        gold = torch.full((bsz, width), -100, dtype=torch.long, device=device)
+        for row, (ids, labels) in enumerate(chunk):
+            n = len(ids)
+            input_ids[row, :n] = torch.tensor(ids, dtype=torch.long, device=device)
+            attn_mask[row, :n] = 1
+            gold[row, :n] = torch.tensor(labels, dtype=torch.long, device=device)
+
+        logits = logits_of(model(input_ids=input_ids, attention_mask=attn_mask)).float()
+        shift_logits = logits[:, :-1, :]
+        shift_labels = gold[:, 1:]
+        tok_loss = torch.nn.functional.cross_entropy(
+            shift_logits.reshape(-1, shift_logits.size(-1)),
+            shift_labels.reshape(-1),
+            ignore_index=-100,
+            reduction="none",
+        ).view(bsz, -1)
+        valid = shift_labels.ne(-100)
+        counts = valid.sum(dim=1)
+        row_nll = (tok_loss * valid).sum(dim=1) / counts.clamp(min=1)
+        for row_idx in range(bsz):
+            scores.append(perplexity_from_nll(row_nll[row_idx]) if counts[row_idx].item() > 0 else None)
     return scores
+# --- [/REVISED 2026-11-27] ---

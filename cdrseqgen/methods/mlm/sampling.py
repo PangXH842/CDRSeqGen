@@ -196,3 +196,79 @@ def pseudo_log_likelihood(model, input_ids, mask_positions, token_ids, banned_id
     pll = float(token_log_probs.sum())
     pseudo_ppl = float(torch.exp(-token_log_probs.mean()))
     return pll, pseudo_ppl
+
+
+# --- [REVISED 2026-11-27] Batched MLM pseudo-log-likelihood for multi-candidate judging ---
+@torch.inference_mode()
+def pseudo_log_likelihood_batch(
+    model,
+    items,
+    banned_ids,
+    mask_id,
+    device,
+    *,
+    batch_size: int = 256,
+) -> list[tuple[float, float]]:
+    """Score many (input_ids, mask_positions, token_ids) spans with exact length-grouped batching.
+
+    Grouping by total sequence length avoids padding and attention-mask differences, keeping
+    results numerically identical to calling `pseudo_log_likelihood` per candidate while utilizing
+    the GPU across multiple candidates at once.
+    """
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+    results: list[tuple[float, float] | None] = [None] * len(items)
+    by_seq_len: dict[int, list[tuple[int, list[int], list[int], list[int]]]] = {}
+
+    for idx, (input_ids, mask_positions, token_ids) in enumerate(items):
+        span_length = len(mask_positions)
+        if len(token_ids) != span_length:
+            raise ValueError("token_ids must contain one token per mask position")
+        if span_length == 0:
+            results[idx] = (0.0, 1.0)
+            continue
+        by_seq_len.setdefault(len(input_ids), []).append(
+            (idx, list(input_ids), list(mask_positions), list(token_ids))
+        )
+
+    for group in by_seq_len.values():
+        rows_inputs: list[list[int]] = []
+        rows_mask_pos: list[int] = []
+        rows_target_tok: list[int] = []
+        slices: list[tuple[int, int, int]] = []  # (item_idx, start_row, span_length)
+
+        for item_idx, input_ids, mask_positions, token_ids in group:
+            base = list(input_ids)
+            for position, token_id in zip(mask_positions, token_ids):
+                base[position] = token_id
+            start = len(rows_inputs)
+            for position, token_id in zip(mask_positions, token_ids):
+                variant = list(base)
+                variant[position] = mask_id
+                rows_inputs.append(variant)
+                rows_mask_pos.append(position)
+                rows_target_tok.append(token_id)
+            slices.append((item_idx, start, len(mask_positions)))
+
+        all_log_probs: list[torch.Tensor] = []
+        total_rows = len(rows_inputs)
+        for offset in range(0, total_rows, batch_size):
+            end = min(offset + batch_size, total_rows)
+            chunk = torch.tensor(rows_inputs[offset:end], dtype=torch.long, device=device)
+            pos = torch.tensor(rows_mask_pos[offset:end], dtype=torch.long, device=device)
+            tok = torch.tensor(rows_target_tok[offset:end], dtype=torch.long, device=device)
+            r = torch.arange(end - offset, device=device)
+            logits = logits_of(model(input_ids=chunk))
+            at_masked = ban_tokens(logits[r, pos, :].clone(), banned_ids)
+            log_probs = torch.log_softmax(at_masked, dim=-1)
+            all_log_probs.append(log_probs[r, tok].cpu())
+
+        flat = torch.cat(all_log_probs, dim=0)
+        for item_idx, start, span_len in slices:
+            token_lps = flat[start : start + span_len]
+            pll = float(token_lps.sum())
+            pseudo_ppl = float(torch.exp(-token_lps.mean()))
+            results[item_idx] = (pll, pseudo_ppl)
+
+    return results  # type: ignore[return-value]
+# --- [/REVISED 2026-11-27] ---

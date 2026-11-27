@@ -3,7 +3,7 @@
 An adapter turns a frozen manifest into candidate loops for one generator and writes them as JSON. The
 scorer, plots and paired analysis read only that JSON, so a generator may live in any environment and
 share no code with the rest of the repository. Five producers already meet this contract:
-`cdrseqgen.py` (trained checkpoints: scratch, or a pretrained AR/S2S backbone such as a fine-tuned IgLM), `iglm.py` and `igcraft.py` (frozen external models), `../analysis/empirical.py`
+`cdrseqgen.py` (trained checkpoints: scratch or registered pretrained MLM/AR/S2S backbones such as ESM-2 or fine-tuned IgLM), `iglm.py` and `igcraft.py` (frozen external models), `../analysis/empirical.py`
 (training-only reference, no model) and `retrieval.py` (flank-keyed training reference: no parameters, so the
 registry runs it in the main environment and the merge treats it as a reference pool rather than a generator). `igcraft.py` is the worked example for a generator that needs inputs the
 manifest does not carry: it takes IMGT flank regions from a table built once by `../manifest.py regions` (flanks
@@ -33,7 +33,7 @@ prompt from it (as `iglm.py` does) must mask the span at `infill_range` before t
 Declared conditioning is each record's `chain_token` and `species_token` and the task's `target_region`. `cdrseqgen.py`
 passes them (with the checkpoint's own region) to a span layout that reads them, IgLM's, and writes `prompt.conditioning`
 into each record; every other layout ignores them. A local arm must be a trained run directory with a `run_config.json`:
-scratch checkpoints of any method, or pretrained AR/S2S (a pretrained MLM run is not served).
+scratch or registered pretrained checkpoints of any method (MLM, AR, or S2S); pretrained arms pin their saved tokenizer/vocabulary assets beside weights, and MLM arms also pin their fitted length head.
 
 `blind_check.py` tests this rather than trusting it: it runs the adapter under identical seeds on the
 manifest, on the manifest again, and on a copy with different hidden fields, and compares the candidates.
@@ -41,7 +41,7 @@ It cannot see a lookup keyed on something it does not change (for example, match
 
 ## 3. What it writes
 
-One JSON object, rewritten atomically after each framework (`atomic_write_json`):
+One JSON object, rewritten atomically every `--checkpoint-every` records (default 25), on completion, and on `KeyboardInterrupt` (`atomic_write_json`):
 
 | Field | Requirement |
 |---|---|

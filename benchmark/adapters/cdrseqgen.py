@@ -161,7 +161,9 @@ class CDRSeqGenSampler:
         self.max_len = int(run_config["max_len"])
 
         self.backbone = resolve(run_config["model_type"])
-        self.tokenizer = self.backbone.build_tokenizer(run_config["model_type"])
+        if run_config["model_type"] != "scratch":
+            pretrained_input_files(checkpoint)
+        self.tokenizer = self.backbone.build_tokenizer(run_config["model_type"], str(checkpoint))
         self.model = self.backbone.load_pretrained_model(str(checkpoint))
         selected_device = (
             torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -540,6 +542,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+    parser.add_argument("--checkpoint-every", type=int, default=25,
+                        help="Flush partial output JSON every N newly generated records (default: 25).")
     parser.add_argument("--resume", action="store_true")
     return parser.parse_args()
 
@@ -549,6 +553,8 @@ def main() -> None:
     args.checkpoint = args.checkpoint.resolve()
     if args.num_samples <= 0:
         raise ValueError("--num-samples must be positive")
+    if args.checkpoint_every <= 0:
+        raise ValueError("--checkpoint-every must be positive")
     if args.temperature < 0:
         raise ValueError("--temperature must be non-negative")
     if args.temperature == 0 and args.num_samples != 1:
@@ -590,29 +596,38 @@ def main() -> None:
 
     completed = {record["example_id"] for record in payload["records"]}
     total = len(records)
-    for position, record in enumerate(records, start=1):
-        if record["example_id"] in completed:
-            print(f"[{position}/{total}] skip {record['example_id']} (already complete)")
-            continue
-        print(f"[{position}/{total}] sample {record['example_id']}", flush=True)
-        result = run_example(
-            record,
-            sampler,
-            num_samples=args.num_samples,
-            decoding=args.decoding,
-            temperature=args.temperature,
-            top_k=args.top_k,
-            top_p=args.top_p,
-            length_temperature=args.length_temperature,
-            base_seed=args.seed,
-        )
-        payload["records"].append(result)
-        atomic_write_json(args.output, payload)
-        print(
-            f"  retained={len(result['samples'])}/{args.num_samples} "
-            f"failures={len(result['failures'])} runtime={result['runtime_seconds']:.2f}s",
-            flush=True,
-        )
+    unsaved = 0
+    try:
+        for position, record in enumerate(records, start=1):
+            if record["example_id"] in completed:
+                print(f"[{position}/{total}] skip {record['example_id']} (already complete)")
+                continue
+            print(f"[{position}/{total}] sample {record['example_id']}", flush=True)
+            result = run_example(
+                record,
+                sampler,
+                num_samples=args.num_samples,
+                decoding=args.decoding,
+                temperature=args.temperature,
+                top_k=args.top_k,
+                top_p=args.top_p,
+                length_temperature=args.length_temperature,
+                base_seed=args.seed,
+            )
+            payload["records"].append(result)
+            unsaved += 1
+            if unsaved >= args.checkpoint_every:
+                atomic_write_json(args.output, payload)
+                unsaved = 0
+            print(
+                f"  retained={len(result['samples'])}/{args.num_samples} "
+                f"failures={len(result['failures'])} runtime={result['runtime_seconds']:.2f}s",
+                flush=True,
+            )
+    except KeyboardInterrupt:
+        if unsaved > 0:
+            atomic_write_json(args.output, payload)
+        raise
 
     payload["finished_at"] = datetime.now(timezone.utc).isoformat()
     failed_records = [r for r in payload["records"] if r.get("generation_failed")]

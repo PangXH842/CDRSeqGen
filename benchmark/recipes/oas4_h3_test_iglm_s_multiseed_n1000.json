@@ -1,0 +1,87 @@
+{
+  "name": "oas4_h3_test_iglm_s_multiseed_n1000",
+  "split": "test",
+  "expected_frameworks": {
+    "smoke": 5,
+    "full": 1000
+  },
+  "manifest": "benchmark/manifests/oas4_h3_test_length_free_n1000_v1.json",
+  "smoke_manifest": "benchmark/manifests/oas4_h3_test_length_free_smoke_v1.json",
+  "arms": [
+    {
+      "label": "iglm_s_lr3e-5_s43",
+      "method": "ar",
+      "training_seed": 43,
+      "checkpoint": "results/runs/20261126_171135_434603_iglm_s_multiseed/h3_OAS4_ar_IgLM-S_iglm_s_lr3e-5_s43"
+    },
+    {
+      "label": "iglm_s_lr3e-5_s44",
+      "method": "ar",
+      "training_seed": 44,
+      "checkpoint": "results/runs/20261126_171135_434603_iglm_s_multiseed/h3_OAS4_ar_IgLM-S_iglm_s_lr3e-5_s44"
+    },
+    {
+      "label": "iglm_s_random_lr3e-5_s42",
+      "method": "ar",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261105_125720_115839_iglm_controls/h3_OAS4_ar_iglm_s_random_init_iglm_s_random_lr3e-5"
+    },
+    {
+      "label": "iglm_s_random_lr3e-5_s43",
+      "method": "ar",
+      "training_seed": 43,
+      "checkpoint": "results/runs/20261126_171135_434603_iglm_s_multiseed/h3_OAS4_ar_iglm_s_random_init_iglm_s_random_lr3e-5_s43"
+    },
+    {
+      "label": "iglm_s_random_lr3e-5_s44",
+      "method": "ar",
+      "training_seed": 44,
+      "checkpoint": "results/runs/20261126_171135_434603_iglm_s_multiseed/h3_OAS4_ar_iglm_s_random_init_iglm_s_random_lr3e-5_s44"
+    },
+    {
+      "label": "iglm_s_random_lr1e-4_s42",
+      "method": "ar",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261105_125720_115839_iglm_controls/h3_OAS4_ar_iglm_s_random_init_iglm_s_random_lr1e-4"
+    },
+    {
+      "label": "iglm_s_random_lr1e-4_s43",
+      "method": "ar",
+      "training_seed": 43,
+      "checkpoint": "results/runs/20261126_171135_434603_iglm_s_multiseed/h3_OAS4_ar_iglm_s_random_init_iglm_s_random_lr1e-4_s43"
+    },
+    {
+      "label": "iglm_s_random_lr1e-4_s44",
+      "method": "ar",
+      "training_seed": 44,
+      "checkpoint": "results/runs/20261126_171135_434603_iglm_s_multiseed/h3_OAS4_ar_iglm_s_random_init_iglm_s_random_lr1e-4_s44"
+    },
+    {
+      "label": "ar_scratch_iglm_s_size_s42",
+      "method": "ar",
+      "training_seed": 42,
+      "checkpoint": "results/runs/20261105_125720_115839_iglm_controls/h3_OAS4_ar_scratch_ar_scratch_iglm_s_size_s42"
+    }
+  ],
+  "externals": [],
+  "sampling": {
+    "num_samples": 20,
+    "smoke_num_samples": 5,
+    "temperature": 1.0,
+    "top_k": 0,
+    "top_p": 0.9,
+    "length_temperature": 1.0,
+    "seed": 42,
+    "max_new_tokens": 97
+  },
+  "judge": {
+    "name": "Exscientia/IgBert",
+    "max_len": 384
+  },
+  "endpoint": "Framework-averaged native edit similarity; length, diversity, conditional recovery and judge scores are supporting.",
+  "limits": [
+    "Tier 1 held-out test evaluation completing the 3-seed (42-44) comparison of pretrained IgLM-S fine-tuning (s42 already scored in oas4_h3_test_final_n1000_full; s43-s44 added here) against same-architecture random-initialization controls (lr 3e-5 and 1e-4, seeds 42-44) and size-matched scratch AR (s42).",
+    "Evaluated on the exact same n=1,000 leakage-filtered test manifest and frozen heavy-only IgBert judge as oas4_h3_test_final_n1000.",
+    "Analyzed outside the 16-contrast seven-seed scratch primary family to isolate pretraining vs. architecture/capacity effects on held-out test frameworks."
+  ]
+}

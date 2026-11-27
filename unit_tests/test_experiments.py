@@ -274,14 +274,13 @@ class ArmsRecipeTests(unittest.TestCase):
                            [(0, 'failed', 'b/ar'), (0, 'completed', 'b/ar_2')])
         self.assertEqual(batch_arms(batch)[0]['checkpoint'], 'results/runs/b/ar_2')
 
-    def test_unfinished_and_pretrained_trials_stop_the_script_unless_waived(self):
+    def test_unfinished_trials_stop_the_script_unless_waived_and_skip_pretrained_filters_them(self):
         batch = make_batch(self.root / 'b', [('a_scratch_no_partner_s1', 'ar', 1, 'scratch'), ('c_esm2', 'mlm', 1, 'esm2'),
                                              ('d_scratch_no_partner_s2', 'ar', 2, 'scratch')],
                            [(0, 'completed', 'b/a'), (1, 'completed', 'b/c'), (2, 'running', 'b/d')])
-        with self.assertRaisesRegex(ValueError, 'pretrained mlm model'):    # pretrained AR/S2S are served now
-            batch_arms(batch)
         with self.assertRaisesRegex(ValueError, 'has not completed'):
-            batch_arms(batch, skip_pretrained=True)
+            batch_arms(batch)
+        self.assertEqual([a['label'] for a in batch_arms(batch, skip_incomplete=True)], ['a_s1', 'c_esm2'])
         self.assertEqual([a['label'] for a in batch_arms(batch, skip_pretrained=True, skip_incomplete=True)], ['a_s1'])
 
     def test_recipe_keeps_the_reference_protocol_and_rejects_duplicate_labels(self):

@@ -159,8 +159,9 @@ see the [test guide](../unit_tests/README.md). Tiny CPU checks do not establish
 published-checkpoint/GPU correctness; the real-checkpoint smoke/replay stage remains user-run.
 
 Benchmark integration has its own capability contract. The current benchmark runner
-serves scratch checkpoints for all three methods and pretrained AR/S2S; it rejects
-pretrained MLM arms at planning time. Verify that path separately before treating a new backbone as
+serves scratch and registered pretrained backbones across all three methods (MLM, AR, and S2S),
+pinning saved tokenizer/vocabulary assets beside pretrained weights (and the fitted length head
+for MLM). Verify that path separately before treating a new backbone as
 a comparable benchmark arm. Benchmark-only externals follow the
 [adapter guide](../benchmark/adapters/README.md) and
 [external registry](../benchmark/adapters/registry.py), potentially in their own environment.

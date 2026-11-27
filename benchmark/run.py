@@ -36,9 +36,10 @@ from benchmark.adapters.registry import (
     DEFAULT_PACKAGES, EXTERNALS, RESERVED_LABELS, default_python, plan_externals, recipe_externals)
 
 
-# Methods whose adapter path is backbone-generic, so a pretrained backbone can be a local arm. The MLM path
-# (decoder choice, length head) is validated for scratch checkpoints only.
+# EOS-terminating methods use EOSSampler; all three registered methods serve both scratch and
+# pretrained backbones (pretrained MLM also pins its saved tokenizer and fitted length head).
 EOS_METHODS = ('ar', 's2s')
+PRETRAINED_METHODS = ('mlm', 'ar', 's2s')
 # A pretrained model's vocabulary and span layout are saved beside its weights (a scratch model's are code).
 SAVED_VOCAB_FILES = TOKENIZER_ASSETS
 
@@ -77,14 +78,15 @@ def freeze_external_inputs(entry, frozen_files):
 def arm_paths(arm, config, checkpoint, config_path):
     """Files that identify one local arm; raise if the benchmark cannot serve it.
 
-    Scratch checkpoints of every method are served. A pretrained backbone is served for AR and S2S only,
-    and its saved vocabulary and layout files are pinned with its weights.
+    Scratch and registered pretrained backbones are served for MLM, AR, and S2S;
+    pretrained checkpoints pin their saved vocabulary and layout files beside their weights,
+    and MLM checkpoints also pin their fitted length head.
     """
     paths = [checkpoint / 'model.safetensors', checkpoint / 'config.json', config_path]
     if config['model_type'] != 'scratch':
-        if arm['method'] not in EOS_METHODS:
+        if arm['method'] not in PRETRAINED_METHODS:
             raise ValueError(f"{arm['label']}: pretrained {arm['method']} checkpoints are not served by the "
-                             f"benchmark adapter (scratch MLM, or AR/S2S with any registered backbone)")
+                             f"benchmark adapter (supported pretrained methods: {PRETRAINED_METHODS})")
         from cdrseqgen.methods.registry import checkpoint_method
         checkpoint_method(config).module('backbones').resolve(config['model_type'])  # an unknown name fails here
         paths.extend(pretrained_input_files(checkpoint))
@@ -275,7 +277,7 @@ def execute(plan, output, gpu, resume=False):
 def batch_arms(batch, skip_pretrained=False, skip_incomplete=False):
     """One arm per completed eligible trial of a training batch, in plan order.
 
-    Completed scratch trials and completed pretrained AR/S2S trials qualify; pretrained MLM and
+    Completed scratch trials and completed pretrained MLM/AR/S2S trials qualify;
     untrained (`do_train` false) trials do not.
     """
     batch = Path(batch).resolve()
@@ -288,9 +290,9 @@ def batch_arms(batch, skip_pretrained=False, skip_incomplete=False):
         pretrained = config.get('model_type') != 'scratch'
         if pretrained and skip_pretrained:
             continue
-        if pretrained and config['method'] not in EOS_METHODS:
+        if pretrained and config['method'] not in PRETRAINED_METHODS:
             raise ValueError(f"{trial['suffix']} is a pretrained {config['method']} model; the benchmark adapter serves "
-                             'scratch checkpoints of every method and pretrained AR/S2S')
+                             f"pretrained checkpoints for {PRETRAINED_METHODS}")
         if not config.get('do_train', True):
             raise ValueError(f"{trial['suffix']} was not trained (do_train false) and keeps no checkpoint to benchmark; "
                              'pass only the batches that trained')

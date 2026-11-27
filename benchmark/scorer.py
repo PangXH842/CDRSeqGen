@@ -230,20 +230,24 @@ def aggregate_records(records: list[dict[str, Any]]) -> dict[str, Any]:
 class Judge:
     """Independent masked-LM judge applied identically to every adapter's candidates."""
 
-    def __init__(self, model_name: str, model_path: str | None, device: str, max_len: int):
+    def __init__(self, model_name: str, model_path: str | None, device: str, max_len: int,
+                 batch_size: int = 256):
         import torch
 
         from cdrseqgen.datasets.dataset_mlm import assemble_masked_input, inject_context
         from cdrseqgen.methods.mlm.backbones import resolve
-        from cdrseqgen.methods.mlm.sampling import pseudo_log_likelihood
+        from cdrseqgen.methods.mlm.sampling import pseudo_log_likelihood, pseudo_log_likelihood_batch
 
         self.torch = torch
         self.inject_context = inject_context
         self.assemble_masked_input = assemble_masked_input
         self.pseudo_log_likelihood = pseudo_log_likelihood
+        self.pseudo_log_likelihood_batch = pseudo_log_likelihood_batch
         self.model_name = model_name
         self.model_source = model_path or model_name
         self.max_len = max_len
+        self.batch_size = batch_size
+        self._cache: dict[tuple[str, str], float] = {}
         self.backbone = resolve(model_name)
         self.tokenizer = self.backbone.build_tokenizer(model_name)
         self.model = self.backbone.load_pretrained_model(self.model_source)
@@ -254,15 +258,13 @@ class Judge:
         self.model.to(self.device)
         self.model.eval()
 
-    def prepare(self, record: dict[str, Any], target_len: int | None = None) -> tuple[list[int], list[int]]:
-        pt1_ids = self.tokenizer.encode(record["pt1"])
-        pt2_ids = self.tokenizer.encode(record["pt2"])
-        target_len = record["native_length"] if target_len is None else target_len
-        pt1_ids, pt2_ids = self.inject_context(
-            self.tokenizer, pt1_ids, pt2_ids, target_len, max_len=self.max_len
+    def _prepare_encoded(self, record: dict[str, Any], pt1_ids: list[int], pt2_ids: list[int],
+                         target_len: int) -> tuple[list[int], list[int]]:
+        j_pt1, j_pt2 = self.inject_context(
+            self.tokenizer, list(pt1_ids), list(pt2_ids), target_len, max_len=self.max_len
         )
         input_ids, mask_start = self.assemble_masked_input(
-            self.tokenizer, pt1_ids, pt2_ids, target_len
+            self.tokenizer, j_pt1, j_pt2, target_len
         )
         if len(input_ids) > self.max_len:
             raise ValueError(
@@ -270,27 +272,52 @@ class Judge:
             )
         return input_ids, list(range(mask_start, mask_start + target_len))
 
+    def prepare(self, record: dict[str, Any], target_len: int | None = None) -> tuple[list[int], list[int]]:
+        pt1_ids = self.tokenizer.encode(record["pt1"])
+        pt2_ids = self.tokenizer.encode(record["pt2"])
+        target_len = record["native_length"] if target_len is None else target_len
+        return self._prepare_encoded(record, pt1_ids, pt2_ids, target_len)
+
     def score(self, record: dict[str, Any], samples: list[str]) -> list[float]:
-        perplexities = []
+        if not samples:
+            return []
+        example_id = record["example_id"]
+        uncached: list[str] = []
+        seen_uncached: set[str] = set()
         for sample in samples:
-            input_ids, mask_positions = self.prepare(record, len(sample))
-            token_ids = self.tokenizer.encode(sample)
-            if len(token_ids) != len(mask_positions):
-                raise ValueError(
-                    f"judge tokenizer maps {record['example_id']} sample to {len(token_ids)} "
-                    f"tokens, expected {len(mask_positions)}"
-                )
-            _, perplexity = self.pseudo_log_likelihood(
+            if (example_id, sample) not in self._cache and sample not in seen_uncached:
+                seen_uncached.add(sample)
+                uncached.append(sample)
+
+        if uncached:
+            pt1_ids = self.tokenizer.encode(record["pt1"])
+            pt2_ids = self.tokenizer.encode(record["pt2"])
+            prepared_by_len: dict[int, tuple[list[int], list[int]]] = {}
+            batch_items = []
+            for sample in uncached:
+                length = len(sample)
+                if length not in prepared_by_len:
+                    prepared_by_len[length] = self._prepare_encoded(record, pt1_ids, pt2_ids, length)
+                input_ids, mask_positions = prepared_by_len[length]
+                token_ids = self.tokenizer.encode(sample)
+                if len(token_ids) != len(mask_positions):
+                    raise ValueError(
+                        f"judge tokenizer maps {example_id} sample to {len(token_ids)} "
+                        f"tokens, expected {len(mask_positions)}"
+                    )
+                batch_items.append((input_ids, mask_positions, token_ids))
+            scored = self.pseudo_log_likelihood_batch(
                 self.model,
-                input_ids,
-                mask_positions,
-                token_ids,
+                batch_items,
                 self.tokenizer.special_ids,
                 self.tokenizer.mask_id,
                 self.device,
+                batch_size=self.batch_size,
             )
-            perplexities.append(perplexity)
-        return perplexities
+            for sample, (_, perplexity) in zip(uncached, scored):
+                self._cache[(example_id, sample)] = perplexity
+
+        return [self._cache[(example_id, sample)] for sample in samples]
 
     def provenance(self) -> dict[str, Any]:
         config = getattr(self.model, "config", None)

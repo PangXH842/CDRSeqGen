@@ -59,22 +59,11 @@ Supporting guides live in [docs/](docs/README.md).
 
 ## Current handoff
 
-1. **Continue the manual code review:** finish the shared training helpers (`logging`, `run_setup`,
-   `callbacks`, `losses` and the AR/S2S decoding module), then the AR and S2S evaluation,
-   generation and sampling blocks and the remaining shared modules.
-2. **Develop the manuscript and poster** from the completed validation evidence.
-   The [paper outline](../paper/PAPER_OUTLINE.md) maps claims to evidence; the
-   [canonical abstract](../paper/manuscript/sections/0_abstract.tex) is shared by both LaTeX entry points.
-   The abstract is accepted for an in-person poster; editable
-   [two-column](../paper/iaim2026/poster/latex_templates/poster_two_column.tex) and [T-shaped](../paper/iaim2026/poster/latex_templates/poster_tshape.tex)
-   templates are archived under `../paper/iaim2026/poster/`. A0 portrait is confirmed; the assigned Poster ID (`DR04`) and presentation
-   day (4 or 5 December) apply.
-3. **Freeze the final held-out protocol** before inference: cohort, systems, checkpoints,
-   decoding, length support, primary comparisons and reporting. The audit-eligible
-   test pool is not yet a frozen evaluation manifest.
+1. **Run Tier 1 held-out `n = 1,000` follow-up GPU experiments** via `scripts/run_tier1_experiments.sh` (`MLM ESM-2` 2 seeds, 3-seed `IgLM-S` vs. same-arch random-init controls, `IgCraft T = 1.0`, and held-out `context_dropout` confirmation across 20 checkpoints).
+2. **Present iAIM 2026 Poster `DR04`** (Fri 4 Dec 2026, 12:54–13:04; pitch & Q&A master sheet at `../paper/iaim2026/poster/QA_CHEATSHEET.md` / `.docx`) and fold Tier 1 results into the 9-page two-column manuscript (`../paper/manuscript/main.pdf`, standalone `supplement.pdf`).
+3. **Continue manual code review** per [Operation Reclamation](docs/RECLAMATION.md) (new optimization blocks in already-reviewed `sampling.py` files are tagged `[REVISED 2026-11-27]`).
 
-Completed validation batches need no completion rerun. Research experiments remain
-user-run. See [project status](docs/PROJECT_STATUS.md) for the detailed handoff.
+All experiments remain user-run. See [project status](docs/PROJECT_STATUS.md) and [docs/CHANGELOG.md](docs/CHANGELOG.md) for detailed logs.
 
 ## ⚙️ Environment Setup
 
@@ -173,23 +162,18 @@ context placement, backbone conventions and extension points. The
 
 ## 📊 Findings
 
-The current matched benchmark uses **150 OAS4 validation frameworks × 20 attempts**
-per arm, with heavy-chain flanks and no native H3 length or partner-chain context.
-The primary endpoint is normalized edit similarity to the native loop.
+The matched length-free CDR-H3 benchmark compares 21 seven-seed compact scratch models (`0.80–0.93M`), adapted checkpoints, frozen external baselines (`IgLM`, `IgCraft`), and training-only references under heavy-chain flanks and a frozen heavy-only IgBert judge (**20 attempts/framework**, no native length or partner chain):
 
-| System/reference | Edit similarity |
-|---|---:|
-| MLM / AR / S2S, seven-seed means | 0.3918 / 0.3868 / 0.3882 |
-| IgLM / IgCraft | 0.3880 / 0.3769 |
-| Primary flank retrieval | 0.3589 |
-| Unconditional training-H3 sampling | 0.2817 |
+| System / reference | Val edit sim. (`n = 150`) | Held-out test edit sim. (`n = 1,000`, 999 H3 clusters) | Major-liability-free (`n = 1,000`) |
+|---|---:|---:|---:|
+| MLM / S2S / AR (scratch, 7 seeds) | 0.3918 / 0.3882 / 0.3868 | **0.3938 / 0.3935 / 0.3927** | 78.7% / 91.3% / 91.2% |
+| IgLM-S fine-tuned (`lr 3e-5`, 1 seed) | 0.3917 | **0.3946** *(PPL 2.802)* | 90.7% |
+| S2S ESM-2 35M (no partner, 2 seeds) | — | **0.3925** *(PPL 3.340)* | 91.1% |
+| IgLM (zero-shot) / IgCraft (`T = 0.1`) | 0.3880 / 0.3769 | **0.3918 / 0.3854** | 90.4% / 74.4% |
+| Primary flank retrieval (`FR3/FR4`) | 0.3589 | **0.3652** *(74–80% of gain)* | 89.3% |
+| Unconditional training-H3 sampling | 0.2817 | **0.2848** *(PPL 5.049)* | *(Native H3: 90.0%)* |
 
-The learned systems exceed primary retrieval in the adjusted comparisons; adjusted
-intervals do not resolve differences among the three scratch method families.
-Same-seed repeats, larger-capacity runs, context/dropout studies and ten no-partner
-controls are also complete. These studies have separate input/judge settings and
-overlapping source runs. See the [evidence inventory](docs/RESULTS.md#completed-validation-evidence)
-and [expanded analysis](docs/FINDINGS.md#17-expanded-validation-evidence-seeds-retrieval-and-capacity).
+On the confirmatory `n = 1,000` held-out test set (560,000 valid draws across 28 primary arms + 40,000 S2S ESM-2 draws), all learned systems beat primary retrieval, and MLM, S2S, AR, and IgLM all significantly outperform IgCraft under 16-contrast family-adjusted crossed CIs, while scratch pairwise and scratch-vs-IgLM family intervals span zero. Developability profiling (`benchmark/analysis/developability.py`) reveals that independent MLM emits 7.70% unpaired cysteines (vs. 0.18–0.34% for sequential AR/S2S/IgLM and 1.90% native), while `context_dropout = 0.5` rescues bidirectional partner-context lock-in across architectures. See [docs/RESULTS.md](docs/RESULTS.md) and [docs/FINDINGS.md](docs/FINDINGS.md).
 
 ## ⚠️ Current Issues
 
@@ -301,6 +285,7 @@ The dated development history is retained below. Planning lives in
 <!-- MANUAL PROTECTION ZONE BEGINS -->
 ### Changelog
 <!-- AI ACCESS ZONE BEGINS -->
+- **2026-11-27** -- Completed confirmatory `n = 1,000` held-out OAS4 test benchmark (560k valid draws + 4 add-ons), renamed/optimized `cdrseqgen/visualization/` with example PNGs, wired pretrained MLM into `benchmark/`, added batched/cached IgBert judging, KV-cached AR decoding, `--checkpoint-every 25` flushing, `cdrseqgen/eval/developability.py`, `LICENSE`, `pyproject.toml`, and prepared Tier 1 held-out recipes (981/981 tests pass). Details in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 - **2026-11-18** -- Docstring pass across about 35 modules (redundant Notes bullets removed, `Called:` lists for `artifacts.py` and `registry.py`); one run-config loader instead of two (`read_run_config`; the benchmark adapter keeps its own strict `load_run_config`); unit tests merged from 81 files into 23 topic files with all 964 tests preserved (see [unit_tests/README.md](unit_tests/README.md)). Details in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 - **2026-11-18** -- Ran and audited the selected-IgLM full-stage benchmark (6,000 valid, judge-scored candidates; edit similarity 0.3917 IgLM-S, 0.3889 IgLM) and generation from the three saved IgBert diagnostic checkpoints (0.3941 / 0.3910 / 0.3892); refreshed stale status notes. Details in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 - **2026-11-06** -- Audited both completed larger-IgLM trials (6,000 valid, judge-scored candidates); prepared the selected-checkpoint benchmark smoke. Recorded poster acceptance.

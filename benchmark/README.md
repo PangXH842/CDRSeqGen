@@ -31,6 +31,7 @@ All adapters consume the same frozen, model-independent manifest of antibody str
 | | [`analysis/extend.py`](analysis/extend.py) | Merge newly scored external batches into a finished comparison |
 | | [`analysis/variability.py`](analysis/variability.py) | Seven-seed spread, same-seed determinism, capacity scan, sensitivity, and core-endpoint analysis |
 | | [`analysis/leakage.py`](analysis/leakage.py) | Local same-length split-overlap and holdout-eligibility audit (CPU-only) |
+| | [`analysis/developability.py`](analysis/developability.py) | Pure-Python CDR-H3 sequence developability and chemical liability profiler (CPU-only) |
 | | [`analysis/plot_comparison.py`](analysis/plot_comparison.py) | Four-panel matched recovery, length, position, and diversity dashboard |
 | **Inputs & notes** | `manifests/` | Frozen manifests + `.sha256` sidecars: the active OAS4 ones and the earlier one-donor pilot manifests (`oas_h3_*_v1`; the paper's evidence exporter reads the validation one by this path) |
 | | `recipes/` | Matched benchmark recipes, protocols, and `generated/` arm recipes |
@@ -83,6 +84,7 @@ Plans validate inputs, hashes, and environments without loading models. `smoke`,
 - **External extensions:** IgCraft ([recipe](recipes/oas4_h3_igcraft.md)) and flank-keyed retrieval references ([recipe](recipes/oas4_h3_retrieval.md)) are complete and audited.
 - **Variability & capacity:** [`analysis/variability.py`](analysis/variability.py) ([protocol](recipes/oas4_h3_variability.md)) aggregates the seven-seed runs, same-seed repeats, capacity scan, and IgCraft temperature sensitivity.
 - **Local split-overlap audit** ([recipe](recipes/oas4_h3_leakage.md), [audit](../results/reviews/20261008-leakage-audit.md)): CPU-only exhaustive same-length H3 search flags 3/150 validation benchmark frameworks and retains 14,818/15,273 test records (97.02%). External pretraining exposure remains unverified ([`notes/pretraining_overlap.md`](notes/pretraining_overlap.md)).
+- **Confirmatory held-out test (`n = 1,000`) & Tier 1 follow-ups:** Primary 28-arm held-out test (`oas4_h3_test_final_n1000.json`, 560,000 valid draws) and 2-seed `S2S ESM-2 35M` add-on (`oas4_h3_test_s2s_esm2_n1000.json`) are complete, with CPU developability profiling in `developability_n1000.md`. Tier 1 follow-up recipes (`oas4_h3_test_{mlm_esm2,iglm_s_multiseed,igcraft_t1}_n1000.json`) and held-out `context_dropout` confirmation are coordinated via `scripts/run_tier1_experiments.sh`.
 
 ---
 
