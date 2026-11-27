@@ -14,11 +14,10 @@ axis a zero bar and an unmeasured bar look identical and mean opposite things.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
-
-import matplotlib.pyplot as plt
+from dataclasses import dataclass
 
 from cdrseqgen.visualization import plot_style
+import matplotlib.pyplot as plt
 
 
 @dataclass

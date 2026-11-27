@@ -212,7 +212,7 @@ CDRSeqGen/
 │   └── {h1,h3,h3_lc,l3_hc,h3_ag}.json # from VALIDATION, so repeated inspection is free;
 │                               #   stratified by H3 length, one case deliberately without a
 │                               #   native, each carrying its provenance and intent
-├── misc/
+├── docs/assets/
 │   └── CDRSeqGen260814.drawio.png  # Project workflow diagram
 ├── train.py                    # Entrypoint — dispatches to mlm, ar, or s2s
 │                               #   Dispatches on the config's "method" key; each method's own

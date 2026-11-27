@@ -17,7 +17,7 @@ the linked recipes and results index determine what is current.
 
 ## Architecture Overview
 
-![CDRSeqGen data, training, evaluation, analysis, and benchmark workflow](../misc/CDRSeqGen260814.drawio.png)
+![CDRSeqGen data, training, evaluation, analysis, and benchmark workflow](assets/CDRSeqGen260814.drawio.png)
 
 > The diagram is the 2026-08-14 snapshot. It predates the `cdrseqgen/methods/mlm/` consolidation and
 > the `generate.py` / `evaluate.py` / `fit_mlm_length.py` renames; a refreshed diagram is pending.

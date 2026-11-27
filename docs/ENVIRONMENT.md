@@ -24,7 +24,8 @@ added dependencies were verified on the destination server on 2026-10-06.
 Install Conda and put it on PATH, then run from the checkout:
 
 ```bash
-bash env.sh             # both environments
+bash env.sh             # all environments discovered from requirements/*.txt
+bash env.sh list        # list available requirement profiles
 # Or: bash env.sh cdrprj / bash env.sh iglm
 bash scripts/verify_env.sh
 conda run --no-capture-output -n cdrprj bash scripts/unit_tests.sh

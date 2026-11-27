@@ -26,6 +26,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.ticker import PercentFormatter
 
+plt.rcParams.setdefault("pdf.fonttype", 42)
+plt.rcParams.setdefault("ps.fonttype", 42)
+
 # Muted and distinguishable in greyscale print. Extended past the benchmark's five so a sweep with
 # several settings does not wrap onto a colour it has already used.
 PALETTE = ("#2878B5", "#E07A24", "#3A923A", "#8A60A8", "#C44E52",
@@ -112,12 +115,22 @@ def empty_panel(ax, message):
     return ax
 
 
-def save_figure(figure, save_dir, filename, *, dpi=DEFAULT_DPI, close=True):
-    """Write a figure to `save_dir/filename.png`, creating the directory, and report the path."""
+def save_figure(figure, save_dir, filename, *, dpi=DEFAULT_DPI, close=True, formats=("png",)):
+    """Write a figure to `save_dir/filename.<ext>` (default PNG), creating the directory.
+
+    Returns the first written path (preserving the PNG path for callers expecting a single string).
+    """
     os.makedirs(save_dir, exist_ok=True)
-    output = os.path.join(save_dir, f"{filename}.png")
-    figure.savefig(output, dpi=dpi, bbox_inches="tight")
+    written = []
+    for ext in formats:
+        ext = ext.lstrip(".")
+        output = os.path.join(save_dir, f"{filename}.{ext}")
+        kwargs = {"bbox_inches": "tight"}
+        if ext != "pdf":
+            kwargs["dpi"] = dpi
+        figure.savefig(output, **kwargs)
+        written.append(output)
     if close:
         plt.close(figure)
-    print(f"✅ Plot successfully saved as: {output}")
-    return output
+    print(f"✅ Plot successfully saved as: {', '.join(written)}")
+    return written[0]

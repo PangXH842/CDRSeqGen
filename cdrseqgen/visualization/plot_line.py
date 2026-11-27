@@ -27,9 +27,9 @@ import argparse
 from dataclasses import dataclass
 
 import pandas as pd
+from cdrseqgen.visualization import plot_style
 import matplotlib.pyplot as plt
 
-from cdrseqgen.visualization import plot_style
 from cdrseqgen import artifacts
 
 
@@ -132,7 +132,7 @@ if __name__ == "__main__":
     parser.add_argument("--ylabel", type=str, default=None, help="Y-axis label. Defaults to the metric name, or 'Value' when metrics are mixed.")
     parser.add_argument("--title", type=str, default=None, help="Optional custom title for the plot")
     parser.add_argument("--filename", type=str, default=None, help="Optional custom filename for the saved plot (without extension)")
-    parser.add_argument("--save_dir", type=str, default="results/figures/training", help="Directory to save the plot (created if missing). Defaults to results/pngs.")
+    parser.add_argument("--save_dir", type=str, default="results/figures/training", help="Directory to save the plot (created if missing). Defaults to results/figures/training.")
     args = parser.parse_args()
 
     # One (folder, metric, label) line per --run; a run's METRIC falls back to the global --metric

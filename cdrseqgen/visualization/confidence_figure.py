@@ -26,15 +26,14 @@ import json
 import os
 import statistics
 
-import matplotlib
-matplotlib.use("Agg")
+from cdrseqgen.visualization import plot_style
 import matplotlib.pyplot as plt
 
 from cdrseqgen.eval.metrics import spearman
 
 SCORES = (
-    ("self_perplexity", "self-perplexity", "#1f77b4"),
-    ("judge_perplexity", "judge perplexity", "#ff7f0e"),
+    ("self_perplexity", "self-perplexity", plot_style.color(0)),
+    ("judge_perplexity", "judge perplexity", plot_style.color(1)),
 )
 
 
@@ -50,18 +49,28 @@ def selection_curve(records, score_key, max_k):
     candidates contribute all of theirs rather than being dropped, which keeps the framework
     population identical across k.
     """
-    curve = []
-    for k in range(1, max_k + 1):
-        per_framework = []
-        for record in records:
-            usable = [c for c in _usable(record) if c.get(score_key) is not None]
-            if not usable:
-                continue
-            ordered = sorted(usable, key=lambda c: c[score_key])
-            top = ordered[: min(k, len(ordered))]
-            per_framework.append(statistics.mean(c["recovery"] for c in top))
-        curve.append(statistics.mean(per_framework) if per_framework else None)
-    return curve
+    if max_k <= 0:
+        return []
+    # Sort each framework once and precompute cumulative recovery sums for O(max_k * N) lookup.
+    prefix_means = []
+    for record in records:
+        usable = [c for c in _usable(record) if c.get(score_key) is not None]
+        if not usable:
+            continue
+        ordered = sorted(usable, key=lambda c: c[score_key])
+        running = 0.0
+        means = []
+        for idx, cand in enumerate(ordered, start=1):
+            running += cand["recovery"]
+            means.append(running / idx)
+        prefix_means.append(means)
+
+    if not prefix_means:
+        return [None] * max_k
+    return [
+        statistics.mean(means[min(k, len(means)) - 1] for means in prefix_means)
+        for k in range(1, max_k + 1)
+    ]
 
 
 def baseline_recovery(records):
@@ -111,16 +120,24 @@ def build_figure(datasets, max_k):
                         label=f"{name}  ρ̄={statistics.mean(values):+.3f}")
             ax_rho.axvline(statistics.mean(values), color=colour, lw=2)
 
-    ax_sel.set_xlabel("k — candidates kept, most confident first")
-    ax_sel.set_ylabel("Mean recovery of the kept candidates")
-    ax_sel.set_title("A. Does selecting on confidence beat a random draw?")
-    ax_sel.grid(alpha=.3, ls="--"); ax_sel.legend(fontsize=9)
+    plot_style.style_axes(
+        ax_sel,
+        title="A. Does selecting on confidence beat a random draw?",
+        xlabel="k — candidates kept, most confident first",
+        ylabel="Mean recovery of the kept candidates",
+        legend=True,
+        legend_fontsize=9,
+    )
 
     ax_rho.axvline(0, color="k", lw=1)
-    ax_rho.set_xlabel("Spearman ρ (confidence vs recovery), one per framework")
-    ax_rho.set_ylabel("Frameworks")
-    ax_rho.set_title("B. …and how consistently?")
-    ax_rho.grid(alpha=.3, ls="--"); ax_rho.legend(fontsize=9)
+    plot_style.style_axes(
+        ax_rho,
+        title="B. …and how consistently?",
+        xlabel="Spearman ρ (confidence vs recovery), one per framework",
+        ylabel="Frameworks",
+        legend=True,
+        legend_fontsize=9,
+    )
     fig.tight_layout()
     return fig
 
@@ -142,7 +159,7 @@ def save_run_figure(records, out_path, *, label=None, max_k=20):
         return None
     figure = build_figure([(label or "run", records, "-")], max_k)
     os.makedirs(os.path.dirname(os.path.abspath(out_path)) or ".", exist_ok=True)
-    figure.savefig(out_path, dpi=170)
+    figure.savefig(out_path, dpi=plot_style.DEFAULT_DPI, bbox_inches="tight")
     plt.close(figure)
     return out_path
 
@@ -164,7 +181,8 @@ def main():
 
     datasets = []
     for path, label, dash in zip(args.eval, labels, ["-", "--", "-.", ":"] * 4):
-        payload = json.load(open(path))
+        with open(path) as handle:
+            payload = json.load(handle)
         records = [r for r in payload.get("records", []) if r.get("candidates")]
         if not records:
             raise SystemExit(
@@ -174,10 +192,7 @@ def main():
         datasets.append((label, records, dash))
 
     fig = build_figure(datasets, args.max_k)
-    os.makedirs(args.save_dir, exist_ok=True)
-    out = os.path.join(args.save_dir, f"{args.filename}.png")
-    fig.savefig(out, dpi=170)
-    plt.close(fig)
+    plot_style.save_figure(fig, args.save_dir, args.filename, dpi=plot_style.DEFAULT_DPI)
     print(f"✅ Plot successfully saved as: {out}")
 
     for label, records, _ in datasets:

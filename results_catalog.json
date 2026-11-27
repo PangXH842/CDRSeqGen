@@ -83,6 +83,36 @@
     "mlm_no_partner_controls": "results/runs/20261007_144639_381443_mlm_no_partner_controls",
     "mlm_dropout_screen": "results/runs/20261007_163535_226387_mlm_dropout_screen"
   },
+  "heldout_test_n1000": {
+    "oas4_h3_test_final_n1000_full": "results/benchmark/20261124_181422_091012_oas4_h3_test_final_n1000_full",
+    "oas4_h3_test_s2s_esm2_n1000_full": "results/benchmark/20261126_155819_938596_oas4_h3_test_s2s_esm2_n1000_full",
+    "oas4_h3_test_final_smoke": "results/benchmark/20261124_175706_522842_oas4_h3_test_final_smoke"
+  },
+  "validation_benchmark_expanded": {
+    "oas4_igcraft_20261009": "results/benchmark/oas4_h3_igcraft_20261009",
+    "oas4_igcraft_extension": "results/benchmark/20261009_183032_oas4_h3_igcraft_20261009_extension",
+    "oas4_retrieval_20261012": "results/benchmark/oas4_h3_retrieval_20261012",
+    "oas4_retrieval_extension": "results/benchmark/20261012_143807_oas4_h3_retrieval_20261012_extension",
+    "oas4_variability_20261012": "results/benchmark/20261012_143836_oas4_h3_variability",
+    "oas4_leakage_audit_20261008": "results/benchmark/oas4_h3_leakage_20261008"
+  },
+  "stability_capacity_sampler": {
+    "weekend_seeds_benchmark": "results/benchmark/20261009_weekend_seeds",
+    "weekend_repeats_benchmark": "results/benchmark/20261009_weekend_repeats",
+    "weekend_capacity_benchmark": "results/benchmark/20261009_weekend_capacity",
+    "weekend_igcraft_t1_benchmark": "results/benchmark/20261009_weekend_igcraft_t1",
+    "weekend_seeds_mlm": "results/runs/20261009_weekend_seeds_mlm",
+    "weekend_seeds_ar": "results/runs/20261009_weekend_seeds_ar",
+    "weekend_seeds_s2s": "results/runs/20261009_weekend_seeds_s2s"
+  },
+  "iglm_adaptation": {
+    "iglm_zeroshot": "results/runs/20261102_185718_730019_iglm_zeroshot",
+    "iglm_s_finetune": "results/runs/20261103_165217_376850_iglm_s_finetune",
+    "iglm_l_finetune": "results/runs/20261105_191920_847836_iglm_l_finetune",
+    "iglm_controls_s42": "results/runs/20261105_125720_115839_iglm_controls",
+    "iglm_s_multiseed_s43_s44": "results/runs/20261126_171135_434603_iglm_s_multiseed",
+    "iglm_selected_benchmark": "results/benchmark/20261117_181112_729547_iglm_selected_20261106_full"
+  },
   "light_chain": {
     "historical_early_matrix": "results/runs/20260724_211745",
     "historical_oas_sd2_matrix": "results/runs/20260729_202635",
