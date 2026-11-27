@@ -1,15 +1,16 @@
-"""Grouped bar charts: several series compared across the same categories.
+"""Grouped bar charts for comparing multiple series across shared categories.
 
-  * BarSeries        -- one series' heights across every category, with optional error bars
-  * draw_grouped_bars -- render onto an axes somebody else owns (the composable entry point)
-  * plot_grouped_bars -- create a figure, draw, save (standalone use)
+Types & functions:
+  * BarSeries         -- one series' bar heights across categories, with optional error bars.
+  * draw_grouped_bars -- render grouped bars onto an existing axes (composable entry point).
+  * plot_grouped_bars -- create a standalone figure, render grouped bars, and save as PNG.
 
-The shape this exists for is "N settings x M metrics": objectives against core@L/anchor@L, models
-against a recovery decomposition, runs against length buckets. Each of those was previously bar code
-inlined into whichever figure needed it.
-
-A missing value is passed as None and is skipped rather than drawn as a zero, because on a recovery
-axis a zero bar and an unmeasured bar look identical and mean opposite things.
+Notes:
+  * Missing (``None`` or non-finite) values are skipped rather than plotted as zero, so unmeasured
+    categories are never confused with zero recovery.
+  * Series with no finite values reserve no horizontal slot while remaining series keep their
+    original palette index for stable cross-chart colouring.
+  * Zero or missing errors omit error bars rather than drawing misleading zero-length caps.
 """
 from __future__ import annotations
 
@@ -19,6 +20,8 @@ from dataclasses import dataclass
 from cdrseqgen.visualization import plot_style
 import matplotlib.pyplot as plt
 
+
+# --- Data Series ---------------------------------------------------------------------------------
 
 @dataclass
 class BarSeries:
@@ -39,6 +42,8 @@ class BarSeries:
 def _finite(value):
     return isinstance(value, (int, float)) and math.isfinite(value)
 
+
+# --- Composable Axes Renderer (used by multi-panel figures) --------------------------------------
 
 def draw_grouped_bars(ax, categories, series, *, value_labels=True, value_format="{:.2f}",
                       color_offset=0, bar_span=0.8):
@@ -97,6 +102,8 @@ def draw_grouped_bars(ax, categories, series, *, value_labels=True, value_format
     ax.set_xticklabels(categories)
     return drew
 
+
+# --- Standalone Figure Wrapper (save_dir/filename.png) -------------------------------------------
 
 def plot_grouped_bars(categories, series, *, title=None, ylabel=None, percent_axis=None,
                       save_dir=".", filename="bars", figsize=(9, 6), dpi=300):

@@ -1,23 +1,25 @@
-"""Line charts, and the training-curve reader that is their commonest caller.
+"""Line charts and epoch-metric CSV curve plotter.
 
-  * LineSeries        -- one line: x, y, a label, and an optional band around it
-  * draw_lines        -- render lines onto an axes somebody else owns (the composable entry point)
-  * plot_epoch_curves -- read epoch_metrics.csv files and draw them as a standalone PNG
-  * slugify           -- filename-safe version of a title
+Usage:
+    python -m cdrseqgen.visualization.plot_line --run scratch ./run_a --run esm2 ./run_b
+    python -m cdrseqgen.visualization.plot_line \\
+        --run whole ./run_a eval_accuracy \\
+        --run core ./run_a eval_core_accuracy \\
+        --run anchor ./run_a eval_anchor_accuracy
 
-`plot_epoch_curves` covers both comparison modes, because every line is the same triple
-(run_dir, column, legend_label):
-  * one metric across many runs   -- [(run_a, metric, "A"), (run_b, metric, "B"), ...]
-  * many metrics from one run     -- [(run, "eval_accuracy", "whole"), (run, "eval_core_accuracy",
-                                      "core"), ...]  <- the whole/core/anchor breakdown
+Types & functions:
+  * LineSeries        -- one line's (x, y) series, label, and optional shaded (lower, upper) band.
+  * draw_lines        -- render lines onto an existing axes (composable entry point).
+  * read_epoch_series -- convert ``(run_dir, column, label)`` triples from ``epoch_metrics.csv``
+                         into ``LineSeries`` objects.
+  * plot_epoch_curves -- draw one or more epoch curves as a standalone 300-DPI PNG.
+  * slugify           -- convert a chart title into a safe output filename stem.
 
-Called three ways: train.py auto-plots every run's curves at the end of training; this file is a CLI
-for ad-hoc cross-run charts (python -m cdrseqgen.visualization.plot_line --help); and `draw_lines`
-is a panel inside the multi-panel analysis figures (sweep_figure).
-
-Note:
-  * A missing CSV or column is reported and skipped rather than aborting the chart, so one bad
-    path in a multi-run comparison doesn't lose the other lines.
+Notes:
+  * Used in three paths: ``training_figure`` auto-plots every run after training, ``sweep_figure``
+    composes ``draw_lines`` for multi-panel charts, and this module's CLI handles ad-hoc overlays.
+  * Missing CSV files or metric columns print a warning and are skipped rather than aborting the
+    remaining lines.
 """
 from __future__ import annotations
 
@@ -32,6 +34,8 @@ import matplotlib.pyplot as plt
 
 from cdrseqgen import artifacts
 
+
+# --- Data Series ---------------------------------------------------------------------------------
 
 @dataclass
 class LineSeries:
@@ -54,6 +58,8 @@ class LineSeries:
                 f"LineSeries '{self.label}': {len(self.x)} x-values against {len(self.y)} y-values"
             )
 
+
+# --- Composable Axes Renderer (used by multi-panel figures) --------------------------------------
 
 def draw_lines(ax, series, *, markers=True, color_offset=0):
     """Draw `series` onto `ax`. Returns True if anything was drawn.
@@ -78,6 +84,8 @@ def draw_lines(ax, series, *, markers=True, color_offset=0):
         )
     return drew
 
+
+# --- Epoch CSV Reader & Standalone Training-Curve Plotter ----------------------------------------
 
 def slugify(text):
     return re.sub(r'[^a-z0-9]+', '_', text.lower()).strip('_')
@@ -116,6 +124,8 @@ def plot_epoch_curves(series, title="Comparison", ylabel="Value", save_dir=".", 
     # density to stay legible when dropped into a document at full width.
     plot_style.save_figure(figure, save_dir, filename, dpi=300)
 
+
+# --- CLI Entry Point -----------------------------------------------------------------------------
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Dynamically compare training runs / metrics on one chart.")

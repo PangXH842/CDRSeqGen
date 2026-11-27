@@ -1,25 +1,31 @@
-"""Conventions every CDRSeqGen chart shares: palette, axes furniture, empty panels, saving.
+"""Shared visual conventions for CDRSeqGen charts: palette, axes furniture, empty panels, saving.
 
-The plotting layer has three levels, and this is the bottom one:
+Architecture:
+  * Style layer      -- ``plot_style`` (this module): shared visual defaults; draws no data.
+  * Chart primitives -- ``plot_bar``, ``plot_line``, ``plot_scatter``: composable ``draw_*`` helpers.
+  * Analysis figures -- ``batch_figure``, ``sweep_figure``, ``confidence_figure``,
+                        ``training_figure``, and ``benchmark/analysis/plot_comparison``.
 
-  * plot_style          -- what all charts must agree on (this file). Draws no data.
-  * chart types         -- plot_line, plot_bar, plot_scatter. Each exposes a
-                           ``draw_*(ax, ...)`` that renders onto an axes somebody else owns.
-  * analysis figures    -- sweep_figure, confidence_figure, training_figure, benchmark/analysis/plot_comparison.
-                           These choose panels and compose chart types; they own the figure.
+Functions:
+  * figures_dir -- standard ``<batch>/figures/`` output path for a batch or sweep.
+  * color       -- palette colour by series index (wrapping cleanly).
+  * marker      -- marker shape by series index, paired with ``color`` for print readability.
+  * style_axes  -- apply wrapped bold titles, axis labels, percent formatting, grid, and legend.
+  * empty_panel -- render a clean explanatory placeholder when a panel's input is missing.
+  * save_figure -- write PNG/PDF outputs with consistent DPI and tight bounding boxes.
 
-The split exists so a panel can be reused. Before it, the four plotting sites had grown four
-palettes, four grid alphas and three DPIs, and every one of them had reimplemented "there is
-nothing to plot here" differently — so two charts of the same quantity did not look like the same
-quantity.
-
-The palette is the benchmark comparison's, because those figures back a reported result and their
-colours were the ones already chosen deliberately.
+Notes:
+  * Configures matplotlib's non-interactive ``Agg`` backend and TrueType font embedding (type 42)
+    on import so every chart works cleanly on headless servers and exports editable vector PDFs.
+  * The palette matches the benchmark comparison figures so reported series look consistent across
+    training, sweep, and benchmark charts.
 """
 from __future__ import annotations
 
 import textwrap
 import os
+
+# --- Backend, Font & Shared Style Constants ------------------------------------------------------
 
 import matplotlib
 matplotlib.use("Agg")
@@ -49,6 +55,8 @@ GRID_STYLE = "--"
 FIGURES_DIRNAME = "figures"
 
 
+# --- Output Paths, Palette & Markers -------------------------------------------------------------
+
 def figures_dir(batch_dir):
     """Where a batch's or sweep's charts belong: <batch>/figures/."""
     return os.path.join(batch_dir, FIGURES_DIRNAME)
@@ -63,6 +71,8 @@ def marker(index):
     """Series marker by position; pairs with `color` so a series is identifiable without colour."""
     return MARKERS[index % len(MARKERS)]
 
+
+# --- Axes Styling, Empty Panels & Saving ---------------------------------------------------------
 
 def style_axes(ax, *, title=None, xlabel=None, ylabel=None, percent_axis=None,
                legend=False, legend_fontsize=8, grid=True):

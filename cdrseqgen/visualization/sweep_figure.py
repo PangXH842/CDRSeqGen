@@ -1,34 +1,34 @@
-"""Compare a sweep's settings across seeds: sweep directory -> one four-panel PNG.
+"""Compare a sweep's settings across seeds in a four-panel dashboard PNG.
 
-`batch_table` expects the (loop x model x context) matrix, so it does not fit a sweep, whose shape
-is "a few settings, each repeated over seeds". This module takes seeds as the replicate dimension:
-every panel shows one series per setting, aggregated across its seeds, so a difference between
-settings is read against the seed spread rather than against a single run.
-
-It owns the figure and the aggregation; the drawing is delegated to the chart-type modules
-(`plot_line`, `plot_bar`, `plot_scatter`) over the shared conventions in
-`plot_style`, so a panel here and the same panel in another figure look like the same chart.
+Aggregates replicate seeds per setting and delegates chart drawing to ``plot_line``, ``plot_bar``,
+and ``plot_scatter`` over the shared conventions in ``plot_style``. Reads saved artifacts only
+(``epoch_metrics.csv``, ``generation_eval.json``, ``run_config.json``); no GPU or checkpoint load.
 
 Usage:
     python -m cdrseqgen.visualization.sweep_figure --sweep results/runs/20260825_165553_sweep_loss
     python -m cdrseqgen.visualization.sweep_figure --sweep <dir> --bins 9 --title "H3 objectives"
 
-Panels:
-  * A. validation core recovery per epoch -- mean across seeds, band spanning them. The teacher-
-       forced trajectory: where each setting peaked and whether it then decayed.
-  * B. free-running core@L and anchor@L   -- what the finished model actually generates, split at
-       the anchor boundary. An objective that trades one for the other is visible only here; whole
-       -loop AAR averages the two together.
-  * C. recovery across normalized loop position -- the shape behind panel B. Macro-averaged over
-       examples (a long loop contributing several residues to one bin is averaged inside the
-       example first), so longer loops carry no extra weight.
-  * D. judge perplexity against diversity -- one marker per trial, so seed scatter is visible
-       rather than hidden in a mean. Independent-judge perplexity is the cross-run comparable
-       quality axis; diversity is the axis it trades against.
+Panels (2x2 -> ``<sweep>/figures/<filename>.png``):
+  * A. Validation core recovery per epoch -- seed mean with min–max replicate band.
+  * B. Free-running ``core@L`` and ``anchor@L`` -- grouped bars (seed mean ± SD) split at the
+       anchor boundary.
+  * C. Recovery across normalized loop position -- macro-averaged within each example first, then
+       across examples and seeds so longer loops carry no extra weight.
+  * D. Judge perplexity vs. pairwise Hamming diversity -- one scatter marker per trial so seed
+       spread stays visible.
 
-Reads only what a finished run already writes: `epoch_metrics.csv`, `generation_eval.json`, and
-`run_config.json`. No GPU, no checkpoint loading -- it re-reads stored generations, so it works on
-runs that finished at any point in the past.
+Functions:
+  * objective_label     -- format a run config's loss objective as a readable label.
+  * canonical_objective -- normalize equivalent weighted-loss ratios to detect duplicates.
+  * load_trials         -- load completed sweep trials from ``runs.tsv``/``plan.json`` or subdirs.
+  * report_duplicates   -- log settings that share a canonical objective class.
+  * plot_sweep          -- build and save the 2x2 sweep dashboard PNG.
+  * main                -- CLI entry point.
+
+Notes:
+  * Works on interrupted sweeps: when ``runs.tsv`` is absent, falls back to scanning trial
+    subdirectories while skipping sweep output folders in ``SWEEP_SUBDIRS``.
+  * Imports ``plot_style`` before ``matplotlib.pyplot`` so the headless ``Agg`` backend is set.
 """
 import argparse
 import json
@@ -36,16 +36,19 @@ import os
 import statistics
 from collections import defaultdict
 
-import matplotlib.pyplot as plt
 import pandas as pd
 
 from cdrseqgen.artifacts import find_run_config
 from cdrseqgen.eval.metrics import position_recovery
 from cdrseqgen.visualization import plot_style
+import matplotlib.pyplot as plt
 from cdrseqgen.visualization.plot_bar import BarSeries, draw_grouped_bars
 from cdrseqgen.visualization.plot_line import LineSeries, draw_lines
 from cdrseqgen.visualization.plot_scatter import ScatterSeries, draw_scatter
 from cdrseqgen import artifacts
+
+
+# --- Trial Loading & Objective Grouping ----------------------------------------------------------
 
 # A sweep's own output directories, which sit beside its trial folders and are not trials.
 SWEEP_SUBDIRS = frozenset({plot_style.FIGURES_DIRNAME, "logs", ".configs"})
@@ -156,6 +159,8 @@ def report_duplicates(groups):
                   "Their gap measures run-to-run nondeterminism, not an effect of the setting.")
 
 
+# --- Per-Setting Aggregation Helpers -------------------------------------------------------------
+
 def _seed_averaged_curve(trials, column, label):
     """One setting's epoch curve as a LineSeries: mean over seeds, band spanning them.
 
@@ -194,6 +199,9 @@ def _summary_values(trials, key):
     return values
 
 
+# --- Sweep Dashboard Panels (2x2 -> <filename>.png: Panels A–D) ----------------------------------
+
+# Panel A: validation core recovery trajectory per epoch (seed mean + min–max band)
 def _curve_panel(ax, groups):
     lines = [_seed_averaged_curve(trials, "eval_core_accuracy", label)
              for label, trials in groups.items()]
@@ -203,6 +211,7 @@ def _curve_panel(ax, groups):
                           xlabel="Epoch", ylabel="eval_core_accuracy", legend=True)
 
 
+# Panel B: free-running core@L vs. anchor@L grouped bars (seed mean ± SD)
 def _decomposition_panel(ax, groups):
     metrics = [("core_recovery_mean", "core@L"), ("anchor_recovery_mean", "anchor@L")]
     series = []
@@ -222,6 +231,7 @@ def _decomposition_panel(ax, groups):
                           percent_axis="y", legend=True, grid="y")
 
 
+# Panel C: free-running recovery across normalized loop position (N -> C terminus)
 def _position_curve(trials, bins, label):
     """Recovery against normalized loop position, macro-averaged over examples then over seeds."""
     per_seed = []
@@ -269,6 +279,7 @@ def _position_panel(ax, groups, bins):
                           ylabel="Recovery", percent_axis="y", legend=True)
 
 
+# Panel D: judge perplexity vs. pairwise Hamming diversity scatter (one point per trial)
 def _tradeoff_panel(ax, groups):
     series = []
     for label, trials in groups.items():
@@ -282,6 +293,8 @@ def _tradeoff_panel(ax, groups):
                           xlabel="Diversity (pairwise Hamming)",
                           ylabel="Judge perplexity  ↓ better", percent_axis="x", legend=True)
 
+
+# --- Dashboard Composer & CLI --------------------------------------------------------------------
 
 def plot_sweep(sweep_dir, save_dir=None, bins=11, title=None, filename="objective_comparison"):
     groups = load_trials(sweep_dir)

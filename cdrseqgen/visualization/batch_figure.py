@@ -1,28 +1,35 @@
-"""The visual counterpart of `batch_table`: a training batch -> one dashboard PNG per dataset.
+"""Render per-dataset dashboard PNGs from a finished training batch.
 
-`batch_table` renders the (loop x dataset x context x model) matrix as Markdown for the README.
-This renders the same runs, read through the same coverage-aware policy, as charts — the shape of
-the matrix is easier to see than to read, particularly the H3 gap and the anchor inflation.
+The visual counterpart to ``batch_table``: reads finished run artifacts offline (no GPU, no model
+loading) through ``batch_table.discover_runs`` and ``recovery_summary``, and writes one dashboard
+PNG per dataset into ``<batch>/figures/``.
 
 Usage:
     python -m cdrseqgen.visualization.batch_figure --batch results/runs/20260818_192606
     python -m cdrseqgen.visualization.batch_figure --batch <dir> --dataset OAS
+    python -m cdrseqgen.visualization.batch_figure --batch <dir> --save_dir results/figures
 
-Panels (per dataset):
-  * A. best-epoch recovery per loop, scratch against ESM-2 -- Findings §1/§2
-  * B. whole-span against core and anchor  -- the anchor inflation of Findings §3, which is why the
-       headline whole-span number overstates what the model designs
-  * C. the context effect per loop         -- Findings §4, drawn as a signed delta so "no effect"
-       is a bar at zero rather than two bars a reader has to subtract by eye
-  * D. recovery against judged perplexity  -- Findings §7, where the two disagree
+Layouts (selected automatically per dataset):
+  * Matrix dashboard (``batch_<dataset>.png``, 2x2) -- single run per (loop, context, family):
+      - Panel A: best-epoch teacher-forced recovery per loop across model families.
+      - Panel B: anchor inflation — whole-span vs. core vs. anchor recovery (masked scratch).
+      - Panel C: signed recovery delta from adding context (partner chain or antigen), with
+                 the ±0.006 seed-noise band shaded.
+      - Panel D: free-running recovery @ matched length vs. judge perplexity.
+  * Trial dashboard (``batch_<dataset>_trials.png``, 2x1) -- repeated seeds/settings per family:
+      - Top panel: generated edit similarity (valid candidates), eval with vs. without partner.
+      - Bottom panel: judge perplexity, eval with vs. without partner (no pooling across seeds).
 
-**One figure per dataset, never a shared axis.** OAS and SAbDab2 are evaluated on different test
-sets, so their accuracies are not comparable; putting them on one axis is the mistake the `_OAS` /
-`_SD2` run tags exist to prevent. This module enforces that by splitting on the dataset tag rather
-than by asking the caller to remember.
+Functions:
+  * plot_batch_dataset       -- render the 2x2 matrix dashboard for one dataset.
+  * plot_trial_batch_dataset -- render the 2x1 unpooled per-trial dashboard for one dataset.
+  * plot_batch               -- discover runs, split by dataset tag, and dispatch each dashboard.
+  * main                     -- CLI entry point.
 
-Reads only what a finished run writes, through `batch_table.discover_runs` / `recovery_summary`,
-so the tables and the charts cannot disagree about which epoch or which metric a run reports.
+Notes:
+  * Never plots two datasets on one axis: OAS and SAbDab2 evaluate on different test splits, so
+    ``plot_batch`` splits strictly by dataset tag.
+  * Imports ``plot_style`` before ``matplotlib.pyplot`` so the headless ``Agg`` backend is set.
 """
 from __future__ import annotations
 
@@ -31,15 +38,18 @@ import json
 import os
 from collections import defaultdict
 
+from cdrseqgen.visualization import plot_style
 import matplotlib.pyplot as plt
 
-from cdrseqgen.visualization import plot_style
 from cdrseqgen.visualization.plot_bar import BarSeries, draw_grouped_bars
 from cdrseqgen.visualization.batch_table import (
     FAMILY_LABELS, _epoch_metrics, discover_runs, has_repeated_families, method_of_family,
     recovery_summary)
 from cdrseqgen.visualization.plot_scatter import ScatterSeries, draw_scatter
 from cdrseqgen import artifacts
+
+
+# --- Configuration & Run-Discovery Helpers -------------------------------------------------------
 
 GENERATION_EVAL_FILENAME = artifacts.GENERATION_EVAL_FILENAME
 
@@ -77,6 +87,9 @@ def _generation_summary(run_dir):
         return json.load(handle).get("summary", {})
 
 
+# --- Matrix Dashboard Panels (batch_<dataset>.png: Panels A–D) -----------------------------------
+
+# Panel A: best-epoch teacher-forced recovery per loop across model families
 def _recovery_panel(ax, runs, dataset, cache, context):
     loops = _loops_present(runs, dataset)
     series = []
@@ -106,6 +119,7 @@ def _recovery_panel(ax, runs, dataset, cache, context):
                           legend=True, grid="y")
 
 
+# Panel B: anchor inflation (whole-span vs. core vs. anchor, masked scratch)
 def _breakdown_panel(ax, runs, dataset, cache, context):
     """Whole-span against core and anchor, for one model family.
 
@@ -148,6 +162,7 @@ def _anchor_accuracy(run_dir):
     return float(best["eval_anchor_accuracy"])
 
 
+# Panel C: signed recovery delta from adding partner-chain or antigen context
 def _context_pair(runs, loop, dataset):
     """(baseline, augmented) context tags for one loop, or None when the batch has no pair.
 
@@ -197,6 +212,7 @@ def _context_panel(ax, runs, dataset, cache):
                           legend=True, grid="y")
 
 
+# Panel D: free-running recovery @ matched length vs. judge perplexity
 def _design_panel(ax, runs, dataset, context):
     """Recovery against judged perplexity: the two need not agree (Findings §7)."""
     series = []
@@ -234,6 +250,8 @@ def _design_panel(ax, runs, dataset, context):
                           percent_axis="x", legend=True)
 
 
+# --- Matrix Dashboard Composer (2x2 -> batch_<dataset>.png) --------------------------------------
+
 def plot_batch_dataset(runs, dataset, batch_dir, save_dir=None):
     """One dashboard for one dataset. Returns the written path, or None when nothing was plotted."""
     contexts = _contexts_present(runs, dataset)
@@ -256,6 +274,8 @@ def plot_batch_dataset(runs, dataset, batch_dir, save_dir=None):
     save_dir = save_dir or plot_style.figures_dir(batch_dir)
     return plot_style.save_figure(figure, save_dir, f"batch_{dataset.lower()}")
 
+
+# --- Trial Dashboard Composer (2x1 unpooled bars -> batch_<dataset>_trials.png) ------------------
 
 def plot_trial_batch_dataset(runs, dataset, batch_dir, save_dir=None):
     """Keep each seed/setting visible when a family has several trials."""
@@ -301,6 +321,8 @@ def plot_trial_batch_dataset(runs, dataset, batch_dir, save_dir=None):
     return plot_style.save_figure(figure, save_dir or plot_style.figures_dir(batch_dir),
                                   f"batch_{dataset.lower()}_trials")
 
+
+# --- Public Entry Point & CLI --------------------------------------------------------------------
 
 def plot_batch(batch_dir, save_dir=None, dataset=None):
     """One dashboard per dataset in the batch — never one chart spanning two test sets."""

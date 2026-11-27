@@ -1,28 +1,24 @@
-"""Turning finished run artifacts into something a human reads — charts and tables both.
+"""Render saved CDRSeqGen run artifacts into charts and tabular reports.
 
-Nothing here loads a model or touches a GPU. Most modules read saved run artifacts
+Nothing here loads a model or touches a GPU. Modules read saved run artifacts
 (``epoch_metrics.csv``, ``generation_eval.json``, ``run_config.json``) and processed dataset JSONs.
-``training_figure`` also accepts Trainer log history to export the epoch CSV;
-its curves can then be regenerated from that file after the run.
+``training_figure`` also exports ``epoch_metrics.csv`` from Trainer log history so training curves
+can be regenerated offline at any time.
 
-Three levels, bottom up:
+Architecture (bottom up):
+  * Style layer      -- ``plot_style``: shared palette, markers, axes furniture, empty panels,
+                        and figure saving. Draws no data.
+  * Chart primitives -- ``plot_bar``, ``plot_line``, ``plot_scatter``: composable
+                        ``draw_*(ax, ...)`` renderers plus standalone ``plot_*`` wrappers.
+  * Analysis figures -- ``training_figure`` (per-run training curves), ``batch_figure`` (per-dataset
+                        batch dashboards), ``sweep_figure`` (multi-seed sweep dashboard),
+                        ``confidence_figure`` (top-k selection and Spearman rho diagnostics).
+  * Tabular reports  -- ``batch_table`` (Markdown tables for a batch) and ``sweep_table``
+                        (ranked ``summary.tsv`` and text report for a sweep).
 
-  * ``plot_style``       -- conventions every chart shares: palette, axes furniture, empty panels,
-                            saving. Draws no data.
-  * chart types          -- ``plot_line``, ``plot_bar``, ``plot_scatter``.
-                            Each exposes a ``draw_*(ax, ...)`` that renders onto an axes owned by
-                            somebody else, and a ``plot_*`` that makes a standalone figure.
-  * analysis figures     -- ``sweep_figure`` (settings x seeds), ``batch_figure`` (the loop x dataset
-                            x context x model matrix), ``confidence_figure`` (per-candidate scores),
-                            ``batch_table`` (the same matrix as Markdown for the README),
-                            ``training_figure`` (one run's validation trajectory).
-                            These choose panels, do their own aggregation, and own the figure.
-
-The split is the usual rule in this project — a capability is added in one place. A new chart type
-is one module beside the others and every figure can use it; a new figure composes existing chart
-types without touching them.
-
-``batch_table`` emits Markdown rather than a PNG and still belongs here: it is the same concern
-(present a batch's results), reads the same artifacts through the same coverage-aware policy, and
-``batch_figure`` builds on its run discovery so the tables and the charts cannot drift apart.
+Notes:
+  * New chart primitives belong beside ``plot_bar``/``plot_line``/``plot_scatter`` so every figure
+    can reuse them; new analysis figures compose existing primitives without modifying them.
+  * ``batch_table`` and ``batch_figure`` share run discovery and coverage-aware recovery selection
+    so tabular and visual reports stay consistent.
 """

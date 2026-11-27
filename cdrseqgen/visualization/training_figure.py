@@ -1,13 +1,20 @@
-"""Export Trainer validation history as an epoch CSV and training-curve PNGs.
+"""Export Trainer validation history as an epoch CSV and per-run training-curve PNGs.
+
+Outputs (written into ``output_dir``):
+  * ``epoch_metrics.csv``        -- deduplicated per-epoch validation loss, recovery, and coverage.
+  * ``eval_loss_curve.png``      -- standalone validation loss trajectory.
+  * ``eval_accuracy_curve.png``  -- standalone whole-span recovery trajectory (anchor-inflated).
+  * ``eval_core_accuracy_curve.png`` -- standalone core recovery trajectory (anchor-excluded).
+  * ``recovery_breakdown.png``   -- combined whole-span vs. core vs. anchor recovery curve.
 
 Functions:
-  * save_training_csv    -- Trainer log history -> epoch_metrics.csv
-  * plot_training_curves -- epoch_metrics.csv -> validation-loss and recovery PNGs
+  * save_training_csv    -- Trainer log history -> ``epoch_metrics.csv``.
+  * plot_training_curves -- ``epoch_metrics.csv`` -> all four per-run training-curve PNGs.
 
 Notes:
-  * common.training.train_and_save() calls both functions after the Trainer stages.
-  * Keep the first validation record for each epoch rounded to four decimal places,
-    preserving the trajectory when the selected checkpoint is evaluated again.
+  * ``common.training.train_and_save()`` calls both functions after the Trainer finishes.
+  * Keeps the first validation record for each epoch rounded to four decimal places, preventing
+    post-training checkpoint re-evaluation from duplicating the final epoch.
 """
 import os
 import logging
@@ -19,6 +26,8 @@ from cdrseqgen import artifacts
 
 logger = logging.getLogger(__name__)
 
+
+# --- Epoch CSV Export (Trainer log history -> epoch_metrics.csv) ---------------------------------
 
 def save_training_csv(trainer, output_dir):
     """Extracts eval metrics, and saves them to a CSV."""
@@ -61,6 +70,8 @@ def save_training_csv(trainer, output_dir):
 
     logger.info(f"📈 Evaluation metrics saved to CSV at: {csv_path}")
 
+
+# --- Training Curve Plots (loss, whole, core, and combined recovery_breakdown PNGs) --------------
 
 def plot_training_curves(output_dir):
     """Generate multi-line graph comparing AAR metrics (whole, core, anchor)"""

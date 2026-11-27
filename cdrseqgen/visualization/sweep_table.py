@@ -1,20 +1,31 @@
-"""Rank a sweep's settings across seeds: runs.tsv -> summary.tsv plus a printed table.
+"""Rank a sweep's settings across seeds: ``runs.tsv`` -> ``summary.tsv`` and text report.
 
-  * load_trials     -- completed rows of runs.tsv, each scored on the chosen metric
-  * rank_settings   -- collapse seeds into one row per setting, ordered best first
-  * summarize_sweep -- the whole thing: read, rank, write summary.tsv, print the report
+Reads finished trial artifacts offline (``runs.tsv``, ``epoch_metrics.csv``, ``generation_eval.json``,
+and ``run_config.json``), collapses replicate seeds into mean ± SD per setting, writes
+``summary.tsv``, and prints a validation ranking with statistical caveats.
 
-This used to live as a heredoc at the end of ``scripts/sweep.sh``, which meant it ran only if the
-trial loop ran to completion. An interrupted sweep therefore produced no summary at all even though
-every finished trial's numbers were already on disk — which is exactly when you most want to see
-where the sweep had got to. As a module it runs on demand:
-
+Usage:
     python -m cdrseqgen.visualization.sweep_table --sweep results/runs/20260825_165553_sweep_loss
     python -m cdrseqgen.visualization.sweep_table --sweep <dir> --rank_metric judge_ppl
+    python -m cdrseqgen.visualization.sweep_table --sweep <dir> --quiet
 
-Seeds are the replicate dimension; every other column identifies the setting. A setting's score is
-the mean across its seeds, and `sd_score` is the spread that mean sits on — read the gap between
-two settings against it before believing either.
+Rank metrics (``RANKERS``):
+  * Epoch (selected checkpoint) -- ``core``, ``whole``.
+  * Generation summary          -- ``judge_ppl``, ``diversity``, ``gen_core``.
+  * Attempt-level validity      -- ``length_mae``, ``length_match``, ``valid_rate``.
+
+Functions:
+  * load_trials     -- load completed trials from ``runs.tsv`` and score each at its selected epoch.
+  * rank_settings   -- collapse replicate seeds into one ranked row per setting.
+  * write_summary   -- export ranked settings to ``summary.tsv``.
+  * format_report   -- format the human-readable ranking table and noise/circularity warnings.
+  * summarize_sweep -- end-to-end orchestration: load, rank, write TSV, and optionally print.
+  * main            -- CLI entry point.
+
+Notes:
+  * Runs on demand even after an interrupted sweep so partial results stay inspectable.
+  * Recovery gaps below ``SEED_NOISE_FLOOR`` (0.006) are flagged as ties; single-seed winners
+    carry a warning before freezing hyperparameters.
 """
 from __future__ import annotations
 
@@ -28,6 +39,9 @@ from collections import defaultdict
 
 from cdrseqgen.artifacts import read_run_config
 from cdrseqgen import artifacts
+
+
+# --- Ranking Configuration & Constants -----------------------------------------------------------
 
 # (source, key, higher_is_better). Ranking on a metric the objective optimises would only
 # rediscover the objective, which is why the loss preset defaults to judge_ppl.
@@ -66,6 +80,8 @@ SUMMARY_FIELDS = list(KEY) + [
 # on a per-loop delta in README Findings §4.
 SEED_NOISE_FLOOR = 0.006
 
+
+# --- Artifact Extraction & Checkpoint Selection --------------------------------------------------
 
 def _finite_value(mapping, key):
     """A finite numeric artifact value, or None for missing/blank/NaN data."""
@@ -136,6 +152,8 @@ def _generation_score(payload, source, metric_key):
             return _finite_value(summary, "length_absolute_error_mean")
     return None
 
+
+# --- Trial Loading & Seed Aggregation ------------------------------------------------------------
 
 def load_trials(map_path, rank_metric):
     """Completed trials scored at the checkpoint each run actually selected."""
@@ -233,6 +251,8 @@ def rank_settings(trials, higher_is_better):
                                float(e["lr"])))
     return ranked
 
+
+# --- TSV Export, Text Report & CLI ---------------------------------------------------------------
 
 def write_summary(ranked, summary_path, rank_metric="core"):
     with open(summary_path, "w", newline="") as handle:

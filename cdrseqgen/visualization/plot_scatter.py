@@ -1,15 +1,15 @@
-"""Scatter charts: where runs sit against each other on two axes at once.
+"""Scatter charts for two-axis operating-point and trade-off comparisons.
 
-  * ScatterSeries  -- one series' points, optionally annotated with its label
-  * draw_scatter   -- render onto an axes somebody else owns (the composable entry point)
-  * plot_scatter   -- create a figure, draw, save (standalone use)
+Types & functions:
+  * ScatterSeries -- one series' parallel ``(x, y)`` coordinates across trials or seeds.
+  * draw_scatter  -- render scatter points onto an existing axes (composable entry point).
+  * plot_scatter  -- create a standalone figure, render points, and save as PNG.
 
-Used for the operating-point charts — recovery against diversity, judged plausibility against
-diversity — where the question is a trade-off rather than a trend, and a bar or a line would imply
-an ordering the x-axis does not have.
-
-Passing several points in one series (one per seed) rather than their mean is deliberate: the
-scatter of replicates is the reader's only cue for whether a gap between two settings is real.
+Notes:
+  * Used for unordered trade-off views (e.g., recovery vs. judge perplexity, diversity vs.
+    perplexity) where lines or bars would imply an ordering the x-axis does not have.
+  * Passing individual trials rather than their mean keeps replicate scatter visible; non-finite
+    coordinate pairs are filtered out automatically.
 """
 from __future__ import annotations
 
@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from cdrseqgen.visualization import plot_style
 import matplotlib.pyplot as plt
 
+
+# --- Data Series ---------------------------------------------------------------------------------
 
 @dataclass
 class ScatterSeries:
@@ -44,6 +46,8 @@ def _pairs(entry):
     ]
 
 
+# --- Composable Axes Renderer (used by multi-panel figures) --------------------------------------
+
 def draw_scatter(ax, series, *, size=70, annotate=False, color_offset=0):
     """Draw `series` as points. Returns True if anything was drawn.
 
@@ -65,6 +69,8 @@ def draw_scatter(ax, series, *, size=70, annotate=False, color_offset=0):
                         fontsize=9, color=colour)
     return drew
 
+
+# --- Standalone Figure Wrapper (save_dir/filename.png) -------------------------------------------
 
 def plot_scatter(series, *, title=None, xlabel=None, ylabel=None, percent_axis=None,
                  annotate=False, save_dir=".", filename="scatter", figsize=(8, 6), dpi=300):

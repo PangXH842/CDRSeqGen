@@ -1,25 +1,32 @@
-"""Plot whether a per-candidate confidence score is worth selecting on.
+"""Plot whether per-candidate confidence scores improve candidate selection.
 
-Reads the per-candidate block that ``evaluation.py`` writes into ``generation_eval.json`` and
-answers the designer's question directly: if I keep only the k most confident of my N candidates,
-what recovery do I get, and how does that compare with keeping k at random?
+Reads per-candidate blocks written by ``evaluation.py`` into ``generation_eval.json`` and evaluates
+whether selecting the top-k most confident candidates improves recovery over a random draw.
 
 Usage:
-    python -m cdrseqgen.visualization.confidence_figure --eval results/runs/latest/h3_OAS_scratch/generation_eval.json
-    python -m cdrseqgen.visualization.confidence_figure --eval a.json --label "H3 scratch" \\
-                                              --eval b.json --label "H3 ESM-2"
+    python -m cdrseqgen.visualization.confidence_figure \\
+        --eval results/runs/latest/h3_OAS_scratch/generation_eval.json
+    python -m cdrseqgen.visualization.confidence_figure \\
+        --eval a.json --label "H3 scratch" --eval b.json --label "H3 ESM-2"
 
-Panels:
-  * selection curve    -- mean recovery of the top-k by each score, against the random baseline.
-                          Every curve converges to the baseline at k = N, because keeping all
-                          candidates is keeping them at random.
-  * rho distribution   -- per-framework Spearman between confidence and recovery. The spread is
-                          the point: a mean rho above zero with mass on both sides of it means the
-                          score ranks well on some frameworks and backwards on others, which is
-                          why a positive rho need not translate into a usable selection rule.
+Panels (1x2 -> ``<save_dir>/<filename>.png``):
+  * A. Top-k selection curve -- mean recovery when keeping the k most confident candidates by
+       self-perplexity and judge perplexity, compared against the random-draw baseline.
+  * B. Per-framework Spearman rho -- histogram of confidence-vs.-recovery rank correlations across
+       frameworks, showing how consistently each score ranks candidates.
 
-Requires a run scored WITH a judge for the judge panels; self-perplexity needs --skip_perplexity
-to have been off.
+Functions:
+  * selection_curve   -- mean top-k recovery for ``k = 1..max_k`` under one score key.
+  * baseline_recovery -- expected recovery of a random draw across frameworks.
+  * rho_distribution  -- per-framework Spearman rho between ``-score`` and candidate recovery.
+  * build_figure      -- compose the two-panel matplotlib figure for one or more runs.
+  * has_scores        -- check whether records carry any plottable confidence score.
+  * save_run_figure   -- single-run helper used after evaluation; returns path or ``None``.
+  * main              -- CLI entry point.
+
+Notes:
+  * Judge curves require runs evaluated with ``--judge``; self-perplexity curves require
+    ``--skip_perplexity`` to have been off.
 """
 import argparse
 import json
@@ -30,6 +37,9 @@ from cdrseqgen.visualization import plot_style
 import matplotlib.pyplot as plt
 
 from cdrseqgen.eval.metrics import spearman
+
+
+# --- Score Configuration & Selection/Correlation Metrics -----------------------------------------
 
 SCORES = (
     ("self_perplexity", "self-perplexity", plot_style.color(0)),
@@ -93,6 +103,8 @@ def rho_distribution(records, score_key):
     return values
 
 
+# --- Two-Panel Figure Builder (Panel A: Selection Curve, Panel B: Spearman rho) ------------------
+
 def build_figure(datasets, max_k):
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
     ax_sel, ax_rho = axes
@@ -141,6 +153,8 @@ def build_figure(datasets, max_k):
     fig.tight_layout()
     return fig
 
+
+# --- Single-Run Export & CLI Entry Point ---------------------------------------------------------
 
 def has_scores(records):
     """True when at least one candidate carries a score worth plotting."""
@@ -193,7 +207,6 @@ def main():
 
     fig = build_figure(datasets, args.max_k)
     plot_style.save_figure(fig, args.save_dir, args.filename, dpi=plot_style.DEFAULT_DPI)
-    print(f"✅ Plot successfully saved as: {out}")
 
     for label, records, _ in datasets:
         base = baseline_recovery(records)

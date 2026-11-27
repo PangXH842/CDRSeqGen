@@ -1,47 +1,42 @@
 """Generate validated Markdown comparison tables from a finished training batch.
 
-This is the tabular counterpart to ``plot_line``: callers select an analysis, while one
-renderer owns Markdown layout and row-width validation. The standard tables read existing run and
-dataset artifacts only; they do not rerun inference or require a GPU.
+The tabular counterpart to ``batch_figure``: reads saved run and dataset artifacts offline (no GPU,
+no model loading) and renders every comparison table through one validated Markdown path.
 
 Usage:
     python -m cdrseqgen.visualization.batch_table                          # results/runs/latest
     python -m cdrseqgen.visualization.batch_table --batch results/runs/20260729_202635
-    python -m cdrseqgen.visualization.batch_table --only regimes,loops
+    python -m cdrseqgen.visualization.batch_table --only regimes,loops --output
 
-Metrics:
-  * AAR / Amino acid recovery (whole, core)
-  * Diversity (pairwise Hamming distance)
-  * Perplexity (self, judge)
-  * Novelty (uniqueness, relative to train set)
-  * Entropy (per-position, loop length)
+Named tables (matrix mode — one run per cell):
+  * regimes   -- teacher-forced AAR by regime (OAS/SD2; H1/H2/H3), scratch vs. ESM-2.
+  * loops     -- teacher-forced AAR across all 6 CDRs (OAS), with/without partner chain.
+  * antigen   -- teacher-forced AAR across H1–H3 (SAbDab2), with/without antigen context.
+  * methods   -- H3 teacher-forced recovery across masked, causal, and enc-dec scratch models.
+  * s2s_plm   -- H3 enc-dec recovery across scratch, ESM-2, IgBert, and ProtBert encoders.
+  * retrieval -- train/held-out CDR overlap for OAS and SAbDab2.
+  * design    -- post-training generative AAR, diversity, entropy, and judge-ppl (H1 vs. H3).
+  * length    -- loop-length distributions and entropy supplied by fixing the target length.
+  * decoding  -- optional iterative vs. independent comparison via ``--decoding-json``.
 
-Named tables:
-  * regimes   -- AAR by regime (dataset; loop), across models (eg. scratch & ESM-2)
-  * loops     -- AAR by CDR loop (OAS only), w/ or w/o partner-chain context
-  * antigen   -- AAR by H CDR loop (SAbDab2 only), w/ or w/o antigen context
-  * retrieval -- train/test CDR overlap for OAS and SAbDab2
-  * design    -- AAR, diversity, entropy, judge-ppl by loop and model
-  * length    -- loop-length distributions and entropy supplied by fixing the target length
+Unpooled trial tables (automatically used when a family has multiple seeds/settings):
+  * ``trial_recovery_table``   -- per-trial teacher-forced recovery without pooling seeds.
+  * ``context_ablation_table`` -- per-trial generation metrics with vs. without partner context.
 
-The optional decoding table compares two ``generation_eval.json`` files passed with
-``--decoding-json``; it is skipped when the pair is absent or unreadable.
-
-Main functions:
-  * discover_runs    -- parse a batch into {(loop, dataset, context, model): run_dir}.
-  * recovery_summary -- choose a coverage-valid recovery metric and its best epoch for one run.
-  * markdown_table   -- validate and render headers and rows through one Markdown path.
-  * build_table      -- generate any named table from definitions and row providers.
-  * main             -- CLI: discover runs and print the selected tables.
+Functions:
+  * discover_runs      -- parse a batch into ``{(loop, dataset, context, model): run_dir}``.
+  * recovery_summary   -- select coverage-valid recovery metric and best epoch for one run.
+  * markdown_table     -- validate row widths and render one Markdown table.
+  * build_table        -- build any named table from definitions and row providers.
+  * render_tables      -- assemble the full Markdown document for a batch.
+  * write_batch_tables -- render and write ``batch_tables.md`` beside a batch's run folders.
+  * main               -- CLI entry point.
 
 Notes:
-  * Run dirs are parsed, not hardcoded, so a different ESM-2 variant or an added context flag is
-    picked up automatically. Naming comes from train.py: <loop>_<DS>[_LC|_HC][_AG]_<model>.
-  * Recovery reporting is driven by each run's recorded eval_core_coverage, not by a hard-coded
-    loop name. Core is used only when coverage reaches MIN_REPORT_CORE_COVERAGE; every table labels
-    the selected metric and coverage. Old runs without coverage fall back visibly to whole-span.
-  * Standard tables read ``epoch_metrics.csv``, ``generation_eval.json``, the shared run-config
-    filename aliases, and processed dataset JSONs.
+  * Run directory names are parsed via ``RUN_RE`` (``<loop>_<DS>[_LC|_HC][_AG]_<model>``), so new
+    backbones, dataset tags, and context flags are picked up automatically.
+  * Core recovery is reported only when ``eval_core_coverage >= MIN_REPORT_CORE_COVERAGE``; runs
+    below threshold or without recorded coverage fall back visibly to whole-span recovery.
 """
 import os
 import re
@@ -58,6 +53,9 @@ from cdrseqgen.artifacts import find_run_config
 from cdrseqgen.eval import MIN_CORE_COVERAGE
 from cdrseqgen.methods.common.run_setup import DATASET_TAGS, UNKNOWN_DATASET_TAG
 from cdrseqgen import artifacts
+
+
+# --- Run Naming, Constants & Discovery -----------------------------------------------------------
 
 # <loop>_<DS>[_LC|_HC][_AG]_<model>, e.g. h3_OAS_LC_esm2_t12_35M_UR50D, h1_SD2_LC_AG_scratch
 #
@@ -148,6 +146,8 @@ def discover_runs(batch):
 def has_repeated_families(runs):
     return any("::" in key[3] for key in runs)
 
+
+# --- Coverage-Aware Recovery Summary & Artifact Helpers ------------------------------------------
 
 def recovery_summary(run_dir, min_core_coverage=MIN_REPORT_CORE_COVERAGE):
     """Return coverage-aware recovery at one consistently selected epoch.
@@ -249,7 +249,7 @@ def data_path_for(runs, ds):
     return DEFAULT_DATA.get(ds)
 
 
-# --- table definitions and rendering -----------------------------------------------------------
+# --- Markdown Table Renderer & Corpus Statistics -------------------------------------------------
 
 ALIGNMENT_RULES = {"left": "---", "right": "---:", "center": ":---:"}
 
@@ -295,6 +295,8 @@ def unseen_fraction(entries, cdr, chain="heavy", split="validation"):
     unseen = sum(1 for entry in held_out if entry[chain][cdr] not in train)
     return len(set(vals)), len(vals), len(held_out), unseen
 
+
+# --- Recovery Comparison Tables (regimes, loops, antigen, methods, s2s_plm) ----------------------
 
 # Recovery tables differ only in cases, run columns, and optional annotations/deltas. A context
 # selector is either the case's base context, the partner-chain context for that loop, or a literal
@@ -455,6 +457,8 @@ def _recovery_table(name, runs):
         alignments[index] = "right"
     return markdown_table(spec["title"], headers, rows, alignments)
 
+
+# --- Generative, Retrieval & Length Tables (retrieval, design, length, decoding) -----------------
 
 # Model families a batch can hold, in display order. `ar_scratch`/`s2s_scratch` are how a causal or
 # encoder-decoder run's name parses (h3_OAS_ar_scratch -> model "ar_scratch"); `batch_figure` imports
@@ -657,6 +661,8 @@ def _decoding_table_data(paths):
     }
 
 
+# --- Objective Warnings & Single-Table Dispatcher ------------------------------------------------
+
 def _loss_types(runs):
     """Distinct training objectives across a batch's runs, from each run_config.json.
 
@@ -703,6 +709,8 @@ def build_table(name, runs, *, decoding_paths=None):
         spec["alignments"],
     )
 
+
+# --- Unpooled Multi-Trial & Context-Ablation Tables ----------------------------------------------
 
 def trial_recovery_table(runs):
     """Report each training trial explicitly rather than selecting a seed for a matrix cell."""
@@ -765,6 +773,8 @@ def context_ablation_table(runs, *, include_primary=False):
         "Core recovery uses length-matched candidates; inspect JSON records for contributing "
         "populations. Edit similarity excludes invalid candidates; interpret alongside validity.\n")
 
+
+# --- Full Document Assembly, File Output & CLI ---------------------------------------------------
 
 def render_tables(batch, runs, wanted=None, *, decoding_paths=None, source=None):
     """Every requested table as one Markdown document, ready to print or write.
